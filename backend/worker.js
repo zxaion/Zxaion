@@ -198,12 +198,26 @@ const verifyRes = await fetch(`${PAYPAL_BASE}/v1/notifications/verify-webhook-si
       return new Response('OK', { status: 200 });
     }
 
-    // Find the user via custom_id in purchase_unit (set in createOrder below)
-    const userId = webhookEvent.resource?.supplementary_data?.related_ids?.custom_id
-      || webhookEvent.resource?.custom_id;
+    let userId = null;
+
+    if (webhookEvent.resource?.custom_id) {
+      userId = webhookEvent.resource.custom_id;
+    }
+
+    if (!userId && orderId) {
+      try {
+        const accessTokenForOrder = await getPayPalAccessToken();
+        const orderDetails = await verifyPayPalOrder(orderId, accessTokenForOrder);
+        if (orderDetails && orderDetails.purchase_units && orderDetails.purchase_units.length > 0) {
+          userId = orderDetails.purchase_units[0].custom_id || null;
+        }
+      } catch (fetchErr) {
+        console.error('Failed to fetch order for custom_id:', fetchErr.message);
+      }
+    }
 
     if (!userId) {
-      console.error('No userId in webhook event, cannot credit user');
+      console.error('No userId found in webhook event for orderId:', orderId);
       return new Response('OK', { status: 200 });
     }
 
@@ -741,11 +755,11 @@ if (path === '/api/credits/purchase' && method === 'POST') {
   }
 }
 
-    // Serve images
-    if (path.startsWith('/api/img/') || path.startsWith('/api/comitbase/img/') || path.startsWith('/api/dtreasure/img/')) {
+// Serve images
+if (path.startsWith('/api/img/') || path.startsWith('/api/comitbase/img/') || path.startsWith('/api/dtreasure/img/')) {
   const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
-  // ✅ SERVER-SIDE AUTH: Only enforce on download requests for DTREASURE
+  // ✅ FIX: Server-side auth hanya untuk download DTREASURE
   if (isDtreasure && url.searchParams.get('download') === 'true') {
     const userId = getUserToken(request);
     if (!userId || userId === 'anonymous') {
@@ -755,7 +769,6 @@ if (path === '/api/credits/purchase' && method === 'POST') {
     }
 
     try {
-      // Check lifetime access
       const userRecord = await DB.prepare(
         'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
       ).bind(userId).first();
@@ -763,15 +776,28 @@ if (path === '/api/credits/purchase' && method === 'POST') {
       const hasLifetime = userRecord && !!userRecord.lifetime;
 
       if (!hasLifetime) {
-        // Derive photoId from path for purchased_images lookup
+        // ✅ FIX: Ambil photoId dari query param (etag) yang dikirim client
+        // Fallback ke rawKey jika photoId tidak ada (backward compat)
+        const photoIdFromQuery = url.searchParams.get('photoId');
         const rawKey = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
-        // photoId = etag, but we also store by key — check by path-based photoId stored in purchased_images
-        // Since photoId is obj.etag stored at list time, client must send it; check both etag and path
-        const purchasedByKey = await DB.prepare(
-          'SELECT * FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-        ).bind(userId, rawKey).first();
 
-        if (!purchasedByKey) {
+        // Cek purchased_images dengan photoId (etag) ATAU rawKey sebagai fallback
+        let purchasedRecord = null;
+
+        if (photoIdFromQuery) {
+          purchasedRecord = await DB.prepare(
+            'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+          ).bind(userId, photoIdFromQuery).first();
+        }
+
+        // Fallback: cek dengan rawKey juga (untuk data lama yang mungkin di-store dengan key)
+        if (!purchasedRecord) {
+          purchasedRecord = await DB.prepare(
+            'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+          ).bind(userId, rawKey).first();
+        }
+
+        if (!purchasedRecord) {
           return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
             status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           });
@@ -809,12 +835,16 @@ if (path === '/api/credits/purchase' && method === 'POST') {
     headers.set('Cache-Control', isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
 
     if (url.searchParams.get('download') === 'true') {
-      headers.set('Content-Disposition', `attachment; filename="${key.split('/').pop()}"`);
+      const safeFilename = key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_');
+      headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
     }
 
     return new Response(object.body, { headers });
   } catch (e) {
-    return new Response('Error', { status: 500 });
+    console.error('Image serve error:', e.message);
+    return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 }
 

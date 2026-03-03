@@ -314,14 +314,23 @@ invalidateCache() {
     }
 },
     async spendCredit(photoId) {
-        const token = getOrCreateUserToken();
+    const token = getOrCreateUserToken();
+    try {
         const res = await fetch(`${API_BASE}/api/credits/spend`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
             body: JSON.stringify({ photoId })
         });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            return { success: false, error: err.error || 'Spend credit failed' };
+        }
         return res.json();
-    },
+    } catch (e) {
+        console.error('spendCredit network error:', e);
+        return { success: false, error: 'Network error. Please check your connection.' };
+    }
+},
 
     organizeAnimeAlbums() {
         state.animeAlbums = {};
@@ -631,9 +640,9 @@ async openImageModal(photo) {
 
     async triggerDownload(photo) {
     if (!photo || !photo.url) return;
-    
+
     api.recordDownload(photo.id);
-    
+
     // Optimistic UI update for download count
     const downloadCounts = document.querySelectorAll(`.download-count[data-id="${photo.id}"]`);
     downloadCounts.forEach(el => {
@@ -642,58 +651,72 @@ async openImageModal(photo) {
         if (el.textContent.includes('M')) count *= 1000000;
         el.textContent = utils.formatNumber(count + 1);
     });
-    
+
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
     const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-    const downloadUrl = fullUrl + '?download=true';
+
+    // ✅ FIX: Selalu include photo.id agar worker dapat verifikasi purchased_images (etag-based)
+    const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
     const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-    
+
     if (isDtreasure) {
-        // ✅ DTREASURE: Use fetch+blob so X-User-Token header is sent to worker for server-side auth
+        // ✅ DTREASURE: Use fetch+blob so X-User-Token header is sent for server-side auth
         const token = getOrCreateUserToken();
-        
-        // Show loading feedback
+
         const loadingToast = document.createElement('div');
         loadingToast.id = 'dl-toast';
         loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
         loadingToast.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing download...';
         document.body.appendChild(loadingToast);
-        
+
         try {
             const res = await fetch(downloadUrl, {
                 method: 'GET',
                 headers: { 'X-User-Token': token },
             });
-            
+
             if (!res.ok) {
-                const err = await res.json().catch(() => ({ error: 'Download failed' }));
-                throw new Error(err.error || `HTTP ${res.status}`);
+                let errMsg = `Download failed (HTTP ${res.status})`;
+                try {
+                    const err = await res.json();
+                    errMsg = err.error || errMsg;
+                } catch (_) {}
+                throw new Error(errMsg);
             }
-            
+
             const blob = await res.blob();
             const objectUrl = URL.createObjectURL(blob);
-            
+
             const a = document.createElement('a');
             a.href = objectUrl;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            
             setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-            
+
             loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
             loadingToast.classList.add('bg-green-800');
+
         } catch (error) {
             console.error('DTREASURE download error:', error);
             loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${error.message}`;
             loadingToast.classList.add('bg-red-800');
+
+            // ✅ Jika error karena auth, tawarkan beli credits
+            if (error.message.includes('403') || error.message.toLowerCase().includes('purchase required')) {
+                setTimeout(() => {
+                    alert('❌ Download blocked: You need to purchase this image first.\n\nPlease buy credits and try again.');
+                    document.getElementById('buy-credits-btn')?.click();
+                }, 500);
+            }
         } finally {
             setTimeout(() => {
                 const toast = document.getElementById('dl-toast');
                 if (toast) toast.remove();
-            }, 3000);
+            }, 3500);
         }
+
     } else {
         // ✅ FREE categories: standard anchor download
         const a = document.createElement('a');
