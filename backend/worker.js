@@ -389,8 +389,12 @@ const verifyRes = await fetch(`${PAYPAL_BASE}/v1/notifications/verify-webhook-si
       }
     }
 
-    if (path === '/api/credits/purchase' && method === 'POST') {
+    // ✅ KODE LENGKAP PERBAIKAN untuk endpoint `/api/credits/purchase`
+// GANTI SELURUH BLOK DARI `if (path === '/api/credits/purchase' && method === 'POST')` 
+
+if (path === '/api/credits/purchase' && method === 'POST') {
   const userId = getUserToken(request);
+  
   if (!userId || userId === 'anonymous') {
     return new Response(JSON.stringify({ success: false, error: 'Invalid user token' }), {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -439,87 +443,186 @@ const verifyRes = await fetch(`${PAYPAL_BASE}/v1/notifications/verify-webhook-si
     });
   }
 
-  // ✅ Idempotency: prevent double-processing same orderId
-  const existingOrder = await DB.prepare(
-    'SELECT id FROM rate_limits WHERE id = ?'
-  ).bind(`order:${orderId}`).first();
-
-  if (existingOrder) {
-    return new Response(JSON.stringify({ success: false, error: 'Order already processed' }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
-
-  // ✅ SERVER-SIDE: Verify order with PayPal API
   try {
+    // ✅ STEP 1: Cek apakah order sudah pernah diproses (di tabel yang benar)
+    const existingPayment = await DB.prepare(
+      'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
+    ).bind(orderId).first();
+
+    if (existingPayment) {
+      if (existingPayment.status === 'completed') {
+        // ✅ Order sudah diproses, ambil balance user yang sekarang
+        const user = await DB.prepare(
+          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+        ).bind(userId).first();
+        
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'Order already processed',
+          newBalance: user?.credits || 0,
+          lifetime: !!user?.lifetime,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      // Jika status pending atau failed, lanjutkan proses
+    }
+
+    // ✅ STEP 2: Verifikasi dengan PayPal API
     const accessToken = await getPayPalAccessToken();
     const orderDetails = await verifyPayPalOrder(orderId, accessToken);
 
     if (!orderDetails) {
+      // Simpan record failed
+      await DB.prepare(
+        'INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        `order:${orderId}`,
+        userId,
+        orderId,
+        pack,
+        PACK_PRICES[pack],
+        'failed',
+        'Order not found in PayPal'
+      ).run();
+
       return new Response(JSON.stringify({ success: false, error: 'PayPal order not found' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    // Must be COMPLETED (captured) — not just APPROVED
+    // ✅ STEP 3: Validasi payment status
     if (orderDetails.status !== 'COMPLETED') {
-      return new Response(JSON.stringify({ success: false, error: `Order status invalid: ${orderDetails.status}` }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      await DB.prepare(
+        'INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        `order:${orderId}`,
+        userId,
+        orderId,
+        pack,
+        PACK_PRICES[pack],
+        'failed',
+        `Order status is ${orderDetails.status}, not COMPLETED`
+      ).run();
+
+      return new Response(JSON.stringify({
+        success: false,
+        error: `Payment status invalid: ${orderDetails.status}. Please try again or contact support.`
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    // Verify amount matches expected pack price
-    const captureStatus = purchaseUnit?.payments?.captures?.[0]?.status;
-const orderStatus = orderDetails.status;
+    // ✅ STEP 4: Extract verified user ID dari payment
+    let verifiedUserId = userId; // Default ke request user
+    let verifiedAmount = null;
 
-if (orderStatus !== 'COMPLETED' && captureStatus !== 'COMPLETED') {
-  console.error(`Order ${orderId} status invalid: order=${orderStatus}, capture=${captureStatus}`);
-  return new Response(JSON.stringify({
-    success: false,
-    error: `Payment not completed. Order status: ${orderStatus}. Please contact support with Order ID: ${orderId}`
-  }), {
-    status: 400,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-  });
-}
-  } catch (e) {
-    console.error('PayPal verification error:', e.message);
-    return new Response(JSON.stringify({ success: false, error: 'PayPal verification failed. Please contact support.' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
+    if (orderDetails.purchase_units && orderDetails.purchase_units.length > 0) {
+      const purchaseUnit = orderDetails.purchase_units[0];
+      
+      // Ambil custom_id jika ada
+      if (purchaseUnit.custom_id) {
+        verifiedUserId = purchaseUnit.custom_id;
+      }
 
-  // ✅ Credit the user
-  try {
-    if (packData.lifetime) {
-      await DB.prepare(
-        'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET lifetime = 1'
-      ).bind(userId).run();
-    } else {
-      const totalCredits = packData.credits + (packData.bonus || 0);
-      await DB.prepare(
-        'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?'
-      ).bind(userId, totalCredits, totalCredits).run();
+      // Ambil amount dari capture payment
+      if (purchaseUnit.payments && purchaseUnit.payments.captures && purchaseUnit.payments.captures.length > 0) {
+        verifiedAmount = parseFloat(purchaseUnit.payments.captures[0].amount?.value || '0');
+      }
     }
 
-    // Mark orderId as processed (permanent, 1 year TTL)
-await DB.prepare(
-  'INSERT OR IGNORE INTO rate_limits (id, count, reset_time) VALUES (?, 1, 4102444800)'
-).bind(`order:${orderId}`).run();
+    // ✅ STEP 5: Validasi amount jika ada
+    if (verifiedAmount !== null) {
+      const roundedAmount = Math.round(verifiedAmount * 100) / 100; // Prevent floating point errors
+      const expectedAmount = PACK_PRICES[pack];
+      
+      if (roundedAmount !== expectedAmount) {
+        await DB.prepare(
+          'INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).bind(
+          `order:${orderId}`,
+          verifiedUserId,
+          orderId,
+          pack,
+          roundedAmount,
+          'failed',
+          `Amount mismatch: expected $${expectedAmount}, got $${roundedAmount}`
+        ).run();
 
-    const user = await DB.prepare(
-      'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-    ).bind(userId).first();
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Amount mismatch. Expected $${expectedAmount}, received $${roundedAmount}.`
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
 
-    return new Response(JSON.stringify({
-      success: true,
-      newBalance: user?.credits || 0,
-      lifetime: !!user?.lifetime,
-    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    // ✅ STEP 6: Credit the user (ATOMIC OPERATION)
+    try {
+      if (packData.lifetime) {
+        await DB.prepare(
+          'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET lifetime = 1'
+        ).bind(verifiedUserId).run();
+      } else {
+        const totalCredits = packData.credits + (packData.bonus || 0);
+        await DB.prepare(
+          'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?'
+        ).bind(verifiedUserId, totalCredits, totalCredits).run();
+      }
+
+      // ✅ STEP 7: Mark order as completed
+      await DB.prepare(
+        'INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        `order:${orderId}`,
+        verifiedUserId,
+        orderId,
+        pack,
+        PACK_PRICES[pack],
+        'completed',
+        new Date().toISOString()
+      ).run();
+
+      // ✅ STEP 8: Fetch updated user balance
+      const user = await DB.prepare(
+        'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+      ).bind(verifiedUserId).first();
+
+      console.log(`✅ Payment success: User ${verifiedUserId}, Order ${orderId}, Pack ${pack}`);
+
+      return new Response(JSON.stringify({
+        success: true,
+        newBalance: user?.credits || 0,
+        lifetime: !!user?.lifetime,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+    } catch (dbError) {
+      console.error('Database credit error:', dbError.message);
+      
+      // Simpan failed record
+      await DB.prepare(
+        'INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        `order:${orderId}`,
+        verifiedUserId,
+        orderId,
+        pack,
+        PACK_PRICES[pack],
+        'failed',
+        `Database error: ${dbError.message}`
+      ).run();
+
+      throw dbError;
+    }
 
   } catch (e) {
-    console.error('Credit DB error:', e.message);
-    return new Response(JSON.stringify({ success: false, error: 'Database error. Please contact support.' }), {
+    console.error('Credit purchase error:', e.message, 'OrderID:', orderId);
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: 'Payment processing error. Please contact support with Order ID: ' + orderId,
+      orderId: orderId
+    }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }

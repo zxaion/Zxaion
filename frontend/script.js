@@ -261,6 +261,8 @@ invalidateCache() {
         }
     },
 
+    // ✅ PERBAIKAN - Replace function `purchaseCredits` di object `api`
+
     async purchaseCredits(packKey, orderId) {
     const token = getOrCreateUserToken();
     try {
@@ -272,17 +274,43 @@ invalidateCache() {
             },
             body: JSON.stringify({ pack: packKey, orderId })
         });
+        
         const data = await res.json();
-        // Pastikan field success selalu ada
-        return {
-            success: data.success === true,
+        
+        // ✅ PERBAIKAN: Handle semua response cases dengan proper
+        if (res.ok && data.success === true) {
+          return {
+            success: true,
             newBalance: data.newBalance ?? 0,
             lifetime: data.lifetime ?? false,
-            error: data.error || null,
-        };
+            error: null,
+          };
+        } else if (data.message === 'Order already processed') {
+          // Order sudah diproses sebelumnya, ini OK
+          return {
+            success: true,
+            newBalance: data.newBalance ?? 0,
+            lifetime: data.lifetime ?? false,
+            error: null,
+          };
+        } else {
+          // Error dari server
+          return {
+            success: false,
+            error: data.error || 'Payment verification failed',
+            orderId: data.orderId || orderId,
+            newBalance: 0,
+            lifetime: false
+          };
+        }
     } catch (e) {
         console.error('purchaseCredits network error:', e);
-        return { success: false, error: 'Network error. Please check your connection.', newBalance: 0, lifetime: false };
+        return { 
+          success: false, 
+          error: 'Network error. Please check your connection.',
+          newBalance: 0, 
+          lifetime: false 
+        };
     }
 },
     async spendCredit(photoId) {
@@ -1743,69 +1771,108 @@ function initPayPalPurchase(packKey, price) {
         }]
     });
 },
+            // ✅ PERBAIKAN - Replace bagian `onApprove` dalam PayPal Buttons
+
             onApprove: async (data, actions) => {
     let capturedOrderId = null;
+    
     try {
+        console.log('📦 Payment approved, capturing order...');
+        
         // Step 1: Capture payment
         const order = await actions.order.capture();
         capturedOrderId = order.id;
+        console.log('✅ Payment captured:', capturedOrderId);
         
-        // Step 2: Verify + credit di server
-        const result = await api.purchaseCredits(packKey, capturedOrderId);
+        // Step 2: Verify + credit di server (dengan retry logic)
+        let result = null;
+        let retryCount = 0;
+        const maxRetries = 3;
         
-        if (result.success) {
-            // ✅ Update state lokal dulu untuk UI cepat
-            state.credits = result.newBalance;
-            state.lifetime = result.lifetime || false;
-            ui.updateCreditDisplay();
+        while (retryCount < maxRetries && !result) {
+          try {
+            result = await api.purchaseCredits(packKey, capturedOrderId);
+            if (result.success) break;
             
-            // ✅ Kemudian re-fetch dari server untuk memastikan sinkronisasi
-            await api.fetchCreditBalance();
-            
-            // ✅ Tampilkan notifikasi sukses
-            const successMsg = state.lifetime ?
-                '✅ Lifetime Access activated! Enjoy unlimited downloads.' :
-                `✅ Purchase successful! You now have ${result.newBalance} credits.`;
-            alert(successMsg);
-            
-            // Close modal
-            const buyCreditsModal = document.getElementById('buy-credits-modal');
-            if (buyCreditsModal) {
-                buyCreditsModal.classList.add('hidden');
-                buyCreditsModal.classList.remove('flex');
+            // Jika gagal, tunggu sebelum retry
+            if (retryCount < maxRetries - 1) {
+              console.log(`⏳ Retry ${retryCount + 1}/${maxRetries - 1}...`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
             }
-            document.body.style.overflow = 'auto';
-            
-            // Reset PayPal UI
-            if (elements.paypalButtonContainer) {
-                elements.paypalButtonContainer.classList.add('hidden');
-            }
-            if (elements.paypalButtons) {
-                elements.paypalButtons.innerHTML = '';
-            }
-            paypalButtonsInstance = null;
-            
-            // Refresh DTREASURE gallery jika sedang ditampilkan
-            if (state.currentCategory === 'DTREASURE') {
-                ui.renderDtreasureGallery();
-            }
-            
-        } else {
-            // ✅ Payment captured tapi server gagal verifikasi — jangan panik user
-            const errorMsg = result.error || 'Verification failed';
-            console.error('Purchase verification failed:', errorMsg, 'OrderID:', capturedOrderId);
-            alert(
-                `⚠️ Your payment was received but credits could not be applied automatically.\n\n` +
-                `Order ID: ${capturedOrderId}\n\n` +
-                `Please contact support with this Order ID and credits will be added manually within 24 hours.`
-            );
+            retryCount++;
+          } catch (e) {
+            console.error(`Attempt ${retryCount + 1} error:`, e);
+            retryCount++;
+          }
         }
+        
+        if (result && result.success) {
+          // ✅ Update state lokal
+          state.credits = result.newBalance;
+          state.lifetime = result.lifetime || false;
+          ui.updateCreditDisplay();
+          
+          // ✅ Re-fetch dari server untuk memastikan sinkronisasi
+          await api.fetchCreditBalance();
+          
+          // ✅ Tampilkan notifikasi sukses
+          const successMsg = state.lifetime ?
+            '✅ Lifetime Access Activated!\n\nEnjoy unlimited downloads on DTREASURE collection.' :
+            `✅ Purchase Successful!\n\nYou now have ${result.newBalance} credits.`;
+          
+          alert(successMsg);
+          
+          // Close modal
+          const buyCreditsModal = document.getElementById('buy-credits-modal');
+          if (buyCreditsModal) {
+            buyCreditsModal.classList.add('hidden');
+            buyCreditsModal.classList.remove('flex');
+          }
+          document.body.style.overflow = 'auto';
+          
+          // Reset PayPal UI
+          if (elements.paypalButtonContainer) {
+            elements.paypalButtonContainer.classList.add('hidden');
+          }
+          if (elements.paypalButtons) {
+            elements.paypalButtons.innerHTML = '';
+          }
+          paypalButtonsInstance = null;
+          
+          // Refresh DTREASURE gallery
+          if (state.currentCategory === 'DTREASURE') {
+            ui.renderDtreasureGallery();
+          }
+          
+        } else {
+          // ✅ Server verification failed tapi payment sudah di-capture
+          const errorMsg = result?.error || 'Credits could not be applied automatically';
+          const orderId = result?.orderId || capturedOrderId;
+          
+          console.error('❌ Verification failed:', errorMsg);
+          
+          alert(
+            `⚠️ Payment Received But Auto-Credit Failed\n\n` +
+            `Payment was successfully processed. However, credits could not be applied automatically.\n\n` +
+            `Order ID: ${orderId}\n\n` +
+            `What to do:\n` +
+            `1. Screenshot this message\n` +
+            `2. Email: zxaionxl@gmail.com\n` +
+            `3. Include Order ID above\n` +
+            `4. We'll add credits within 24 hours\n\n` +
+            `Sorry for the inconvenience!`
+          );
+        }
+        
     } catch (error) {
-        console.error('PayPal onApprove error:', error);
+        console.error('❌ PayPal onApprove error:', error);
+        
         const orderIdMsg = capturedOrderId ? `\n\nOrder ID: ${capturedOrderId}` : '';
+        
         alert(
-            `❌ Payment processing error.${orderIdMsg}\n\n` +
-            `If you were charged, please contact support with the Order ID above.`
+          `❌ Payment Processing Error${orderIdMsg}\n\n` +
+          `${error.message || 'An unexpected error occurred.'}\n\n` +
+          `If you were charged, please contact support with the Order ID above.`
         );
     }
 },
