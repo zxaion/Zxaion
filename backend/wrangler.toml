@@ -1,0 +1,37 @@
+name = "ai"
+main = "worker.js"
+compatibility_date = "2026-01-15"
+
+# Database D1
+[[d1_databases]]
+binding = "DB"
+database_name = "zxwallpaper"
+database_id = "10cce737-02cd-43b8-95d2-00e4efc2d215"
+
+# R2 Buckets (Penyimpanan File)
+[[r2_buckets]]
+binding = "Zxaion_B"
+bucket_name = "zxaionverse"
+
+[[r2_buckets]]
+binding = "ZX_BUCKET"
+bucket_name = "zx-cloud2"
+
+[[r2_buckets]]
+binding = "TREASURE"
+bucket_name = "d-treasures"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

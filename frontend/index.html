@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZXAION VERSE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#000000',
+                        secondary: '#ffffff',
+                        accent: '#fbbf24',
+                    }
+                }
+            }
+        };
+    </script>
+    <script>
+        window.headerBackgrounds = {
+            'All': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Home.jpg',
+            'Anime': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg',
+            'Fantasy': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg',
+            'Abstract': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Abstract.jpg',
+            'Photography': 'https://ai.zxaionverse.workers.dev/api/img/PHOTOGRAPHY/PSX_207.jpg',
+            'COMITBASE': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Combaseheader.jpg',
+            'DTREASURE': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Dtreasure.jpg',
+            'ZMEME': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Memehead.jpg',
+            'OVERLAY': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Overlayhead.jpg'
+        };
+        window.categoryThumbnails = {
+            'Anime': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg',
+            'Fantasy': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg',
+            'Abstract': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Abstract.jpg',
+            'Photography': 'https://ai.zxaionverse.workers.dev/api/img/PHOTOGRAPHY/PSX_207.jpg',
+            'COMITBASE': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Combaseheader.jpg',
+            'DTREASURE': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Dtreasure1.jpg',
+            'ZMEME': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Zmeme.jpg',
+            'OVERLAY': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Overlay.jpg'
+        };
+
+        window.animeAlbumThumbnails = {
+            'Attack on Titan': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/AOT.jpg',
+            'One Piece': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/One piece.jpg',
+            'My Hero Academia': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Hro academia.jpg',
+            'Demon Slayer': 'https://ai.zxaionverse.workers.dev/api/img/ANIME/Demon slayer/ai_generated_by_zxaionverse_djco3hq.jpg',
+            'One-Punch Man': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Onepuvhman.jpg',
+            'Death Note': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Deathnote.jpg',
+            'Sousou no Frieren': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Frieren.jpg',
+            'Boruto': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Boruto.jpg',
+            'Jujutsu Kaisen': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Jjk.jpg',
+            'Pokémon': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Pokemon.jpg',
+            'Chainsaw Man': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Chainsawman.jpg',
+            'Fate Series': 'https://ai.zxaionverse.workers.dev/api/img/ANIME/Fate series/PSX_193.jpg',
+            'Solo Leveling': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Sololeveling.jpg',
+            'Evangelion': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Evangelion.jpg',
+            'Naruto': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Naruti.jpg',
+            'The Seven Deadly Sins': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Nanatsu.jpg',
+            'Tokyo Ghoul': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Ghoul.jpg',
+            'Sword Art Online': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/SAO.jpg',
+            'Dragon Ball Super': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Goku.jpg',
+            'Haikyuu!!': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Haikyu.jpg',
+            'Fairy Tail': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Fairytail.jpg',
+            'Hunter x Hunter': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Hmterx hunter.jpg',
+            'Black Clover': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Vanesablack clover.jpg',
+            'Dr. Stone': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Dr stone.jpg',
+            'HSR': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Hsr 1.jpg',
+            'GENSHIN': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/1Genshin.jpg',
+            'ZZZ': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Zzz 1.jpg',
+            'WUWA': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Wuwa 1.jpg',
+            'PURAVEN': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Puraven.jpg',
+            'FINAL FANTASY': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/FF.jpg',
+            'RESIDENT EVIL': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Residentevil.jpg',
+            'DEAD OR ALIVE': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/',
+            'TOKYO REVENGER': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/TokyoR.jpg',
+            'FIRE FORCE': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Fireforce.jpg',
+            'ROMANCE ANIME': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/',
+            'ISEKAI': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Isekai.jpg',
+            'ORIGINAL': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Original.jpg'
+        };
+
+        // Custom logo configuration - Set your logo URL here
+        window.customLogo = {
+            enabled: false, // Set to true to use custom logo
+            url: 'https://drive.google.com/file/d/1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM/view?usp=drivesdk', // Your custom logo image URL
+            alt: 'ZXAION VERSE Logo'
+        };
+    </script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased flex flex-col min-h-screen dark:bg-gray-950 dark:text-gray-100 transition-colors duration-300">
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-gray-200/50 py-3 px-4 md:px-6 shadow-sm dark:bg-gray-900/90 dark:border-gray-800/50">
+        <div class="flex items-center justify-between gap-4 w-full max-w-7xl mx-auto">
+            <!-- Logo -->
+            <div class="flex items-center gap-3 min-w-fit">
+                <a href="#" id="home-link" class="flex items-center gap-3 cursor-pointer group">
+                    <div id="logo-container" class="relative w-10 h-10 flex items-center justify-center overflow-hidden rounded-xl transition-transform duration-300 group-hover:scale-105">
+                        <div id="logo-zx" class="w-full h-full bg-gradient-to-br from-gray-900 to-black text-white flex items-center justify-center font-black text-lg rounded-xl shadow-lg dark:from-white dark:to-gray-200 dark:text-black">
+                            <span id="logo-text">ZX</span>
+                            <img id="logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png" alt="Logo" class="hidden w-full h-full object-cover">
+                        </div>
+                    </div>
+                    <span class="font-black text-lg md:text-xl tracking-tight uppercase dark:text-white hidden sm:block">ZXAION VERSE</span>
+                </a>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="hidden md:flex flex-1 max-w-xl relative mx-4">
+                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <i class="fas fa-search text-gray-400 dark:text-gray-500"></i>
+                </div>
+                <input type="text" id="searchInput" class="block w-full pl-11 pr-4 py-2.5 bg-gray-100 border-0 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-black/20 focus:bg-white transition-all duration-300 dark:bg-gray-800 dark:text-white dark:focus:ring-white/20 dark:focus:bg-gray-700" placeholder="Search wallpapers, categories...">
+                <button id="search-clear" class="absolute inset-y-0 right-0 pr-3 flex items-center hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                    <i class="fas fa-times-circle"></i>
+                </button>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center gap-2 md:gap-3 min-w-fit">
+                <button type="button" id="zverse-btn" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-full hover:from-violet-700 hover:to-purple-700 font-semibold text-xs md:text-sm shadow-lg shadow-violet-500/25 transition-all duration-300 hover:scale-105 hover:shadow-xl">
+                    <i class="fas fa-cube"></i><span class="hidden sm:inline">ZVERSE</span>
+                </button>
+                <button type="button" id="donation-btn" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-full hover:from-amber-500 hover:to-orange-600 font-semibold text-xs md:text-sm shadow-lg shadow-amber-500/25 transition-all duration-300 hover:scale-105 hover:shadow-xl">
+                    <i class="fas fa-heart"></i><span class="hidden sm:inline">DONATION</span>
+                </button>
+                <button type="button" id="menu-btn" class="flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 font-semibold text-xs md:text-sm transition-all duration-300 hover:scale-105 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700">
+                    <i class="fas fa-bars"></i><span class="hidden sm:inline">MENU</span>
+                </button>
+                <button type="button" id="darkmode-toggle" class="w-10 h-10 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200 transition-all duration-300 hover:scale-110 dark:bg-gray-800 dark:text-yellow-400 dark:hover:bg-gray-700">
+                    <i class="fas fa-moon dark:hidden"></i>
+                    <i class="fas fa-sun hidden dark:inline"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Mobile Search -->
+    <div class="md:hidden bg-white/90 backdrop-blur-xl border-b border-gray-200/50 px-4 py-2 dark:bg-gray-900/90 dark:border-gray-800/50">
+        <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <i class="fas fa-search text-gray-400"></i>
+            </div>
+            <input type="text" id="searchInputMobile" class="block w-full pl-10 pr-3 py-2 bg-gray-100 border-0 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-black/20 dark:bg-gray-800 dark:text-white" placeholder="Search...">
+        </div>
+    </div>
+
+    <!-- Category Navigation -->
+    <div class="sticky top-[57px] md:top-[65px] z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200/50 py-3 px-4 md:px-6 overflow-x-auto no-scrollbar dark:bg-gray-900/95 dark:border-gray-800/50">
+        <div class="max-w-7xl mx-auto flex items-start gap-3 md:gap-5 min-w-max">
+            <button type="button" id="cat-all" class="cat-btn active flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="home-icon-wrapper w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <div class="w-full h-full rounded-full bg-gradient-to-br from-gray-900 to-black flex items-center justify-center text-white shadow-lg">
+                        <i class="fas fa-home text-lg md:text-xl"></i>
+                    </div>
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Home</span>
+            </button>
+            <button type="button" id="cat-anime" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-anime-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg" alt="Anime" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Anime</span>
+            </button>
+            <button type="button" id="cat-fantasy" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-fantasy-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg" alt="Fantasy" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Fantasy</span>
+            </button>
+            <button type="button" id="cat-abstract" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-abstract-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Abstract.jpg" alt="Abstract" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Abstract</span>
+            </button>
+            <button type="button" id="cat-photography" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-photography-img" src="https://ai.zxaionverse.workers.dev/api/img/PHOTOGRAPHY/PSX_207.jpg" alt="Photo" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Photo</span>
+            </button>
+            <button type="button" id="cat-comitbase" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-comitbase-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Combaseheader.jpg" alt="COMITBASE" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">COMITBASE</span>
+            </button>
+            <button type="button" id="cat-dtreasure" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-dtreasure-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Dtreasure.jpg" alt="DTREASURE" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">DTREASURE</span>
+            </button>
+            <button type="button" id="cat-zmeme" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-zmeme-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Memenav.jpg" alt="ZMEME" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">ZMEME</span>
+            </button>
+            <button type="button" id="cat-overlay" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-overlay-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Overlaynav.jpg" alt="OVERLAY" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">OVERLAY</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Hero Section -->
+    <header id="page-hero" class="relative bg-gray-900 border-b border-gray-200/50 py-12 md:py-20 px-6 mb-6 transition-all duration-700 bg-cover bg-center bg-no-repeat overflow-hidden dark:border-gray-800/50">
+        <div class="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/80 transition-colors duration-500"></div>
+        <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+        <div class="max-w-4xl mx-auto text-center animate-fade-in relative z-10">
+            <h1 id="hero-title" class="text-3xl md:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tight drop-shadow-2xl">ZXAION VERSE</h1>
+            <p id="hero-desc" class="text-sm md:text-lg lg:text-xl text-white/90 leading-relaxed max-w-2xl mx-auto font-medium drop-shadow-lg">Multi high quality wallpaper make your device more perfect</p>
+            <div id="hero-actions" class="mt-8 flex flex-wrap justify-center gap-4 empty:hidden"></div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-[1600px] mx-auto px-3 md:px-6 pb-10 flex-grow w-full min-h-[600px]">
+        <!-- Gallery Container -->
+        <div id="gallery-container" class="masonry-layout"></div>
+
+        <!-- Pagination -->
+        <div id="pagination-container" class="hidden mt-10 text-center">
+            <div class="flex items-center justify-center gap-3">
+                <button id="prev-page" class="px-5 py-2.5 bg-white text-gray-700 rounded-full border border-gray-200 disabled:opacity-40 hover:bg-gray-50 hover:border-gray-300 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                    <i class="fas fa-chevron-left mr-1"></i> Previous
+                </button>
+                <span id="page-info" class="font-semibold text-gray-700 px-4 py-2 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Page 1</span>
+                <button id="next-page" class="px-5 py-2.5 bg-white text-gray-700 rounded-full border border-gray-200 disabled:opacity-40 hover:bg-gray-50 hover:border-gray-300 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                    Next <i class="fas fa-chevron-right ml-1"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Anime Collections -->
+        <div id="anime-collections" class="hidden w-full">
+            <!-- Original Album Special Card -->
+            <div id="original-album-card" class="max-w-[1600px] mx-auto mb-8 w-full h-[280px] md:h-[320px] cursor-pointer" onclick="openAnimeCollection('ORIGINAL')">
+                <div class="relative w-full h-full rounded-3xl overflow-hidden border border-gray-200/50 shadow-2xl group transition-all duration-500 hover:shadow-3xl dark:border-gray-800/50">
+                    <img src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Original.jpg" alt="Original Album" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
+                    
+                    <div class="relative z-10 h-full flex flex-col justify-center items-center text-center px-8">
+                        <h3 class="text-3xl md:text-5xl font-black text-white mb-4 tracking-tighter drop-shadow-2xl">ORIGINAL ALBUM</h3>
+                        <p class="text-gray-200 text-base md:text-lg mb-8 max-w-2xl">Explore unique and original creations from independent artists worldwide</p>
+                        <div class="bg-white/10 backdrop-blur-md text-white px-8 py-3 rounded-full font-bold text-base transition-all duration-300 hover:bg-white/20 flex items-center gap-2 border border-white/20">
+                            <i class="fas fa-eye group-hover:rotate-12 transition-transform"></i> 
+                            <span>Explore Collection</span>
+                            <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                        </div>
+                        
+                        <div class="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md rounded-full px-4 py-2 border border-white/20">
+                            <span class="text-white text-sm font-bold" id="original-count">0</span>
+                            <span class="text-gray-300 text-xs ml-1">artworks</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Anime Grid -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6" id="anime-grid"></div>
+        </div>
+        
+        <!-- COMITBASE Section -->
+        <div id="comitbase-section" class="hidden w-full">
+            <div class="mb-6 flex justify-end">
+                <button type="button" id="comit-here-btn" class="bg-gradient-to-r from-teal-500 to-emerald-500 text-white px-6 py-3 rounded-full font-bold text-sm hover:from-teal-600 hover:to-emerald-600 transition-all duration-300 shadow-lg shadow-teal-500/25 flex items-center gap-2 hover:scale-105">
+                    <i class="fas fa-handshake"></i> COMIT HERE
+                </button>
+            </div>
+            <div id="comitbase-gallery" class="masonry-layout"></div>
+            
+            <div id="comitbase-pagination" class="hidden mt-10 text-center">
+                <div class="flex items-center justify-center gap-3">
+                    <button id="comitbase-prev" class="px-5 py-2.5 bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 hover:bg-teal-50 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
+                        <i class="fas fa-chevron-left mr-1"></i> Previous
+                    </button>
+                    <span id="comitbase-page-info" class="font-semibold text-gray-700 px-4 py-2 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Page 1 of 1</span>
+                    <button id="comitbase-next" class="px-5 py-2.5 bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 hover:bg-teal-50 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
+                        Next <i class="fas fa-chevron-right ml-1"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- DTREASURE Section -->
+        <div id="dtreasure-section" class="hidden w-full">
+            <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <div></div>
+                <div class="flex items-center gap-4">
+                    <div id="credit-display" class="bg-gradient-to-r from-amber-400 to-orange-500 text-white px-5 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-500/25">
+                        <i class="fas fa-coins"></i>
+                        <span id="credit-balance">0</span> credits
+                    </div>
+                    <button type="button" id="buy-credits-btn" class="bg-gradient-to-r from-gray-900 to-black text-white px-6 py-2.5 rounded-full font-bold text-sm hover:from-gray-800 hover:to-gray-900 transition-all duration-300 shadow-lg flex items-center gap-2 hover:scale-105 dark:from-white dark:to-gray-200 dark:text-black dark:hover:from-gray-100 dark:hover:to-white">
+                        <i class="fas fa-shopping-cart"></i> Buy Credits
+                    </button>
+                </div>
+            </div>
+            
+            <div id="dtreasure-gallery" class="masonry-layout relative pb-8"></div>
+            
+            <div id="dtreasure-pagination" class="mt-2 mb-8 flex items-center justify-center gap-4">
+                <button id="dtreasure-prev" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <span id="dtreasure-page-info" class="font-semibold text-gray-500 text-xs tracking-widest uppercase dark:text-gray-400">Page 1</span>
+                <button id="dtreasure-next" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="hidden text-center py-20 bg-gray-100/50 rounded-2xl border-2 border-dashed border-gray-300 mt-10 dark:bg-gray-800/50 dark:border-gray-700">
+            <div class="w-20 h-20 mx-auto mb-6 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                <i class="fas fa-cloud text-3xl text-gray-400 dark:text-gray-500"></i>
+            </div>
+            <h3 class="text-xl font-bold text-gray-700 mb-2 dark:text-gray-300">Loading Assets...</h3>
+            <p class="text-gray-500 mb-6">Connecting to ZX Cloud Storage.</p>
+            <button onclick="refreshImages()" class="px-6 py-3 bg-gradient-to-r from-gray-900 to-black text-white rounded-full font-bold hover:from-gray-800 hover:to-gray-900 transition-all duration-300 shadow-lg hover:scale-105 dark:from-white dark:to-gray-200 dark:text-black">
+                <i class="fas fa-sync-alt mr-2"></i>Retry Connection
+            </button>
+        </div>
+        
+        <!-- No Results -->
+        <div id="no-results" class="hidden text-center py-20 bg-gray-100/50 rounded-2xl border border-gray-200 mt-10 dark:bg-gray-800/50 dark:border-gray-700">
+            <div class="w-20 h-20 mx-auto mb-6 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                <i class="fas fa-search text-3xl text-gray-400 dark:text-gray-500"></i>
+            </div>
+            <h3 class="text-xl font-bold text-gray-700 mb-2 dark:text-gray-300">No Results Found</h3>
+            <p class="text-gray-500 mb-6">Try a different search or browse categories.</p>
+            <button onclick="changeCategory('All')" class="px-6 py-3 bg-gradient-to-r from-gray-900 to-black text-white rounded-full font-bold hover:from-gray-800 hover:to-gray-900 transition-all duration-300 shadow-lg hover:scale-105 dark:from-white dark:to-gray-200 dark:text-black">
+                <i class="fas fa-th-large mr-2"></i>Browse All
+            </button>
+        </div>
+    </main>
+
+    <!-- Image Modal -->
+    <div id="image-modal" class="fixed inset-0 z-[100] hidden bg-black/95 backdrop-blur-sm p-4">
+        <button id="close-image-modal" class="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all duration-300 z-50 backdrop-blur-md">
+            <i class="fas fa-times"></i>
+        </button>
+        
+        <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
+            <!-- Image Preview -->
+            <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden">
+                <img id="modal-img" class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain" alt="Wallpaper preview">
+            </div>
+            
+            <!-- Image Details -->
+            <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">
+                <div class="border-b pb-4 dark:border-gray-700">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 id="modal-title" class="font-bold text-lg dark:text-white line-clamp-2"></h3>
+                        <span id="modal-category" class="text-xs px-3 py-1 bg-gray-100 rounded-full text-gray-600 dark:bg-gray-700 dark:text-gray-400"></span>
+                    </div>
+                    <div class="flex items-center gap-6 text-sm text-gray-600 dark:text-gray-300">
+                        <div class="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-full dark:bg-green-900/30">
+                            <i class="fas fa-eye text-green-500"></i>
+                            <span id="modal-view-count" class="font-semibold">0</span>
+                        </div>
+                        <div class="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-full dark:bg-purple-900/30">
+                            <i class="fas fa-download text-purple-500"></i>
+                            <span id="modal-download-count" class="font-semibold">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex-1 overflow-y-auto py-4">
+                    <!-- Additional info placeholder -->
+                </div>
+                
+                <div class="border-t pt-4 dark:border-gray-700">
+                    <a id="download-btn" href="#" class="w-full px-4 py-3.5 bg-gradient-to-r from-gray-900 to-black text-white rounded-xl font-bold hover:from-gray-800 hover:to-gray-900 transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-[1.02] dark:from-white dark:to-gray-200 dark:text-black">
+                        <i class="fas fa-download"></i> Download
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modern Donation Modal -->
+    <div id="donation-modal" class="fixed inset-0 z-[120] hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
+            <!-- Header -->
+            <div class="relative bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 p-6 md:p-8">
+                <div class="absolute inset-0 bg-black/10"></div>
+                <button id="close-donation" class="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="relative z-10 text-center">
+                    <div class="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                        <i class="fas fa-heart text-3xl text-white animate-pulse"></i>
+                    </div>
+                    <h3 class="text-2xl md:text-3xl font-black text-white mb-2">Support Creator</h3>
+                    <p class="text-white/90 text-sm md:text-base">Your support helps us create more amazing content</p>
+                </div>
+            </div>
+            
+            <!-- Content -->
+            <div class="p-6 md:p-8 overflow-y-auto max-h-[60vh]">
+                <!-- Primary Donation Methods -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                    <a href="https://paypal.me/WANTO198" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-[#003087] text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 hover:scale-[1.02]">
+                        <div class="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                        <i class="fab fa-paypal text-2xl relative z-10"></i>
+                        <span class="relative z-10">PayPal.me</span>
+                    </a>
+                    <a href="https://ko-fi.com/zxaion" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-[#ff5e5b] text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:shadow-xl hover:shadow-pink-500/30 transition-all duration-300 hover:scale-[1.02]">
+                        <div class="absolute inset-0 bg-gradient-to-r from-pink-500 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                        <i class="fas fa-coffee text-2xl relative z-10"></i>
+                        <span class="relative z-10">Ko-fi</span>
+                    </a>
+                </div>
+                
+                <!-- Crypto Donations -->
+                <div class="relative">
+                    <div class="flex items-center gap-4 mb-4">
+                        <div class="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent dark:via-gray-700"></div>
+                        <span class="text-sm font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Crypto Donations</span>
+                        <div class="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent dark:via-gray-700"></div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <!-- BTC -->
+                        <button class="crypto-btn group relative bg-gradient-to-br from-orange-50 to-orange-100 hover:from-orange-100 hover:to-orange-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-orange-900/20 dark:to-orange-900/30 dark:hover:from-orange-900/30 dark:hover:to-orange-900/40" data-address="bc1p6fg46q24e9t74j5t29krtv49jkka4tc2sk3ve7d34fq5hn4mk85s24ews2" data-name="Bitcoin">
+                            <div class="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-orange-500/30 transition-all duration-300">
+                                <i class="fab fa-bitcoin text-2xl text-white"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Bitcoin</span>
+                            <span class="text-xs text-gray-400">Taproot</span>
+                        </button>
+                        
+                        <!-- ETH -->
+                        <button class="crypto-btn group relative bg-gradient-to-br from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-blue-900/20 dark:to-blue-900/30 dark:hover:from-blue-900/30 dark:hover:to-blue-900/40" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="Ethereum">
+                            <div class="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-blue-500/30 transition-all duration-300">
+                                <i class="fab fa-ethereum text-2xl text-white"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Ethereum</span>
+                        </button>
+                        
+                        <!-- SOL -->
+                        <button class="crypto-btn group relative bg-gradient-to-br from-purple-50 to-purple-100 hover:from-purple-100 hover:to-purple-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-purple-900/20 dark:to-purple-900/30 dark:hover:from-purple-900/30 dark:hover:to-purple-900/40" data-address="H7Ts8tkL37di82SXzouQ1EMbrCuoy3pLDP2QKxog9yQ3" data-name="Solana">
+                            <div class="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-purple-500/30 transition-all duration-300">
+                                <i class="fas fa-sun text-2xl text-white"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Solana</span>
+                        </button>
+                        
+                        <!-- BNB -->
+                        <button class="crypto-btn group relative bg-gradient-to-br from-yellow-50 to-yellow-100 hover:from-yellow-100 hover:to-yellow-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-yellow-900/20 dark:to-yellow-900/30 dark:hover:from-yellow-900/30 dark:hover:to-yellow-900/40" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="BNB">
+                            <div class="w-12 h-12 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-yellow-500/30 transition-all duration-300">
+                                <i class="fas fa-bolt text-2xl text-white"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">BNB</span>
+                        </button>
+                        
+                        <!-- Polygon -->
+                        <button class="crypto-btn group relative bg-gradient-to-br from-indigo-50 to-indigo-100 hover:from-indigo-100 hover:to-indigo-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-indigo-900/20 dark:to-indigo-900/30 dark:hover:from-indigo-900/30 dark:hover:to-indigo-900/40" data-address="0x9c22f7867ab1790c338f42d040c152081f666722" data-name="Polygon">
+                            <div class="w-12 h-12 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-indigo-500/30 transition-all duration-300">
+                                <i class="fas fa-hexagon text-2xl text-white"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Polygon</span>
+                        </button>
+                        
+                        <!-- XRP -->
+                        <button class="crypto-btn group relative bg-gradient-to-br from-cyan-50 to-cyan-100 hover:from-cyan-100 hover:to-cyan-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-cyan-900/20 dark:to-cyan-900/30 dark:hover:from-cyan-900/30 dark:hover:to-cyan-900/40" data-address="0x9c22f7867ab1790c338f42d040c152081f666722" data-name="XRP (BSC)">
+                            <div class="w-12 h-12 bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-cyan-500/30 transition-all duration-300">
+                                <i class="fas fa-chart-line text-2xl text-white"></i>
+                            </div>
+                            <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">XRP</span>
+                            <span class="text-xs text-gray-400">BSC</span>
+                        </button>
+                    </div>
+                    
+                    <!-- USDT Section -->
+                    <div class="mt-4 p-4 bg-gray-50 rounded-2xl dark:bg-gray-800/50">
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 dark:text-gray-400">USDT Networks</p>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-green-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-green-900/30" data-address="TT7YAWnCHCbqm2od1nRCUhnMN7yyCDZGhh" data-name="USDT (TRON)">
+                                <i class="fas fa-circle text-green-500 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">TRON</span>
+                            </button>
+                            <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-blue-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-blue-900/30" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="USDT (ETH)">
+                                <i class="fas fa-circle text-blue-500 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">ETH</span>
+                            </button>
+                            <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-purple-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-purple-900/30" data-address="H7Ts8tkL37di82SXzouQ1EMbrCuoy3pLDP2QKxog9yQ3" data-name="USDT (SOL)">
+                                <i class="fas fa-circle text-purple-500 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">SOL</span>
+                            </button>
+                            <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-yellow-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-yellow-900/30" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="USDT (BNB)">
+                                <i class="fas fa-circle text-yellow-500 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">BNB</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crypto Address Modal -->
+    <div id="crypto-modal" class="fixed inset-0 z-[130] hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md text-center shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
+            <div class="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center dark:from-gray-800 dark:to-gray-700">
+                <i id="crypto-icon" class="fas fa-coins text-3xl text-gray-600 dark:text-gray-400"></i>
+            </div>
+            <h3 class="text-xl font-black mb-1 dark:text-white">Donate with <span id="crypto-type" class="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500"></span></h3>
+            <p class="text-sm text-gray-500 mb-6 dark:text-gray-400">Send to this address:</p>
+            
+            <div class="bg-gray-100 p-4 rounded-2xl mb-6 dark:bg-gray-800">
+                <p id="crypto-address" class="font-mono text-sm break-all text-gray-700 dark:text-gray-300 select-all"></p>
+            </div>
+            
+            <div class="flex gap-3">
+                <button type="button" id="copy-crypto-address" class="flex-1 bg-gradient-to-r from-gray-900 to-black text-white font-bold py-3.5 rounded-xl hover:from-gray-800 hover:to-gray-900 transition-all duration-300 shadow-lg hover:shadow-xl dark:from-white dark:to-gray-200 dark:text-black">
+                    <i class="fas fa-copy mr-2"></i>Copy Address
+                </button>
+                <button type="button" id="close-crypto-modal" class="flex-1 border-2 border-gray-200 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-50 transition-all duration-300 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modern ZVERSE Modal -->
+    <div id="zverse-modal" class="fixed inset-0 z-[140] hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
+            <!-- Header -->
+            <div class="relative bg-gradient-to-r from-violet-600 via-purple-600 to-pink-500 p-6 md:p-8">
+                <div class="absolute inset-0 bg-black/10"></div>
+                <button id="close-zverse" class="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="relative z-10 text-center">
+                    <div class="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                        <i class="fas fa-cube text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl md:text-3xl font-black text-white mb-2">ZVERSE Links</h3>
+                    <p class="text-white/90 text-sm md:text-base">Explore the ZXAION ecosystem</p>
+                </div>
+            </div>
+            
+            <!-- Links Grid -->
+            <div class="p-6 md:p-8">
+                <div class="grid grid-cols-2 gap-4">
+                    <a href="https://zstore.zxaion.com" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-violet-50 to-purple-50 hover:from-violet-100 hover:to-purple-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-violet-900/20 dark:to-purple-900/20 dark:hover:from-violet-900/30 dark:hover:to-purple-900/30">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-violet-500/30 transition-all duration-300">
+                                <i class="fas fa-store text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">zstore</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Digital products & merch</p>
+                    </a>
+                    
+                    <a href="https://zxaudio.pages.dev/" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-pink-50 to-rose-50 hover:from-pink-100 hover:to-rose-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-pink-900/20 dark:to-rose-900/20 dark:hover:from-pink-900/30 dark:hover:to-rose-900/30">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-pink-500/30 transition-all duration-300">
+                                <i class="fas fa-music text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">zaudio</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Music & audio content</p>
+                    </a>
+                    
+                    <a href="https://zvideos.zxaion.com" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-red-50 to-orange-50 hover:from-red-100 hover:to-orange-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-red-900/20 dark:to-orange-900/20 dark:hover:from-red-900/30 dark:hover:to-orange-900/30">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-red-500/30 transition-all duration-300">
+                                <i class="fas fa-video text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">zvideos</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Video content & streams</p>
+                    </a>
+                    
+                    <a href="https://zai.zxaion.com" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-cyan-50 to-blue-50 hover:from-cyan-100 hover:to-blue-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-cyan-900/20 dark:to-blue-900/20 dark:hover:from-cyan-900/30 dark:hover:to-blue-900/30">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-cyan-500/30 transition-all duration-300">
+                                <i class="fas fa-robot text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">zai</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">AI-powered tools</p>
+                    </a>
+                    
+                    <a href="https://zchat.zxaion.com" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-green-900/20 dark:to-emerald-900/20 dark:hover:from-green-900/30 dark:hover:to-emerald-900/30">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-green-500/30 transition-all duration-300">
+                                <i class="fas fa-comments text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">zchat</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Community chat</p>
+                    </a>
+                    
+                    <a href="https://zbook.zxaion.com" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-amber-50 to-yellow-50 hover:from-amber-100 hover:to-yellow-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-amber-900/20 dark:to-yellow-900/20 dark:hover:from-amber-900/30 dark:hover:to-yellow-900/30">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-amber-500 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-amber-500/30 transition-all duration-300">
+                                <i class="fas fa-book text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">zbook</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Stories & publications</p>
+                    </a>
+                    
+                    <a href="https://znews.zxaion.com" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-indigo-50 to-violet-50 hover:from-indigo-100 hover:to-violet-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-indigo-900/20 dark:to-violet-900/20 dark:hover:from-indigo-900/30 dark:hover:to-violet-900/30">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-indigo-500/30 transition-all duration-300">
+                                <i class="fas fa-newspaper text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">znews</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Latest updates & news</p>
+                    </a>
+                    
+                    <a href="https://zapp.zxaion.com" target="_blank" class="group relative overflow-hidden bg-gradient-to-br from-gray-50 to-slate-50 hover:from-gray-100 hover:to-slate-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-gray-800 dark:to-slate-800 dark:hover:from-gray-700 dark:hover:to-slate-700">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 bg-gradient-to-br from-gray-600 to-slate-700 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-gray-500/30 transition-all duration-300">
+                                <i class="fas fa-mobile-alt text-white"></i>
+                            </div>
+                            <span class="font-bold text-gray-800 dark:text-white">zapp</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Mobile applications</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modern Menu Modal -->
+    <div id="menu-modal" class="fixed inset-0 z-[150] hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-md max-h-[85vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
+            <!-- Header -->
+            <div class="relative bg-gradient-to-r from-gray-900 to-black p-6">
+                <button id="close-menu" class="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="text-center">
+                    <div class="w-14 h-14 mx-auto mb-3 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm">
+                        <i class="fas fa-bars text-2xl text-white"></i>
+                    </div>
+                    <h3 class="text-xl font-black text-white">Quick Links</h3>
+                </div>
+            </div>
+            
+            <!-- Links List -->
+            <div id="quicklinks-list" class="p-4 overflow-y-auto max-h-[50vh] space-y-2">
+                <!-- akan diisi via script -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Quicklink Content Modal -->
+    <div id="quicklink-content-modal" class="fixed inset-0 z-[160] hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
+            <div class="flex justify-between items-center p-6 border-b border-gray-100 dark:border-gray-800">
+                <h3 id="quicklink-title" class="text-xl font-black dark:text-white"></h3>
+                <button id="close-quicklink-content" class="w-10 h-10 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full flex items-center justify-center transition-all duration-300 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-400">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="quicklink-content" class="p-6 overflow-y-auto max-h-[60vh] prose dark:prose-invert max-w-none"></div>
+        </div>
+    </div>
+
+    <!-- Modern Buy Credits Modal -->
+    <div id="buy-credits-modal" class="fixed inset-0 z-[170] hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
+            <!-- Header -->
+            <div class="relative bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 p-6 md:p-8">
+                <div class="absolute inset-0 bg-black/10"></div>
+                <button id="close-buy-credits" class="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="relative z-10 text-center">
+                    <div class="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                        <i class="fas fa-coins text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl md:text-3xl font-black text-white mb-2">Buy Credits</h3>
+                    <p class="text-white/90 text-sm">1 download = 10 credits</p>
+                </div>
+            </div>
+            
+            <!-- Credit Packs -->
+            <div class="p-6 overflow-y-auto max-h-[55vh]">
+                <div id="credit-packs" class="space-y-3">
+                    <!-- akan diisi via script -->
+                </div>
+                
+                <!-- PayPal Container (Inside Modal) -->
+                <div id="paypal-button-container" class="mt-6 hidden">
+                    <div class="relative">
+                        <div class="absolute inset-0 flex items-center">
+                            <div class="w-full border-t border-gray-200 dark:border-gray-700"></div>
+                        </div>
+                        <div class="relative flex justify-center text-sm">
+                            <span class="px-2 bg-white text-gray-500 dark:bg-gray-900 dark:text-gray-400">Secure Payment</span>
+                        </div>
+                    </div>
+                    <div id="paypal-buttons" class="mt-4"></div>
+                </div>
+                
+                <p class="text-xs text-gray-400 mt-4 text-center dark:text-gray-500">
+                    <i class="fas fa-shield-alt mr-1"></i>
+                    Login recommended for security. Credits non-refundable.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modern Footer -->
+    <footer class="relative bg-gradient-to-b from-gray-900 to-black text-white py-16 w-full mt-auto overflow-hidden">
+        <!-- Decorative Elements -->
+        <div class="absolute inset-0 overflow-hidden">
+            <div class="absolute top-0 left-1/4 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl"></div>
+            <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl"></div>
+        </div>
+        
+        <div class="relative z-10 max-w-7xl mx-auto px-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-12 items-center">
+                <!-- Brand -->
+                <div class="text-center lg:text-left">
+                    <div class="flex items-center justify-center lg:justify-start gap-3 mb-4">
+                        <div id="footer-logo" class="w-12 h-12 bg-gradient-to-br from-white to-gray-200 text-gray-900 flex items-center justify-center font-black text-xl rounded-xl shadow-lg">
+                            <span id="footer-logo-text">ZX</span>
+                            <img id="footer-logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png" alt="Logo" class="hidden w-full h-full object-cover rounded-xl">
+                        </div>
+                        <div>
+                            <h2 class="text-2xl font-black tracking-tight uppercase">ZXAION</h2>
+                            <p class="text-gray-400 text-xs tracking-widest uppercase">VERSE</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-400 text-sm max-w-xs mx-auto lg:mx-0">Empowering creators worldwide with high-quality visual content.</p>
+                </div>
+                
+                <!-- Social Links -->
+                <div class="flex flex-wrap justify-center gap-4">
+                    <a href="https://www.instagram.com/zx_vizuals?igsh=ZG14c3Y4d3EyaWQw" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-gradient-to-br hover:from-[#833AB4] hover:via-[#E1306C] hover:to-[#F77737] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-pink-500/25">
+                        <i class="fab fa-instagram text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://www.tiktok.com/@zxaion.verse?_r=1&_t=ZS-92691niXJxP" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-black rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg border border-white/10 hover:border-white/30">
+                        <i class="fab fa-tiktok text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://discord.gg/EbURHA7gH" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-[#5865F2] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-indigo-500/25">
+                        <i class="fab fa-discord text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://pin.it/15v6TKc7i" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-[#BD081C] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-red-500/25">
+                        <i class="fab fa-pinterest text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://ko-fi.com/zxaion" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-[#13C3FF] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-cyan-500/25">
+                        <i class="fas fa-coffee text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://www.youtube.com/@Z.Vizuals" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-[#FF0000] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-red-500/25">
+                        <i class="fab fa-youtube text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://www.facebook.com/groups/849060311064107/?ref=share&mibextid=NSMWBT" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-[#1877F2] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-blue-500/25">
+                        <i class="fab fa-facebook text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://on.soundcloud.com/258xfZY8WEFiz0e9nc" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-[#ff5500] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-orange-500/25">
+                        <i class="fab fa-soundcloud text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                    <a href="https://pixabay.com/users/zxaion_verse-48409497/" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-[#2EC66D] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-green-500/25">
+                        <i class="fas fa-camera text-xl text-gray-400 group-hover:text-white transition-colors"></i>
+                    </a>
+                </div>
+                
+                <!-- Copyright -->
+                <div class="text-center lg:text-right">
+                    <p class="text-gray-500 text-sm mb-2">&copy; 2024 ZXAION VERSE</p>
+                    <p class="text-gray-600 text-xs">All rights reserved. Made with <i class="fas fa-heart text-red-500 mx-1"></i> for creators.</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- PayPal SDK -->
+    <script src="https://www.paypal.com/sdk/js?client-id=AZGYtV1vwif5Jy_w2melo6u-AvIRqZFSo278Qzkj3R6xeNUsILdpnJji4ZfuMnOa4c9XvIFIBQCVTtNx&currency=USD&intent=capture&buyer-country=US"></script>
+
+    <script src="/script.js"></script>
+</body>
+</html>
