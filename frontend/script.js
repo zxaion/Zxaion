@@ -29,7 +29,7 @@ const CREDIT_PACKS = {
 const getOrCreateUserToken = () => {
     let token = localStorage.getItem('zx_user_token');
     if (!token) {
-        token = 'u_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 11);
+        token = 'u_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
         localStorage.setItem('zx_user_token', token);
     }
     return token;
@@ -181,11 +181,11 @@ const api = {
 
 // ✅ NEW METHOD: Invalidate cache
 invalidateCache() {
-    this.imageCache.main = null;
-    this.imageCache.comitbase = null;
-    this.imageCache.dtreasure = null;
-    this.imageCache.timestamp = 0;
-},
+        this.imageCache.main      = null;
+        this.imageCache.comitbase = null;
+        this.imageCache.dtreasure = null;
+        this.imageCache.timestamp = 0;
+    },
     async fetchComitbaseImages() {
         try {
             const res = await fetch(`${API_BASE}/api/comitbase/list`);
@@ -445,11 +445,10 @@ async openImageModal(photo) {
             ? '<i class="fas fa-download mr-2"></i>Download'
             : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
     } else {
-        // FREE: Bersihkan semua state DTREASURE sebelumnya, lalu set download langsung
-        elements.downloadBtn.setAttribute('href', imageUrl + '?download=true');
-        elements.downloadBtn.setAttribute('download', (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg');
+        // ✅ FREE: Direct download link
+        elements.downloadBtn.href = imageUrl + '?download=true';
+        elements.downloadBtn.download = photo.title || 'wallpaper';
         elements.downloadBtn.onclick = null;
-        elements.downloadBtn.removeAttribute('data-photo-id');
         elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
     }
 
@@ -846,31 +845,17 @@ async openImageModal(photo) {
         const photosToShow = state.comitbasePhotos.slice(start, end);
         
         elements.comitbaseGallery.innerHTML = '';
-
-// ✅ Satu observer untuk semua gambar (mencegah memory leak)
-const imageObserver = new IntersectionObserver((entries, observer) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting) {
-            const img = entry.target;
-            if (img.dataset.src) {
-                img.src = img.dataset.src;
-                delete img.dataset.src;
-            }
-            observer.unobserve(img);
-        }
-    });
-}, { rootMargin: '50px' });
-
-photosToShow.forEach((photo, index) => {
-    const item = document.createElement('div');
-    item.className = "masonry-item fade-in";
-    item.style.animationDelay = `${index * 50}ms`;
-    item.dataset.photoId = photo.id;
-    
-    const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-    const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-    
-    item.innerHTML = `
+        
+        photosToShow.forEach((photo, index) => {
+            const item = document.createElement('div');
+            item.className = "masonry-item fade-in";
+            item.style.animationDelay = `${index * 50}ms`;
+            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
+            
+            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+            
+            item.innerHTML = `
             <img 
                 src="${placeholderSvg}" 
                 data-src="${fullUrl}" 
@@ -888,22 +873,34 @@ photosToShow.forEach((photo, index) => {
                 </button>
             </div>
         `;
-    
-    const img = item.querySelector('img');
-    imageObserver.observe(img); // ✅ Pakai observer yang sama
-    
-    img.onload = function() {
-        this.classList.remove('loading-shimmer');
-        ui.loadStatsForItem(photo.id, item);
-    };
-    
-    img.onerror = function() {
-        this.classList.remove('loading-shimmer');
-        this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-    };
-    
-    elements.comitbaseGallery.appendChild(item);
-});
+            
+            const img = item.querySelector('img');
+            const imageObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        if (img.dataset.src) {
+                            img.src = img.dataset.src;
+                            delete img.dataset.src;
+                        }
+                        observer.unobserve(img);
+                    }
+                });
+            }, { rootMargin: '50px' });
+            
+            imageObserver.observe(img);
+            
+            img.onload = function() {
+                this.classList.remove('loading-shimmer');
+                ui.loadStatsForItem(photo.id, item);
+            };
+            
+            img.onerror = function() {
+                this.classList.remove('loading-shimmer');
+                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+            };
+            
+            elements.comitbaseGallery.appendChild(item);
+        });
         
         // ✅ Event delegation
         this.setupComitbaseEventListeners();
@@ -962,90 +959,107 @@ photosToShow.forEach((photo, index) => {
     },
 
     renderDtreasureGallery() {
-        if (!elements.dtreasureGallery) return;
-        
-        if (state.dtreasurePhotos.length === 0) {
-            elements.dtreasureGallery.innerHTML = `
-            <div class="col-span-full text-center py-20">
-                <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
-                    <i class="fas fa-gem text-3xl text-gray-400"></i>
-                </div>
-                <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
+    if (!elements.dtreasureGallery) return;
+    
+    if (state.dtreasurePhotos.length === 0) {
+        elements.dtreasureGallery.innerHTML = `
+        <div class="col-span-full text-center py-20">
+            <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                <i class="fas fa-gem text-3xl text-gray-400"></i>
             </div>
-        `;
-            this.updateDtreasurePagination();
-            return;
-        }
-        
-        const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
-        const end = start + ITEMS_PER_PAGE;
-        const photosToShow = state.dtreasurePhotos.slice(start, end);
-        
-        elements.dtreasureGallery.innerHTML = '';
-        
-        
-        // ✅ Satu observer untuk semua gambar (mencegah memory leak)
-        const imageObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target;
-                    if (img.dataset.src) {
-                        img.src = img.dataset.src;
-                        delete img.dataset.src;
-                    }
-                    observer.unobserve(img);
-                }
-            });
-        }, { rootMargin: '50px' });
-        
-        photosToShow.forEach((photo, index) => {
-            const item = document.createElement('div');
-            item.className = "masonry-item fade-in";
-            item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id;
-            
-            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
-            item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title)}" 
-                loading="lazy" 
-                class="loading-shimmer w-full h-auto"
-                decoding="async">
-            <div class="masonry-overlay">
-                <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
-                </div>
-                <button class="download-btn" type="button">
-                    <i class="fas fa-download"></i> Download
-                </button>
-            </div>
-        `;
-            
-            const img = item.querySelector('img');
-            imageObserver.observe(img); // ✅ Pakai observer yang sama
-            
-            img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
-            };
-            
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
-            
-            elements.comitbaseGallery.appendChild(item);
-        });
-        
-        // ✅ Event delegation
-        this.setupDtreasureEventListeners();
+            <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
+        </div>`;
         this.updateDtreasurePagination();
-    },
+        return;
+    }
+    
+    const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    const photosToShow = state.dtreasurePhotos.slice(start, end);
+    
+    elements.dtreasureGallery.innerHTML = '';
+    
+    // ── Token wajib dikirim untuk setiap fetch DTREASURE ──────────
+    const token = getOrCreateUserToken();
+    
+    /**
+     * Fetch gambar DTREASURE dengan auth header, return blob URL.
+     * Browser tidak bisa inject custom header via <img src>, maka
+     * kita pakai fetch() → blob → objectURL agar token terkirim dan
+     * URL asli tidak pernah terekspos di DOM.
+     */
+    async function fetchProtectedImage(url) {
+        const res = await fetch(url, {
+            headers: { 'X-User-Token': token },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        return URL.createObjectURL(blob);
+    }
+    
+    const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+    
+    photosToShow.forEach((photo, index) => {
+        const item = document.createElement('div');
+        item.className = 'masonry-item fade-in';
+        item.style.animationDelay = `${index * 50}ms`;
+        item.dataset.photoId = photo.id;
+        
+        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
+        const buttonText = isFree ? 'Download' : '10 Credits';
+        const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
+        const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        
+        item.innerHTML = `
+        <img
+            src="${placeholderSvg}"
+            alt="${utils.escapeHtml(photo.title)}"
+            class="loading-shimmer w-full h-auto"
+            decoding="async"
+            draggable="false">
+        <div class="masonry-overlay">
+            <div class="stats">
+                <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
+                <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+            </div>
+            <button class="download-btn" type="button">
+                <i class="fas ${buttonIcon}"></i> ${buttonText}
+            </button>
+        </div>`;
+        
+        const img = item.querySelector('img');
+        
+        // ── Lazy load via IntersectionObserver + fetch+blob ────────
+        const observer = new IntersectionObserver((entries, obs) => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                obs.unobserve(img);
+                
+                fetchProtectedImage(fullUrl)
+                    .then(blobUrl => {
+                        img.src = blobUrl;
+                        // Simpan blobUrl di dataset supaya bisa di-revoke saat unmount
+                        img.dataset.blobUrl = blobUrl;
+                    })
+                    .catch(() => {
+                        img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+                    });
+            });
+        }, { rootMargin: '100px' });
+        
+        observer.observe(img);
+        
+        img.onload = function() {
+            this.classList.remove('loading-shimmer');
+            ui.loadStatsForItem(photo.id, item);
+        };
+        
+        elements.dtreasureGallery.appendChild(item);
+    });
+    
+    this.setupDtreasureEventListeners();
+    this.updateDtreasurePagination();
+},
     
     // ✅ NEW METHOD: Setup dtreasure event listeners
     setupDtreasureEventListeners() {
@@ -1077,27 +1091,22 @@ photosToShow.forEach((photo, index) => {
     },
 
     updateDtreasurePagination() {
-    if (!elements.dtreasurePagination) return;
-    
-    const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
-    
-    if (totalPages <= 1) {
-        elements.dtreasurePagination.classList.add('hidden');
-        return;
-    }
-    
-    elements.dtreasurePagination.classList.remove('hidden');
-    const pageInfo = document.getElementById('dtreasure-page-info');
-    if (pageInfo) {
-        pageInfo.textContent = `Page ${state.currentDtreasurePage} of ${totalPages}`;
-    }
-    
-    const prevBtn = document.getElementById('dtreasure-prev');
-    const nextBtn = document.getElementById('dtreasure-next');
-    
-    if (prevBtn) prevBtn.disabled = state.currentDtreasurePage === 1;
-    if (nextBtn) nextBtn.disabled = state.currentDtreasurePage === totalPages;
-},
+        if (!elements.dtreasurePagination) return;
+        
+        const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
+        
+        elements.dtreasurePagination.classList.remove('hidden');
+        const pageInfo = document.getElementById('dtreasure-page-info');
+        if (pageInfo) {
+            pageInfo.textContent = `Page ${state.currentDtreasurePage} of ${totalPages}`;
+        }
+        
+        const prevBtn = document.getElementById('dtreasure-prev');
+        const nextBtn = document.getElementById('dtreasure-next');
+        
+        if (prevBtn) prevBtn.disabled = state.currentDtreasurePage === 1;
+        if (nextBtn) nextBtn.disabled = state.currentDtreasurePage === totalPages || totalPages === 0;
+    },
 
     changeCategory(category) {
         if (!category) return;

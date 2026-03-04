@@ -132,7 +132,7 @@ export default {
     const PAYPAL_CLIENT_ID        = env.PAYPAL_CLIENT_ID;
     const PAYPAL_CLIENT_SECRET_ID = env.PAYPAL_CLIENT_SECRET_ID;
     const PAYPAL_WEBHOOK_ID       = env.PAYPAL_WEBHOOK_ID;
-    const PAYPAL_BASE             = 'https://api-m.sandbox.paypal.com';
+    const PAYPAL_BASE = 'https://api-m.paypal.com';
 
     // ----------------------------------------------------------------
     // CORS — multi-origin support
@@ -904,104 +904,127 @@ export default {
       }
     }
 
-    // ================================================================
-    // ENDPOINT: Serve images dari R2
-    // ================================================================
-    if (
-      path.startsWith('/api/img/') ||
-      path.startsWith('/api/comitbase/img/') ||
-      path.startsWith('/api/dtreasure/img/')
-    ) {
-      const isDtreasure = path.startsWith('/api/dtreasure/img/');
+// ================================================================
+// ENDPOINT: Serve images dari R2
+// ================================================================
+if (
+  path.startsWith('/api/img/') ||
+  path.startsWith('/api/comitbase/img/') ||
+  path.startsWith('/api/dtreasure/img/')
+) {
+  const isDtreasure = path.startsWith('/api/dtreasure/img/');
+  const isDownload  = url.searchParams.get('download') === 'true';
 
-      // Server-side auth hanya untuk download DTREASURE
-      if (isDtreasure && url.searchParams.get('download') === 'true') {
-        const userId = getUserToken(request);
-        if (!userId || userId === 'anonymous') {
-          return new Response(JSON.stringify({ error: 'Authentication required' }), {
-            status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
+  // ── DTREASURE: SELALU wajib X-User-Token ──────────────────────
+  if (isDtreasure) {
+    const userId = getUserToken(request);
 
-        try {
-          const userRecord = await DB.prepare(
-            'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-          ).bind(userId).first();
+    // Blokir akses tanpa token (termasuk akses langsung dari browser)
+    if (!userId || userId === 'anonymous') {
+      return new Response(
+        JSON.stringify({ error: 'Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-          const hasLifetime = userRecord && !!userRecord.lifetime;
-
-          if (!hasLifetime) {
-            const photoIdFromQuery = url.searchParams.get('photoId');
-            const rawKey           = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
-
-            let purchasedRecord = null;
-
-            if (photoIdFromQuery) {
-              purchasedRecord = await DB.prepare(
-                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-              ).bind(userId, photoIdFromQuery).first();
-            }
-
-            // Fallback: cek dengan rawKey (backward compat data lama)
-            if (!purchasedRecord) {
-              purchasedRecord = await DB.prepare(
-                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-              ).bind(userId, rawKey).first();
-            }
-
-            if (!purchasedRecord) {
-              return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
-                status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              });
-            }
-          }
-        } catch (e) {
-          console.error('Auth check error:', e.message);
-          return new Response(JSON.stringify({ error: 'Authorization check failed' }), {
-            status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-      }
-
-      let bucket, prefix;
-      if (path.startsWith('/api/comitbase/img/')) {
-        bucket = comitbaseBucket;
-        prefix = '/api/comitbase/img/';
-      } else if (isDtreasure) {
-        bucket = treasureBucket;
-        prefix = '/api/dtreasure/img/';
-      } else {
-        bucket = mainBucket;
-        prefix = '/api/img/';
-      }
-
+    // Download membutuhkan verifikasi pembelian
+    if (isDownload) {
       try {
-        const key    = decodeURIComponent(path.slice(prefix.length));
-        const object = await bucket.get(key);
-        if (!object) return new Response('Not found', { status: 404 });
+        const userRecord = await DB.prepare(
+          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+        ).bind(userId).first();
 
-        const headers = new Headers();
-        object.writeHttpMetadata(headers);
-        headers.set('etag', object.httpEtag);
-        headers.set('Access-Control-Allow-Origin',
-          ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
-        headers.set('Vary', 'Origin');
-        headers.set('Cache-Control',
-          isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
+        const hasLifetime = userRecord && !!userRecord.lifetime;
 
-        if (url.searchParams.get('download') === 'true') {
-          const safeFilename = key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_');
-          headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        if (!hasLifetime) {
+          const photoIdFromQuery = url.searchParams.get('photoId');
+          const rawKey           = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
+
+          let purchasedRecord = null;
+
+          if (photoIdFromQuery) {
+            purchasedRecord = await DB.prepare(
+              'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+            ).bind(userId, photoIdFromQuery).first();
+          }
+
+          // Fallback: cek dengan rawKey (backward compat)
+          if (!purchasedRecord) {
+            purchasedRecord = await DB.prepare(
+              'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+            ).bind(userId, rawKey).first();
+          }
+
+          if (!purchasedRecord) {
+            return new Response(
+              JSON.stringify({ error: 'Purchase required to download this image' }),
+              { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
         }
-
-        return new Response(object.body, { headers });
       } catch (e) {
-        console.error('Image serve error:', e.message);
-        return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        console.error('Auth check error:', e.message);
+        return new Response(
+          JSON.stringify({ error: 'Authorization check failed' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
     }
+    // Preview (tanpa ?download=true): token valid sudah cukup → lanjut serve
+  }
+
+  // ── Tentukan bucket & prefix ───────────────────────────────────
+  let bucket, prefix;
+  if (path.startsWith('/api/comitbase/img/')) {
+    bucket = comitbaseBucket;
+    prefix = '/api/comitbase/img/';
+  } else if (isDtreasure) {
+    bucket = treasureBucket;
+    prefix = '/api/dtreasure/img/';
+  } else {
+    bucket = mainBucket;
+    prefix = '/api/img/';
+  }
+
+  try {
+    const key    = decodeURIComponent(path.slice(prefix.length));
+    const object = await bucket.get(key);
+    if (!object) return new Response('Not found', { status: 404 });
+
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set('etag', object.httpEtag);
+    headers.set(
+      'Access-Control-Allow-Origin',
+      ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+    );
+    headers.set('Vary', 'Origin');
+
+    if (isDtreasure) {
+      // Cegah cache & hotlinking untuk DTREASURE
+      headers.set('Cache-Control', 'private, no-store, no-cache');
+      headers.set('X-Robots-Tag', 'noindex, nofollow');
+      headers.set('Content-Disposition', isDownload
+        ? `attachment; filename="${key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_')}"`
+        : 'inline'
+      );
+    } else {
+      headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      if (isDownload) {
+        const safeFilename = key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_');
+        headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
+      }
+    }
+
+    return new Response(object.body, { headers });
+  } catch (e) {
+    console.error('Image serve error:', e.message);
+    return new Response(
+      JSON.stringify({ error: 'Failed to fetch image' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
 
     // ================================================================
     // Serve static files dari R2
@@ -1042,14 +1065,14 @@ export default {
         headers.set('X-XSS-Protection',        '1; mode=block');
         headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
         headers.set('Content-Security-Policy',
-  "default-src 'self'; " +
-  "img-src 'self' data: https:; " +
-  "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com; " +
-  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
-  "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
-  "connect-src 'self' https://ai.zxaionverse.workers.dev https://www.paypal.com https://api-m.paypal.com https://*.paypal.com; " +
-  "frame-src https://www.paypal.com https://www.sandbox.paypal.com;"
-);
+          "default-src 'self'; " +
+          "img-src 'self' data: https:; " +
+          "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://www.paypal.com; " +
+          "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
+          "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
+          "connect-src 'self' https://ai.zxaionverse.workers.dev https://www.paypal.com; " +
+          "frame-src https://www.paypal.com;"
+        );
       }
 
       return new Response(object.body, { headers });
