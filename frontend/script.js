@@ -181,11 +181,11 @@ const api = {
 
 // ✅ NEW METHOD: Invalidate cache
 invalidateCache() {
-        this.imageCache.main      = null;
-        this.imageCache.comitbase = null;
-        this.imageCache.dtreasure = null;
-        this.imageCache.timestamp = 0;
-    },
+    this.imageCache.main = null;
+    this.imageCache.comitbase = null;
+    this.imageCache.dtreasure = null;
+    this.imageCache.timestamp = 0;
+},
     async fetchComitbaseImages() {
         try {
             const res = await fetch(`${API_BASE}/api/comitbase/list`);
@@ -431,26 +431,54 @@ async openImageModal(photo) {
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
 
     if (isDtreasure) {
-        // ✅ DTREASURE: Replace <a> with a <button> so credit check runs via handleDownload
-        // Never expose the raw download URL as an href
-        elements.downloadBtn.removeAttribute('href');
-        elements.downloadBtn.removeAttribute('download');
-        elements.downloadBtn.onclick = (e) => {
-            e.preventDefault();
-            ui.handleDownload(photo);
-        };
+    // ✅ DTREASURE: Protect modal image from right-click / long-press / drag
+    elements.modalImg.classList.add('dtreasure-protected');
+    elements.modalImg.setAttribute('draggable', 'false');
+    elements.modalImg.oncontextmenu = (e) => e.preventDefault();
+    elements.modalImg.ondragstart = (e) => e.preventDefault();
 
-        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
-        elements.downloadBtn.innerHTML = isFree
-            ? '<i class="fas fa-download mr-2"></i>Download'
-            : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
-    } else {
-        // ✅ FREE: Direct download link
-        elements.downloadBtn.href = imageUrl + '?download=true';
-        elements.downloadBtn.download = photo.title || 'wallpaper';
-        elements.downloadBtn.onclick = null;
-        elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+    // ✅ Add shield overlay on top of modal image to block browser save dialogs
+    const modalImgWrap = elements.modalImg.parentElement;
+    let existingShield = modalImgWrap.querySelector('.modal-img-shield');
+    if (!existingShield) {
+        const shield = document.createElement('div');
+        shield.className = 'modal-img-shield';
+        shield.oncontextmenu = (e) => e.preventDefault();
+        shield.ondragstart = (e) => e.preventDefault();
+        modalImgWrap.style.position = 'relative';
+        modalImgWrap.appendChild(shield);
     }
+
+    // ✅ Replace <a> with button — never expose raw URL as href
+    elements.downloadBtn.removeAttribute('href');
+    elements.downloadBtn.removeAttribute('download');
+    elements.downloadBtn.onclick = (e) => {
+        e.preventDefault();
+        ui.handleDownload(photo);
+    };
+
+    const isFree = state.lifetime || state.purchasedImages.has(photo.id);
+    elements.downloadBtn.innerHTML = isFree
+        ? '<i class="fas fa-download mr-2"></i>Download'
+        : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
+
+} else {
+    // ✅ FREE: Direct download link — restore modal image to normal
+    elements.modalImg.classList.remove('dtreasure-protected');
+    elements.modalImg.removeAttribute('draggable');
+    elements.modalImg.oncontextmenu = null;
+    elements.modalImg.ondragstart = null;
+
+    // ✅ Remove shield if it exists (switching from DTREASURE to free category)
+    const modalImgWrap = elements.modalImg.parentElement;
+    const existingShield = modalImgWrap?.querySelector('.modal-img-shield');
+    if (existingShield) existingShield.remove();
+
+    elements.downloadBtn.href = imageUrl + '?download=true';
+    elements.downloadBtn.download = photo.title || 'wallpaper';
+    elements.downloadBtn.onclick = null;
+    elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+}
 
     elements.imageModal.classList.remove('hidden');
     elements.imageModal.classList.add('flex');
@@ -959,107 +987,101 @@ async openImageModal(photo) {
     },
 
     renderDtreasureGallery() {
-    if (!elements.dtreasureGallery) return;
-    
-    if (state.dtreasurePhotos.length === 0) {
-        elements.dtreasureGallery.innerHTML = `
-        <div class="col-span-full text-center py-20">
-            <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
-                <i class="fas fa-gem text-3xl text-gray-400"></i>
+        if (!elements.dtreasureGallery) return;
+        
+        if (state.dtreasurePhotos.length === 0) {
+            elements.dtreasureGallery.innerHTML = `
+            <div class="col-span-full text-center py-20">
+                <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                    <i class="fas fa-gem text-3xl text-gray-400"></i>
+                </div>
+                <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
             </div>
-            <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
-        </div>`;
-        this.updateDtreasurePagination();
-        return;
-    }
-    
-    const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    const photosToShow = state.dtreasurePhotos.slice(start, end);
-    
-    elements.dtreasureGallery.innerHTML = '';
-    
-    // ── Token wajib dikirim untuk setiap fetch DTREASURE ──────────
-    const token = getOrCreateUserToken();
-    
-    /**
-     * Fetch gambar DTREASURE dengan auth header, return blob URL.
-     * Browser tidak bisa inject custom header via <img src>, maka
-     * kita pakai fetch() → blob → objectURL agar token terkirim dan
-     * URL asli tidak pernah terekspos di DOM.
-     */
-    async function fetchProtectedImage(url) {
-        const res = await fetch(url, {
-            headers: { 'X-User-Token': token },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        return URL.createObjectURL(blob);
-    }
-    
-    const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-    
-    photosToShow.forEach((photo, index) => {
-        const item = document.createElement('div');
-        item.className = 'masonry-item fade-in';
-        item.style.animationDelay = `${index * 50}ms`;
-        item.dataset.photoId = photo.id;
+        `;
+            this.updateDtreasurePagination();
+            return;
+        }
         
-        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
-        const buttonText = isFree ? 'Download' : '10 Credits';
-        const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
-        const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
+        const end = start + ITEMS_PER_PAGE;
+        const photosToShow = state.dtreasurePhotos.slice(start, end);
         
-        item.innerHTML = `
-        <img
-            src="${placeholderSvg}"
-            alt="${utils.escapeHtml(photo.title)}"
+        elements.dtreasureGallery.innerHTML = '';
+        
+        photosToShow.forEach((photo, index) => {
+            const item = document.createElement('div');
+            item.className = "masonry-item fade-in";
+            item.style.animationDelay = `${index * 50}ms`;
+            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
+            
+            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+            
+            // ✅ Check if already purchased or lifetime
+            const isFree = state.lifetime || state.purchasedImages.has(photo.id);
+            const buttonText = isFree ? 'Download' : '10 Credits';
+            const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
+            
+            item.innerHTML = `
+    <div class="dtreasure-img-wrap">
+        <img 
+            src="${placeholderSvg}" 
+            data-src="${fullUrl}" 
+            alt="DTREASURE Content"
+            loading="lazy" 
             class="loading-shimmer w-full h-auto"
             decoding="async"
             draggable="false">
-        <div class="masonry-overlay">
-            <div class="stats">
-                <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
-            </div>
-            <button class="download-btn" type="button">
-                <i class="fas ${buttonIcon}"></i> ${buttonText}
-            </button>
-        </div>`;
+        <div class="dtreasure-img-shield"
+            oncontextmenu="return false"
+            ondragstart="return false"
+            ontouchstart="this._touchTimer=setTimeout(()=>{},800);return true;"
+            ontouchend="clearTimeout(this._touchTimer)">
+        </div>
+    </div>
+    <div class="masonry-overlay" style="z-index: 20;">
+        <div class="stats">
+            <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
+            <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+        </div>
+        <button class="download-btn" type="button">
+            <i class="fas ${buttonIcon}"></i> ${buttonText}
+        </button>
+    </div>
+`;
+            
+            const img = item.querySelector('img');
+            const imageObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        if (img.dataset.src) {
+                            img.src = img.dataset.src;
+                            delete img.dataset.src;
+                        }
+                        observer.unobserve(img);
+                    }
+                });
+            }, { rootMargin: '50px' });
+            
+            imageObserver.observe(img);
+            
+            img.onload = function() {
+                this.classList.remove('loading-shimmer');
+                ui.loadStatsForItem(photo.id, item);
+            };
+            
+            img.onerror = function() {
+                this.classList.remove('loading-shimmer');
+                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+            };
+            
+            elements.dtreasureGallery.appendChild(item);
+        });
         
-        const img = item.querySelector('img');
-        
-        // ── Lazy load via IntersectionObserver + fetch+blob ────────
-        const observer = new IntersectionObserver((entries, obs) => {
-            entries.forEach(entry => {
-                if (!entry.isIntersecting) return;
-                obs.unobserve(img);
-                
-                fetchProtectedImage(fullUrl)
-                    .then(blobUrl => {
-                        img.src = blobUrl;
-                        // Simpan blobUrl di dataset supaya bisa di-revoke saat unmount
-                        img.dataset.blobUrl = blobUrl;
-                    })
-                    .catch(() => {
-                        img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-                    });
-            });
-        }, { rootMargin: '100px' });
-        
-        observer.observe(img);
-        
-        img.onload = function() {
-            this.classList.remove('loading-shimmer');
-            ui.loadStatsForItem(photo.id, item);
-        };
-        
-        elements.dtreasureGallery.appendChild(item);
-    });
-    
-    this.setupDtreasureEventListeners();
-    this.updateDtreasurePagination();
-},
+        // ✅ Event delegation
+        this.setupDtreasureEventListeners();
+        this.updateDtreasurePagination();
+    },
     
     // ✅ NEW METHOD: Setup dtreasure event listeners
     setupDtreasureEventListeners() {

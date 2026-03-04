@@ -8,6 +8,52 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
+    <style>
+  /* ✅ DTREASURE Image Protection */
+  .dtreasure-img-shield {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none; /* Blokir long-press iOS */
+    touch-callout: none;
+    cursor: pointer;
+  }
+  .dtreasure-img-wrap {
+    position: relative;
+    overflow: hidden;
+    display: block;
+    width: 100%;
+  }
+  .dtreasure-img-wrap img {
+    -webkit-user-drag: none;
+    user-drag: none;
+    pointer-events: none; /* Blokir interaksi langsung ke <img> */
+    -webkit-user-select: none;
+    user-select: none;
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  /* Proteksi modal preview image DTREASURE */
+  #modal-img.dtreasure-protected {
+    -webkit-user-drag: none;
+    user-drag: none;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .modal-img-shield {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+</style>
+
     <script>
         tailwind.config = {
             darkMode: 'class',
