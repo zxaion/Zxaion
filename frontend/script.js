@@ -623,46 +623,55 @@ async openImageModal(photo) {
 
     async handleDownload(photo) {
     if (!photo) return;
-    
+
     // ✅ Strict check untuk DTREASURE category
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-    
+
     if (isDtreasure) {
         // Check if lifetime
         if (state.lifetime) {
-            this.triggerDownload(photo);
+            await this.triggerDownload(photo);
             return;
         }
-        
-        // Check if already purchased
+
+        // Check if already purchased — free re-download
         if (state.purchasedImages.has(photo.id)) {
-            this.triggerDownload(photo);
+            await this.triggerDownload(photo);
             return;
         }
-        
-        // ✅ Check credits - MUST have exactly 10
+
+        // ✅ Check credits
         if (state.credits < 10) {
             alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
             document.getElementById('buy-credits-btn')?.click();
             return;
         }
-        
+
         // Spend credit
         const result = await api.spendCredit(photo.id);
         if (result.success) {
             state.credits = result.newBalance;
+            state.lifetime = result.lifetime || state.lifetime;
             state.purchasedImages.add(photo.id);
             ui.updateCreditDisplay();
-            this.triggerDownload(photo);
-            
-            // ✅ Refresh gallery untuk update button
+
+            // ✅ FIX: Update modal download button jika sedang terbuka
+            const downloadBtn = elements.downloadBtn;
+            if (downloadBtn && !elements.imageModal.classList.contains('hidden')) {
+                downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+            }
+
+            // ✅ FIX: await triggerDownload sebelum refresh gallery
+            await this.triggerDownload(photo);
+
+            // Refresh gallery untuk update lock/download button state
             ui.renderDtreasureGallery();
         } else {
             alert('❌ ' + (result.error || 'Download failed. Please try again.'));
         }
     } else {
         // Free download untuk kategori lain
-        this.triggerDownload(photo);
+        await this.triggerDownload(photo);
     }
 },
 

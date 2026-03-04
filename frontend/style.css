@@ -140,8 +140,13 @@
         z-index: 10;
     }
 
+    /* ✅ FIX: Tampilkan overlay & aktifkan pointer-events saat hover */
+    .masonry-item:hover .masonry-overlay {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
     .masonry-item:hover img {
-        /* ✅ REDUCE: Scale dari 1.08 ke 1.05 */
         transform: scale(1.05);
     }
 }
