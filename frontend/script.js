@@ -430,55 +430,43 @@ async openImageModal(photo) {
 
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
 
+    // --- Modal Image Protection: DTREASURE vs non-DTREASURE ---
+    const modalImgShield = document.getElementById('modal-img-shield');
+
     if (isDtreasure) {
-    // ✅ DTREASURE: Protect modal image from right-click / long-press / drag
-    elements.modalImg.classList.add('dtreasure-protected');
-    elements.modalImg.setAttribute('draggable', 'false');
-    elements.modalImg.oncontextmenu = (e) => e.preventDefault();
-    elements.modalImg.ondragstart = (e) => e.preventDefault();
+        // Aktifkan proteksi gambar di modal
+        elements.modalImg.classList.add('dtreasure-modal-protected');
+        elements.modalImg.setAttribute('draggable', 'false');
+        elements.modalImg.setAttribute('oncontextmenu', 'return false;');
+        elements.modalImg.setAttribute('onselectstart', 'return false;');
+        if (modalImgShield) modalImgShield.classList.add('active');
 
-    // ✅ Add shield overlay on top of modal image to block browser save dialogs
-    const modalImgWrap = elements.modalImg.parentElement;
-    let existingShield = modalImgWrap.querySelector('.modal-img-shield');
-    if (!existingShield) {
-        const shield = document.createElement('div');
-        shield.className = 'modal-img-shield';
-        shield.oncontextmenu = (e) => e.preventDefault();
-        shield.ondragstart = (e) => e.preventDefault();
-        modalImgWrap.style.position = 'relative';
-        modalImgWrap.appendChild(shield);
+        // Download hanya lewat button (tidak expose URL)
+        elements.downloadBtn.removeAttribute('href');
+        elements.downloadBtn.removeAttribute('download');
+        elements.downloadBtn.onclick = (e) => {
+            e.preventDefault();
+            ui.handleDownload(photo);
+        };
+
+        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
+        elements.downloadBtn.innerHTML = isFree
+            ? '<i class="fas fa-download mr-2"></i>Download'
+            : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
+    } else {
+        // Nonaktifkan proteksi untuk kategori bebas
+        elements.modalImg.classList.remove('dtreasure-modal-protected');
+        elements.modalImg.removeAttribute('draggable');
+        elements.modalImg.removeAttribute('oncontextmenu');
+        elements.modalImg.removeAttribute('onselectstart');
+        if (modalImgShield) modalImgShield.classList.remove('active');
+
+        // Free download link
+        elements.downloadBtn.href = imageUrl + '?download=true';
+        elements.downloadBtn.download = photo.title || 'wallpaper';
+        elements.downloadBtn.onclick = null;
+        elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
     }
-
-    // ✅ Replace <a> with button — never expose raw URL as href
-    elements.downloadBtn.removeAttribute('href');
-    elements.downloadBtn.removeAttribute('download');
-    elements.downloadBtn.onclick = (e) => {
-        e.preventDefault();
-        ui.handleDownload(photo);
-    };
-
-    const isFree = state.lifetime || state.purchasedImages.has(photo.id);
-    elements.downloadBtn.innerHTML = isFree
-        ? '<i class="fas fa-download mr-2"></i>Download'
-        : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
-
-} else {
-    // ✅ FREE: Direct download link — restore modal image to normal
-    elements.modalImg.classList.remove('dtreasure-protected');
-    elements.modalImg.removeAttribute('draggable');
-    elements.modalImg.oncontextmenu = null;
-    elements.modalImg.ondragstart = null;
-
-    // ✅ Remove shield if it exists (switching from DTREASURE to free category)
-    const modalImgWrap = elements.modalImg.parentElement;
-    const existingShield = modalImgWrap?.querySelector('.modal-img-shield');
-    if (existingShield) existingShield.remove();
-
-    elements.downloadBtn.href = imageUrl + '?download=true';
-    elements.downloadBtn.download = photo.title || 'wallpaper';
-    elements.downloadBtn.onclick = null;
-    elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-}
 
     elements.imageModal.classList.remove('hidden');
     elements.imageModal.classList.add('flex');
@@ -623,55 +611,46 @@ async openImageModal(photo) {
 
     async handleDownload(photo) {
     if (!photo) return;
-
+    
     // ✅ Strict check untuk DTREASURE category
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-
+    
     if (isDtreasure) {
         // Check if lifetime
         if (state.lifetime) {
-            await this.triggerDownload(photo);
+            this.triggerDownload(photo);
             return;
         }
-
-        // Check if already purchased — free re-download
+        
+        // Check if already purchased
         if (state.purchasedImages.has(photo.id)) {
-            await this.triggerDownload(photo);
+            this.triggerDownload(photo);
             return;
         }
-
-        // ✅ Check credits
+        
+        // ✅ Check credits - MUST have exactly 10
         if (state.credits < 10) {
             alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
             document.getElementById('buy-credits-btn')?.click();
             return;
         }
-
+        
         // Spend credit
         const result = await api.spendCredit(photo.id);
         if (result.success) {
             state.credits = result.newBalance;
-            state.lifetime = result.lifetime || state.lifetime;
             state.purchasedImages.add(photo.id);
             ui.updateCreditDisplay();
-
-            // ✅ FIX: Update modal download button jika sedang terbuka
-            const downloadBtn = elements.downloadBtn;
-            if (downloadBtn && !elements.imageModal.classList.contains('hidden')) {
-                downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-            }
-
-            // ✅ FIX: await triggerDownload sebelum refresh gallery
-            await this.triggerDownload(photo);
-
-            // Refresh gallery untuk update lock/download button state
+            this.triggerDownload(photo);
+            
+            // ✅ Refresh gallery untuk update button
             ui.renderDtreasureGallery();
         } else {
             alert('❌ ' + (result.error || 'Download failed. Please try again.'));
         }
     } else {
         // Free download untuk kategori lain
-        await this.triggerDownload(photo);
+        this.triggerDownload(photo);
     }
 },
 
@@ -696,8 +675,40 @@ async openImageModal(photo) {
     });
 
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+
+let downloadUrl;
+if (isDtreasure) {
+    // ✅ Minta fresh signed URL dari server saat download (bukan pakai URL preview lama)
+    // URL preview bisa sudah kadaluarsa, download butuh URL baru yang valid
+    try {
+        const token = getOrCreateUserToken();
+        const signRes = await fetch(`${API_BASE}/api/dtreasure/sign-download`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-User-Token': token
+            },
+            body: JSON.stringify({ photoId: photo.id, r2Key: photo.r2Key })
+        });
+        if (!signRes.ok) {
+            const err = await signRes.json().catch(() => ({ error: 'Failed to get download URL' }));
+            throw new Error(err.error || `HTTP ${signRes.status}`);
+        }
+        const signData = await signRes.json();
+        downloadUrl = signData.downloadUrl; // ✅ Fresh signed URL dari server
+    } catch (err) {
+        console.error('Failed to get signed download URL:', err);
+        const toast = document.getElementById('dl-toast');
+        if (toast) {
+            toast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${err.message}`;
+            toast.classList.add('bg-red-800');
+        }
+        return;
+    }
+} else {
     const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-    const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
+    downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
+}
     const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
 
     if (isDtreasure) {
@@ -1032,32 +1043,30 @@ async openImageModal(photo) {
             const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
             
             item.innerHTML = `
-    <div class="dtreasure-img-wrap">
-        <img 
-            src="${placeholderSvg}" 
-            data-src="${fullUrl}" 
-            alt="DTREASURE Content"
-            loading="lazy" 
-            class="loading-shimmer w-full h-auto"
-            decoding="async"
-            draggable="false">
-        <div class="dtreasure-img-shield"
-            oncontextmenu="return false"
-            ondragstart="return false"
-            ontouchstart="this._touchTimer=setTimeout(()=>{},800);return true;"
-            ontouchend="clearTimeout(this._touchTimer)">
-        </div>
-    </div>
-    <div class="masonry-overlay" style="z-index: 20;">
-        <div class="stats">
-            <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-            <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
-        </div>
-        <button class="download-btn" type="button">
-            <i class="fas ${buttonIcon}"></i> ${buttonText}
-        </button>
-    </div>
-`;
+            <img 
+                src="${placeholderSvg}" 
+                data-src="${fullUrl}" 
+                alt="${utils.escapeHtml(photo.title)}" 
+                loading="lazy" 
+                class="loading-shimmer w-full h-auto dtreasure-img-protected"
+                decoding="async"
+                draggable="false"
+                oncontextmenu="return false;"
+                onselectstart="return false;">
+            <div class="dtreasure-shield" 
+                oncontextmenu="return false;" 
+                ondragstart="return false;"
+                onselectstart="return false;"></div>
+            <div class="masonry-overlay">
+                <div class="stats">
+                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
+                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+                </div>
+                <button class="download-btn" type="button">
+                    <i class="fas ${buttonIcon}"></i> ${buttonText}
+                </button>
+            </div>
+        `;
             
             const img = item.querySelector('img');
             const imageObserver = new IntersectionObserver((entries, observer) => {
@@ -1426,6 +1435,63 @@ function initEvents() {
         'cat-zmeme': 'ZMEME',
         'cat-overlay': 'OVERLAY'
     };
+    
+    // --- DTREASURE: Global image protection event listeners ---
+    const dtreasureSection = document.getElementById('dtreasure-section');
+    if (dtreasureSection) {
+        // Blokir klik kanan (contextmenu) di seluruh section DTREASURE
+        dtreasureSection.addEventListener('contextmenu', (e) => {
+            // Izinkan klik kanan HANYA pada tombol download
+            if (e.target.closest('.download-btn')) return;
+            e.preventDefault();
+            return false;
+        });
+
+        // Blokir drag gambar
+        dtreasureSection.addEventListener('dragstart', (e) => {
+            if (e.target.tagName === 'IMG') {
+                e.preventDefault();
+                return false;
+            }
+        });
+
+        // Blokir long-press save di mobile (touchstart lebih dari 500ms)
+        let longPressTimer = null;
+        dtreasureSection.addEventListener('touchstart', (e) => {
+            if (e.target.tagName === 'IMG' || e.target.classList.contains('dtreasure-shield')) {
+                longPressTimer = setTimeout(() => {
+                    e.preventDefault();
+                }, 300);
+            }
+        }, { passive: false });
+
+        dtreasureSection.addEventListener('touchend', () => {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        });
+
+        dtreasureSection.addEventListener('touchmove', () => {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        });
+    }
+
+    // Blokir klik kanan pada modal DTREASURE image shield
+    const modalImgShieldEl = document.getElementById('modal-img-shield');
+    if (modalImgShieldEl) {
+        modalImgShieldEl.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        modalImgShieldEl.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
+    }
 
     Object.entries(categoryMap).forEach(([id, category]) => {
         const btn = document.getElementById(id);

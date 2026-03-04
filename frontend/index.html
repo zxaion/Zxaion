@@ -8,52 +8,6 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
-    <style>
-  /* ✅ DTREASURE Image Protection */
-  .dtreasure-img-shield {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none; /* Blokir long-press iOS */
-    touch-callout: none;
-    cursor: pointer;
-  }
-  .dtreasure-img-wrap {
-    position: relative;
-    overflow: hidden;
-    display: block;
-    width: 100%;
-  }
-  .dtreasure-img-wrap img {
-    -webkit-user-drag: none;
-    user-drag: none;
-    pointer-events: none; /* Blokir interaksi langsung ke <img> */
-    -webkit-user-select: none;
-    user-select: none;
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-  /* Proteksi modal preview image DTREASURE */
-  #modal-img.dtreasure-protected {
-    -webkit-user-drag: none;
-    user-drag: none;
-    pointer-events: none;
-    -webkit-user-select: none;
-    user-select: none;
-  }
-  .modal-img-shield {
-    position: absolute;
-    inset: 0;
-    z-index: 5;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-  }
-</style>
-
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -403,9 +357,13 @@
         
         <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
             <!-- Image Preview -->
-            <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden">
-                <img id="modal-img" class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain" alt="Wallpaper preview">
-            </div>
+<div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden">
+	<div id="modal-img-wrapper" class="relative flex items-center justify-center w-full h-full">
+		<img id="modal-img" class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain" alt="Wallpaper preview">
+		<!-- Transparent shield untuk blokir klik kanan / long press di modal DTREASURE -->
+		<div id="modal-img-shield"></div>
+	</div>
+</div>
             
             <!-- Image Details -->
             <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">
@@ -836,7 +794,8 @@
     </footer>
 
     <!-- PayPal SDK -->
-    <script src="https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture"></script>
+<!-- PayPal SDK — LIVE -->
+<script src="https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture&components=buttons&disable-funding=credit,card"></script>
 
     <script src="/script.js"></script>
 </body>
