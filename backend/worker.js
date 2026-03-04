@@ -1042,14 +1042,14 @@ export default {
         headers.set('X-XSS-Protection',        '1; mode=block');
         headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
         headers.set('Content-Security-Policy',
-          "default-src 'self'; " +
-          "img-src 'self' data: https:; " +
-          "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://www.paypal.com; " +
-          "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
-          "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
-          "connect-src 'self' https://ai.zxaionverse.workers.dev https://www.paypal.com; " +
-          "frame-src https://www.paypal.com;"
-        );
+  "default-src 'self'; " +
+  "img-src 'self' data: https:; " +
+  "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://www.paypal.com https://www.paypalobjects.com; " +
+  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
+  "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
+  "connect-src 'self' https://ai.zxaionverse.workers.dev https://www.paypal.com https://api-m.paypal.com https://*.paypal.com; " +
+  "frame-src https://www.paypal.com https://www.sandbox.paypal.com;"
+);
       }
 
       return new Response(object.body, { headers });

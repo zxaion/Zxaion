@@ -29,7 +29,7 @@ const CREDIT_PACKS = {
 const getOrCreateUserToken = () => {
     let token = localStorage.getItem('zx_user_token');
     if (!token) {
-        token = 'u_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+        token = 'u_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 11);
         localStorage.setItem('zx_user_token', token);
     }
     return token;
@@ -445,10 +445,11 @@ async openImageModal(photo) {
             ? '<i class="fas fa-download mr-2"></i>Download'
             : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
     } else {
-        // ✅ FREE: Direct download link
-        elements.downloadBtn.href = imageUrl + '?download=true';
-        elements.downloadBtn.download = photo.title || 'wallpaper';
+        // FREE: Bersihkan semua state DTREASURE sebelumnya, lalu set download langsung
+        elements.downloadBtn.setAttribute('href', imageUrl + '?download=true');
+        elements.downloadBtn.setAttribute('download', (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg');
         elements.downloadBtn.onclick = null;
+        elements.downloadBtn.removeAttribute('data-photo-id');
         elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
     }
 
@@ -845,17 +846,31 @@ async openImageModal(photo) {
         const photosToShow = state.comitbasePhotos.slice(start, end);
         
         elements.comitbaseGallery.innerHTML = '';
-        
-        photosToShow.forEach((photo, index) => {
-            const item = document.createElement('div');
-            item.className = "masonry-item fade-in";
-            item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
-            
-            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
-            item.innerHTML = `
+
+// ✅ Satu observer untuk semua gambar (mencegah memory leak)
+const imageObserver = new IntersectionObserver((entries, observer) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            const img = entry.target;
+            if (img.dataset.src) {
+                img.src = img.dataset.src;
+                delete img.dataset.src;
+            }
+            observer.unobserve(img);
+        }
+    });
+}, { rootMargin: '50px' });
+
+photosToShow.forEach((photo, index) => {
+    const item = document.createElement('div');
+    item.className = "masonry-item fade-in";
+    item.style.animationDelay = `${index * 50}ms`;
+    item.dataset.photoId = photo.id;
+    
+    const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+    const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+    
+    item.innerHTML = `
             <img 
                 src="${placeholderSvg}" 
                 data-src="${fullUrl}" 
@@ -873,34 +888,22 @@ async openImageModal(photo) {
                 </button>
             </div>
         `;
-            
-            const img = item.querySelector('img');
-            const imageObserver = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        if (img.dataset.src) {
-                            img.src = img.dataset.src;
-                            delete img.dataset.src;
-                        }
-                        observer.unobserve(img);
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
-            imageObserver.observe(img);
-            
-            img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
-            };
-            
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
-            
-            elements.comitbaseGallery.appendChild(item);
-        });
+    
+    const img = item.querySelector('img');
+    imageObserver.observe(img); // ✅ Pakai observer yang sama
+    
+    img.onload = function() {
+        this.classList.remove('loading-shimmer');
+        ui.loadStatsForItem(photo.id, item);
+    };
+    
+    img.onerror = function() {
+        this.classList.remove('loading-shimmer');
+        this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+    };
+    
+    elements.comitbaseGallery.appendChild(item);
+});
         
         // ✅ Event delegation
         this.setupComitbaseEventListeners();
@@ -980,19 +983,29 @@ async openImageModal(photo) {
         
         elements.dtreasureGallery.innerHTML = '';
         
+        
+        // ✅ Satu observer untuk semua gambar (mencegah memory leak)
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        delete img.dataset.src;
+                    }
+                    observer.unobserve(img);
+                }
+            });
+        }, { rootMargin: '50px' });
+        
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = "masonry-item fade-in";
             item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
+            item.dataset.photoId = photo.id;
             
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
-            // ✅ Check if already purchased or lifetime
-            const isFree = state.lifetime || state.purchasedImages.has(photo.id);
-            const buttonText = isFree ? 'Download' : '10 Credits';
-            const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
             
             item.innerHTML = `
             <img 
@@ -1008,25 +1021,13 @@ async openImageModal(photo) {
                     <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
                 </div>
                 <button class="download-btn" type="button">
-                    <i class="fas ${buttonIcon}"></i> ${buttonText}
+                    <i class="fas fa-download"></i> Download
                 </button>
             </div>
         `;
             
             const img = item.querySelector('img');
-            const imageObserver = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        if (img.dataset.src) {
-                            img.src = img.dataset.src;
-                            delete img.dataset.src;
-                        }
-                        observer.unobserve(img);
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
-            imageObserver.observe(img);
+            imageObserver.observe(img); // ✅ Pakai observer yang sama
             
             img.onload = function() {
                 this.classList.remove('loading-shimmer');
@@ -1038,7 +1039,7 @@ async openImageModal(photo) {
                 this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
             };
             
-            elements.dtreasureGallery.appendChild(item);
+            elements.comitbaseGallery.appendChild(item);
         });
         
         // ✅ Event delegation
@@ -1076,22 +1077,27 @@ async openImageModal(photo) {
     },
 
     updateDtreasurePagination() {
-        if (!elements.dtreasurePagination) return;
-        
-        const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
-        
-        elements.dtreasurePagination.classList.remove('hidden');
-        const pageInfo = document.getElementById('dtreasure-page-info');
-        if (pageInfo) {
-            pageInfo.textContent = `Page ${state.currentDtreasurePage} of ${totalPages}`;
-        }
-        
-        const prevBtn = document.getElementById('dtreasure-prev');
-        const nextBtn = document.getElementById('dtreasure-next');
-        
-        if (prevBtn) prevBtn.disabled = state.currentDtreasurePage === 1;
-        if (nextBtn) nextBtn.disabled = state.currentDtreasurePage === totalPages || totalPages === 0;
-    },
+    if (!elements.dtreasurePagination) return;
+    
+    const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
+    
+    if (totalPages <= 1) {
+        elements.dtreasurePagination.classList.add('hidden');
+        return;
+    }
+    
+    elements.dtreasurePagination.classList.remove('hidden');
+    const pageInfo = document.getElementById('dtreasure-page-info');
+    if (pageInfo) {
+        pageInfo.textContent = `Page ${state.currentDtreasurePage} of ${totalPages}`;
+    }
+    
+    const prevBtn = document.getElementById('dtreasure-prev');
+    const nextBtn = document.getElementById('dtreasure-next');
+    
+    if (prevBtn) prevBtn.disabled = state.currentDtreasurePage === 1;
+    if (nextBtn) nextBtn.disabled = state.currentDtreasurePage === totalPages;
+},
 
     changeCategory(category) {
         if (!category) return;
