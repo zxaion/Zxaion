@@ -643,24 +643,27 @@ async openImageModal(photo) {
 
     api.recordDownload(photo.id);
 
-    // Optimistic UI update for download count
+    // ✅ FIX: Optimistic counter — parse format K/M dengan benar
+    const parseFormattedCount = (text) => {
+        if (!text) return 0;
+        const str = text.trim();
+        if (str.endsWith('M')) return Math.round(parseFloat(str) * 1_000_000);
+        if (str.endsWith('K')) return Math.round(parseFloat(str) * 1_000);
+        return parseInt(str) || 0;
+    };
+
     const downloadCounts = document.querySelectorAll(`.download-count[data-id="${photo.id}"]`);
     downloadCounts.forEach(el => {
-        let count = parseInt(el.textContent.replace(/[KM]/g, '')) || 0;
-        if (el.textContent.includes('K')) count *= 1000;
-        if (el.textContent.includes('M')) count *= 1000000;
+        const count = parseFormattedCount(el.textContent);
         el.textContent = utils.formatNumber(count + 1);
     });
 
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
     const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-
-    // ✅ FIX: Selalu include photo.id agar worker dapat verifikasi purchased_images (etag-based)
     const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
     const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
 
     if (isDtreasure) {
-        // ✅ DTREASURE: Use fetch+blob so X-User-Token header is sent for server-side auth
         const token = getOrCreateUserToken();
 
         const loadingToast = document.createElement('div');
@@ -677,16 +680,12 @@ async openImageModal(photo) {
 
             if (!res.ok) {
                 let errMsg = `Download failed (HTTP ${res.status})`;
-                try {
-                    const err = await res.json();
-                    errMsg = err.error || errMsg;
-                } catch (_) {}
+                try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
                 throw new Error(errMsg);
             }
 
             const blob = await res.blob();
             const objectUrl = URL.createObjectURL(blob);
-
             const a = document.createElement('a');
             a.href = objectUrl;
             a.download = filename;
@@ -702,11 +701,9 @@ async openImageModal(photo) {
             console.error('DTREASURE download error:', error);
             loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${error.message}`;
             loadingToast.classList.add('bg-red-800');
-
-            // ✅ Jika error karena auth, tawarkan beli credits
             if (error.message.includes('403') || error.message.toLowerCase().includes('purchase required')) {
                 setTimeout(() => {
-                    alert('❌ Download blocked: You need to purchase this image first.\n\nPlease buy credits and try again.');
+                    alert('❌ Download blocked: Purchase required.\n\nBuy credits to download DTREASURE images.');
                     document.getElementById('buy-credits-btn')?.click();
                 }, 500);
             }
@@ -716,9 +713,7 @@ async openImageModal(photo) {
                 if (toast) toast.remove();
             }, 3500);
         }
-
     } else {
-        // ✅ FREE categories: standard anchor download
         const a = document.createElement('a');
         a.href = downloadUrl;
         a.download = filename;
@@ -1837,6 +1832,8 @@ function initPayPalPurchase(packKey, price) {
           
           // ✅ Re-fetch dari server untuk memastikan sinkronisasi
           await api.fetchCreditBalance();
+          // TAMBAH baris ini tepat setelah: await api.fetchCreditBalance();
+api.invalidateCache(); // ✅ Force re-fetch list di next page load
           
           // ✅ Tampilkan notifikasi sukses
           const successMsg = state.lifetime ?

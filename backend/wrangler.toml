@@ -8,6 +8,9 @@ binding = "DB"
 database_name = "zxwallpaper"
 database_id = "10cce737-02cd-43b8-95d2-00e4efc2d215"
 
+[triggers]
+crons = ["0 * * * *"]   # Scan R2 → D1 otomatis setiap jam
+
 # R2 Buckets (Penyimpanan File)
 [[r2_buckets]]
 binding = "Zxaion_B"
