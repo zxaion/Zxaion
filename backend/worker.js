@@ -132,50 +132,8 @@ export default {
     const PAYPAL_CLIENT_ID        = env.PAYPAL_CLIENT_ID;
     const PAYPAL_CLIENT_SECRET_ID = env.PAYPAL_CLIENT_SECRET_ID;
     const PAYPAL_WEBHOOK_ID       = env.PAYPAL_WEBHOOK_ID;
-    const PAYPAL_BASE = 'https://api-m.paypal.com'; // ✅ LIVE — bukan sandbox
+    const PAYPAL_BASE = 'https://api-m.paypal.com'; // ✅ LIVE endpoint
 
-// ================================================================
-    // IMAGE URL SIGNING — HMAC-SHA256
-    // Mencegah URL gambar DTREASURE diakses langsung dari DevTools
-    // ================================================================
-    const IMAGE_SIGN_SECRET = env.JWT || 'fallback-dev-only-not-for-prod';
-    const PREVIEW_TTL_SECONDS = 300; // signed URL preview kadaluarsa 5 menit
-
-    async function generateSignature(message, secret) {
-      const encoder  = new TextEncoder();
-      const keyData  = encoder.encode(secret);
-      const msgData  = encoder.encode(message);
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw', keyData,
-        { name: 'HMAC', hash: 'SHA-256' },
-        false, ['sign']
-      );
-      const sigBuffer = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
-      return Array.from(new Uint8Array(sigBuffer))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-    }
-
-    async function createSignedPreviewUrl(r2Key) {
-      const expiresAt = Math.floor(Date.now() / 1000) + PREVIEW_TTL_SECONDS;
-      const message   = `${r2Key}:${expiresAt}`;
-      const sig       = await generateSignature(message, IMAGE_SIGN_SECRET);
-      return `/api/dtreasure/img/${encodeURIComponent(r2Key)}?exp=${expiresAt}&sig=${sig}`;
-    }
-
-    async function verifySignedUrl(r2Key, expiresAt, sig) {
-      const now = Math.floor(Date.now() / 1000);
-      if (!expiresAt || now > parseInt(expiresAt, 10)) return false; // kadaluarsa
-      const message      = `${r2Key}:${expiresAt}`;
-      const expectedSig  = await generateSignature(message, IMAGE_SIGN_SECRET);
-      // Constant-time comparison untuk mencegah timing attack
-      if (expectedSig.length !== sig.length) return false;
-      let diff = 0;
-      for (let i = 0; i < expectedSig.length; i++) {
-        diff |= expectedSig.charCodeAt(i) ^ sig.charCodeAt(i);
-      }
-      return diff === 0;
-    }
     // ----------------------------------------------------------------
     // CORS — multi-origin support
     // ----------------------------------------------------------------
@@ -526,9 +484,8 @@ export default {
       }
     }
 
-// ================================================================
-    // ENDPOINT: DTREASURE list — signed preview URL per gambar
-    // URL preview kadaluarsa setiap 5 menit, tidak bisa dibuka langsung
+    // ================================================================
+    // ENDPOINT: DTREASURE list — baca dari D1
     // ================================================================
     if (path === '/api/dtreasure/list' && method === 'GET') {
       if (!treasureBucket) return new Response('[]', { headers: corsHeaders });
@@ -537,23 +494,16 @@ export default {
           "SELECT * FROM images WHERE bucket = 'dtreasure' ORDER BY uploaded DESC LIMIT 500"
         ).all();
 
-        // ✅ Setiap URL preview ditandatangani HMAC, kadaluarsa 5 menit
-        const photos = await Promise.all(results.map(async row => ({
-          id:             row.id,
-          title:          row.title,
-          category:       'DTREASURE',
-          searchCategory: 'DTREASURE',
-          url:            await createSignedPreviewUrl(row.r2Key || row.r2_key),
-          r2Key:          row.r2Key || row.r2_key, // ✅ Tetap kirim r2Key untuk generate download URL baru
-          uploaded:       row.uploaded,
-        })));
+        const photos = results.map(row => ({
+          id:       row.id,
+          title:    row.title,
+          category: 'DTREASURE',
+          url:      `/api/dtreasure/img/${encodeURIComponent(row.r2_key)}`,
+          uploaded: row.uploaded,
+        }));
 
         return new Response(JSON.stringify(photos), {
-          headers: {
-            ...corsHeaders,
-            'Content-Type':  'application/json',
-            'Cache-Control': 'no-store', // ✅ Jangan cache response list karena signed URL punya TTL
-          },
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       } catch (e) {
         console.error('/api/dtreasure/list error:', e.message);
@@ -953,80 +903,9 @@ export default {
         });
       }
     }
-    
+
     // ================================================================
-    // ENDPOINT: Generate fresh signed download URL untuk DTREASURE
-    // Hanya bisa dipanggil oleh user yang sudah purchase / lifetime
-    // ================================================================
-    if (path === '/api/dtreasure/sign-download' && method === 'POST') {
-      const userId = getUserToken(request);
-
-      if (!userId || userId === 'anonymous') {
-        return new Response(JSON.stringify({ error: 'Authentication required' }), {
-          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      let body;
-      try {
-        body = await request.json();
-      } catch (e) {
-        return new Response(JSON.stringify({ error: 'Invalid request body' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const { photoId, r2Key } = body;
-      if (!photoId || !r2Key) {
-        return new Response(JSON.stringify({ error: 'Missing photoId or r2Key' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      try {
-        // Verifikasi user boleh download (lifetime atau sudah purchase)
-        const userRecord = await DB.prepare(
-          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-        ).bind(userId).first();
-
-        const hasLifetime = userRecord && !!userRecord.lifetime;
-
-        if (!hasLifetime) {
-          const purchased = await DB.prepare(
-            'SELECT 1 FROM purchased_images WHERE user_id = ? AND (photo_id = ? OR photo_id = ?)'
-          ).bind(userId, photoId, r2Key).first();
-
-          if (!purchased) {
-            return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
-              status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
-        }
-
-        // ✅ Generate fresh signed URL khusus untuk download (TTL lebih pendek: 2 menit)
-        const DOWNLOAD_TTL = 120;
-        const expiresAt    = Math.floor(Date.now() / 1000) + DOWNLOAD_TTL;
-        const message      = `${r2Key}:${expiresAt}`;
-        const sig          = await generateSignature(message, IMAGE_SIGN_SECRET);
-
-        const downloadUrl = `${url.origin}/api/dtreasure/img/${encodeURIComponent(r2Key)}` +
-          `?download=true&photoId=${encodeURIComponent(photoId)}&exp=${expiresAt}&sig=${sig}`;
-
-        return new Response(JSON.stringify({ downloadUrl }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-
-      } catch (e) {
-        console.error('sign-download error:', e.message);
-        return new Response(JSON.stringify({ error: 'Failed to generate download URL' }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-    }
-
-// ================================================================
     // ENDPOINT: Serve images dari R2
-    // DTREASURE: Semua request (preview & download) divalidasi
     // ================================================================
     if (
       path.startsWith('/api/img/') ||
@@ -1035,71 +914,55 @@ export default {
     ) {
       const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
-      if (isDtreasure) {
-        const r2Key      = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
-        const isDownload = url.searchParams.get('download') === 'true';
-        const sig        = url.searchParams.get('sig')  || '';
-        const exp        = url.searchParams.get('exp')  || '';
-
-        // ----------------------------------------------------------------
-        // STEP 1: Validasi signed URL untuk SEMUA request (preview & download)
-        // Ini mencegah URL yang dikopi dari DevTools dibuka langsung
-        // ----------------------------------------------------------------
-        const signatureValid = await verifySignedUrl(r2Key, exp, sig);
-        if (!signatureValid) {
-          return new Response(
-            JSON.stringify({ error: 'Invalid or expired image URL. Please refresh the page.' }),
-            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+      // Server-side auth hanya untuk download DTREASURE
+      if (isDtreasure && url.searchParams.get('download') === 'true') {
+        const userId = getUserToken(request);
+        if (!userId || userId === 'anonymous') {
+          return new Response(JSON.stringify({ error: 'Authentication required' }), {
+            status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         }
 
-        // ----------------------------------------------------------------
-        // STEP 2: Untuk download, tambahan validasi pembelian
-        // ----------------------------------------------------------------
-        if (isDownload) {
-          const userId = getUserToken(request);
-          if (!userId || userId === 'anonymous') {
-            return new Response(
-              JSON.stringify({ error: 'Authentication required' }),
-              { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
+        try {
+          const userRecord = await DB.prepare(
+            'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+          ).bind(userId).first();
 
-          try {
-            const userRecord = await DB.prepare(
-              'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-            ).bind(userId).first();
+          const hasLifetime = userRecord && !!userRecord.lifetime;
 
-            const hasLifetime = userRecord && !!userRecord.lifetime;
+          if (!hasLifetime) {
+            const photoIdFromQuery = url.searchParams.get('photoId');
+            const rawKey           = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
 
-            if (!hasLifetime) {
-              const photoIdFromQuery = url.searchParams.get('photoId') || r2Key;
+            let purchasedRecord = null;
 
-              // Cek dengan photoId (primary) dan r2Key (fallback)
-              const purchased = await DB.prepare(
-                'SELECT 1 FROM purchased_images WHERE user_id = ? AND (photo_id = ? OR photo_id = ?)'
-              ).bind(userId, photoIdFromQuery, r2Key).first();
-
-              if (!purchased) {
-                return new Response(
-                  JSON.stringify({ error: 'Purchase required to download this image' }),
-                  { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
-              }
+            if (photoIdFromQuery) {
+              purchasedRecord = await DB.prepare(
+                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+              ).bind(userId, photoIdFromQuery).first();
             }
-          } catch (e) {
-            console.error('Auth check error:', e.message);
-            return new Response(
-              JSON.stringify({ error: 'Authorization check failed' }),
-              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
+
+            // Fallback: cek dengan rawKey (backward compat data lama)
+            if (!purchasedRecord) {
+              purchasedRecord = await DB.prepare(
+                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+              ).bind(userId, rawKey).first();
+            }
+
+            if (!purchasedRecord) {
+              return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
+                status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              });
+            }
           }
+        } catch (e) {
+          console.error('Auth check error:', e.message);
+          return new Response(JSON.stringify({ error: 'Authorization check failed' }), {
+            status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         }
       }
 
-      // ----------------------------------------------------------------
-      // Serve image dari R2
-      // ----------------------------------------------------------------
       let bucket, prefix;
       if (path.startsWith('/api/comitbase/img/')) {
         bucket = comitbaseBucket;
@@ -1123,42 +986,20 @@ export default {
         headers.set('Access-Control-Allow-Origin',
           ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
         headers.set('Vary', 'Origin');
-
-        if (isDtreasure) {
-          // ✅ Proteksi cache & embedding untuk DTREASURE
-          headers.set('Cache-Control',                     'private, no-store, no-cache');
-          headers.set('X-Content-Type-Options',            'nosniff');
-          headers.set('X-Robots-Tag',                      'noindex, nofollow');
-          headers.set('Content-Security-Policy',           "default-src 'none'");
-          // ✅ Blokir hotlinking: hanya izinkan dari domain kita
-          const referer = request.headers.get('Referer') || '';
-          const validReferer = ALLOWED_ORIGINS.some(o => referer.startsWith(o));
-          // Izinkan jika referer kosong (fetch dari worker sendiri) atau dari domain kita
-          if (referer && !validReferer) {
-            return new Response(
-              JSON.stringify({ error: 'Direct access not permitted' }),
-              { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
-        } else {
-          headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-        }
+        headers.set('Cache-Control',
+          isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
 
         if (url.searchParams.get('download') === 'true') {
           const safeFilename = key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_');
           headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
-        } else if (isDtreasure) {
-          // ✅ Untuk preview, paksa inline & tidak bisa disimpan via toolbar browser
-          headers.set('Content-Disposition', 'inline');
         }
 
         return new Response(object.body, { headers });
       } catch (e) {
         console.error('Image serve error:', e.message);
-        return new Response(
-          JSON.stringify({ error: 'Failed to fetch image' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
     }
 

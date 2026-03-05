@@ -90,7 +90,7 @@
 
         // Custom logo configuration - Set your logo URL here
         window.customLogo = {
-            enabled: false, // Set to true to use custom logo
+            enabled: true, // Set to true to use custom logo
             url: 'https://drive.google.com/file/d/1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM/view?usp=drivesdk', // Your custom logo image URL
             alt: 'ZXAION VERSE Logo'
         };
@@ -110,7 +110,7 @@
                             <img id="logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png" alt="Logo" class="hidden w-full h-full object-cover">
                         </div>
                     </div>
-                    <span class="font-black text-lg md:text-xl tracking-tight uppercase dark:text-white hidden sm:block">ZXAION VERSE</span>
+                    <span class="font-black text-lg md:text-xl tracking-tight uppercase dark:text-white hidden sm:block">ZXAION GALLERY</span>
                 </a>
             </div>
 
@@ -221,7 +221,7 @@
         <div class="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/80 transition-colors duration-500"></div>
         <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
         <div class="max-w-4xl mx-auto text-center animate-fade-in relative z-10">
-            <h1 id="hero-title" class="text-3xl md:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tight drop-shadow-2xl">ZXAION VERSE</h1>
+            <h1 id="hero-title" class="text-3xl md:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tight drop-shadow-2xl">ZXAION GALLERY</h1>
             <p id="hero-desc" class="text-sm md:text-lg lg:text-xl text-white/90 leading-relaxed max-w-2xl mx-auto font-medium drop-shadow-lg">Multi high quality wallpaper make your device more perfect</p>
             <div id="hero-actions" class="mt-8 flex flex-wrap justify-center gap-4 empty:hidden"></div>
         </div>
@@ -357,13 +357,9 @@
         
         <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
             <!-- Image Preview -->
-<div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden">
-	<div id="modal-img-wrapper" class="relative flex items-center justify-center w-full h-full">
-		<img id="modal-img" class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain" alt="Wallpaper preview">
-		<!-- Transparent shield untuk blokir klik kanan / long press di modal DTREASURE -->
-		<div id="modal-img-shield"></div>
-	</div>
-</div>
+            <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden">
+                <img id="modal-img" class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain" alt="Wallpaper preview">
+            </div>
             
             <!-- Image Details -->
             <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">
@@ -793,9 +789,8 @@
         </div>
     </footer>
 
-    <!-- PayPal SDK -->
-<!-- PayPal SDK — LIVE -->
-<script src="https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture&components=buttons&disable-funding=credit,card"></script>
+<!-- ✅ PayPal LIVE SDK — ganti YOUR_LIVE_CLIENT_ID dengan Live Client ID dari PayPal Dashboard -->
+<script src="https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture"></script>
 
     <script src="/script.js"></script>
 </body>
