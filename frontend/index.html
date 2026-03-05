@@ -356,10 +356,25 @@
         </button>
         
         <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
-            <!-- Image Preview -->
-            <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden">
-                <img id="modal-img" class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain" alt="Wallpaper preview">
-            </div>
+            <!-- AFTER (GANTI DENGAN INI): -->
+<!-- Image Preview -->
+<div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden" id="modal-img-wrapper">
+    <img
+        id="modal-img"
+        class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain select-none"
+        alt="Wallpaper preview"
+        draggable="false"
+        style="-webkit-user-drag: none; -webkit-touch-callout: none; user-select: none;"
+    >
+    <!-- Transparent shield: blocks right-click & long-press save on DTREASURE images -->
+    <div
+        id="modal-img-shield"
+        class="hidden absolute inset-0 z-10"
+        style="cursor: default; -webkit-tap-highlight-color: transparent;"
+        oncontextmenu="return false;"
+        ondragstart="return false;"
+    ></div>
+</div>
             
             <!-- Image Details -->
             <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">

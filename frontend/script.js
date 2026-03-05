@@ -24,6 +24,13 @@ const CREDIT_PACKS = {
     '99$':  { credits: 7000, bonus: 2300, label: 'MEGA', price: 99, color: 'from-pink-400 to-rose-500' },
     '125$': { credits: 'lifetime', bonus: 0, label: 'LIFETIME PRO', price: 125, color: 'from-amber-400 to-orange-500' }
 };
+/**
+ * Prevents mobile long-press "Save Image" on protected images.
+ * Used as named function so addEventListener/removeEventListener works correctly.
+ */
+function preventTouchSave(e) {
+    e.preventDefault();
+}
 
 // --- User Token ---
 const getOrCreateUserToken = () => {
@@ -422,6 +429,7 @@ async openImageModal(photo) {
         ? photo.url
         : `${API_BASE}${photo.url}`;
 
+    // Set image src
     elements.modalImg.src = imageUrl;
     elements.modalTitle.textContent = photo.title || 'Wallpaper';
     elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
@@ -430,8 +438,33 @@ async openImageModal(photo) {
 
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
 
+    // ─── DTREASURE Image Protection ───────────────────────────────────────────
+    const shield = document.getElementById('modal-img-shield');
+    if (shield) {
+        if (isDtreasure) {
+            // Activate transparent shield over the img to block right-click / long-press
+            shield.classList.remove('hidden');
+            shield.oncontextmenu = (e) => { e.preventDefault(); return false; };
+            shield.ondragstart   = (e) => { e.preventDefault(); return false; };
+            // Also block on the img itself
+            elements.modalImg.oncontextmenu = (e) => { e.preventDefault(); return false; };
+            elements.modalImg.ondragstart   = (e) => { e.preventDefault(); return false; };
+            // Mobile long-press prevention
+            elements.modalImg.addEventListener('touchstart', preventTouchSave, { passive: false });
+        } else {
+            // Non-DTREASURE: remove shield and unlock native behaviour
+            shield.classList.add('hidden');
+            shield.oncontextmenu = null;
+            shield.ondragstart   = null;
+            elements.modalImg.oncontextmenu = null;
+            elements.modalImg.ondragstart   = null;
+            elements.modalImg.removeEventListener('touchstart', preventTouchSave);
+        }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     if (isDtreasure) {
-        // ✅ DTREASURE: Replace <a> with a <button> so credit check runs via handleDownload
+        // DTREASURE: Replace <a> with a <button> so credit check runs via handleDownload
         // Never expose the raw download URL as an href
         elements.downloadBtn.removeAttribute('href');
         elements.downloadBtn.removeAttribute('download');
@@ -441,11 +474,12 @@ async openImageModal(photo) {
         };
 
         const isFree = state.lifetime || state.purchasedImages.has(photo.id);
+
         elements.downloadBtn.innerHTML = isFree
             ? '<i class="fas fa-download mr-2"></i>Download'
             : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
     } else {
-        // ✅ FREE: Direct download link
+        // FREE: Direct download link
         elements.downloadBtn.href = imageUrl + '?download=true';
         elements.downloadBtn.download = photo.title || 'wallpaper';
         elements.downloadBtn.onclick = null;
@@ -994,24 +1028,36 @@ async openImageModal(photo) {
             const buttonText = isFree ? 'Download' : '10 Credits';
             const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
             
-            item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title)}" 
-                loading="lazy" 
-                class="loading-shimmer w-full h-auto"
-                decoding="async">
-            <div class="masonry-overlay">
-                <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
-                </div>
-                <button class="download-btn" type="button">
-                    <i class="fas ${buttonIcon}"></i> ${buttonText}
-                </button>
-            </div>
-        `;
+            // AFTER (GANTI DENGAN INI):
+item.innerHTML = `
+<div class="dtreasure-img-wrapper relative" style="line-height:0;">
+    <img 
+        src="${placeholderSvg}" 
+        data-src="${fullUrl}" 
+        alt="${utils.escapeHtml(photo.title)}" 
+        loading="lazy" 
+        class="loading-shimmer w-full h-auto select-none"
+        decoding="async"
+        draggable="false"
+        style="-webkit-user-drag: none; -webkit-touch-callout: none; user-select: none;">
+    <!-- Transparent shield blocks right-click/long-press on thumbnail -->
+    <div
+        class="absolute inset-0 z-[1]"
+        style="cursor:pointer; -webkit-tap-highlight-color:transparent;"
+        oncontextmenu="return false;"
+        ondragstart="return false;">
+    </div>
+</div>
+<div class="masonry-overlay" style="z-index:2;">
+    <div class="stats">
+        <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
+        <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+    </div>
+    <button class="download-btn" type="button">
+        <i class="fas ${buttonIcon}"></i> ${buttonText}
+    </button>
+</div>
+`;
             
             const img = item.querySelector('img');
             const imageObserver = new IntersectionObserver((entries, observer) => {
@@ -1048,32 +1094,47 @@ async openImageModal(photo) {
     
     // ✅ NEW METHOD: Setup dtreasure event listeners
     setupDtreasureEventListeners() {
-        if (this.dtreasureClickHandler) {
-            elements.dtreasureGallery.removeEventListener('click', this.dtreasureClickHandler);
+    if (this.dtreasureClickHandler) {
+        elements.dtreasureGallery.removeEventListener('click', this.dtreasureClickHandler);
+    }
+    // Remove old context/drag listeners if any
+    if (this._dtreasureContextHandler) {
+        elements.dtreasureGallery.removeEventListener('contextmenu', this._dtreasureContextHandler);
+        elements.dtreasureGallery.removeEventListener('dragstart', this._dtreasureContextHandler);
+    }
+    
+    const handleClick = (e) => {
+        const downloadBtn = e.target.closest('.download-btn');
+        if (downloadBtn) {
+            e.stopPropagation();
+            const item = downloadBtn.closest('.masonry-item');
+            const photoId = item?.dataset.photoId;
+            const photo = state.dtreasurePhotos.find(p => p.id === photoId);
+            if (photo) ui.handleDownload(photo);
+            return;
         }
         
-        const handleClick = (e) => {
-            const downloadBtn = e.target.closest('.download-btn');
-            if (downloadBtn) {
-                e.stopPropagation();
-                const item = downloadBtn.closest('.masonry-item');
-                const photoId = item.dataset.photoId;
-                const photo = state.dtreasurePhotos.find(p => p.id === photoId);
-                if (photo) ui.handleDownload(photo);
-                return;
-            }
-            
-            const item = e.target.closest('.masonry-item');
-            if (item && !e.target.closest('.download-btn')) {
-                const photoId = item.dataset.photoId;
-                const photo = state.dtreasurePhotos.find(p => p.id === photoId);
-                if (photo) ui.openImageModal(photo);
-            }
-        };
-        
-        this.dtreasureClickHandler = handleClick;
-        elements.dtreasureGallery.addEventListener('click', handleClick);
-    },
+        const item = e.target.closest('.masonry-item');
+        if (item && !e.target.closest('.download-btn')) {
+            const photoId = item.dataset.photoId;
+            const photo = state.dtreasurePhotos.find(p => p.id === photoId);
+            if (photo) ui.openImageModal(photo);
+        }
+    };
+    
+    // Block right-click "Save Image As" on entire DTREASURE gallery
+    const blockSave = (e) => {
+        e.preventDefault();
+        return false;
+    };
+    
+    this.dtreasureClickHandler = handleClick;
+    this._dtreasureContextHandler = blockSave;
+    
+    elements.dtreasureGallery.addEventListener('click', handleClick);
+    elements.dtreasureGallery.addEventListener('contextmenu', blockSave);
+    elements.dtreasureGallery.addEventListener('dragstart', blockSave);
+},
 
     updateDtreasurePagination() {
         if (!elements.dtreasurePagination) return;
