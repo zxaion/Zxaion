@@ -63,6 +63,63 @@ class AppState {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  DTREASURE PROTECTION — Module-level guards & Blob URL loader
+// ═══════════════════════════════════════════════════════════════
+
+/** Keyboard listener guard (aktif hanya saat kategori DTREASURE) */
+let dtreasureKeyboardGuard = null;
+
+/** Named contextmenu handler untuk modal image (agar bisa di-remove bersih) */
+let modalImgContextMenuHandler = null;
+
+/**
+ * Blob URL cache: real CDN URL → sementara blob:// URL.
+ * Blob URL hancur sendiri saat tab ditutup. Real URL tidak pernah
+ * terekspos sebagai src di DOM — menyulitkan pencurian via inspect element.
+ */
+const dtreasureBlobCache = new Map();
+
+/**
+ * Ambil gambar DTREASURE via fetch (dengan auth token) dan kembalikan
+ * sebagai blob:// URL sementara.
+ * @param {string} url - URL asli gambar
+ * @returns {Promise<string|null>} blob URL, atau null jika gagal (fallback ke url asli)
+ */
+async function loadDtreasureImageAsBlob(url) {
+    if (!url) return null;
+    if (dtreasureBlobCache.has(url)) return dtreasureBlobCache.get(url);
+
+    try {
+        const token = getOrCreateUserToken();
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: { 'X-User-Token': token },
+            cache: 'force-cache'
+        });
+        if (!res.ok) return null;
+
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        dtreasureBlobCache.set(url, blobUrl);
+        return blobUrl;
+    } catch (e) {
+        console.warn('[DTREASURE Shield] Blob load failed, using direct URL:', e.message);
+        return null;
+    }
+}
+
+/**
+ * Revoke semua blob URL yang tersimpan di cache.
+ * Dipanggil saat galeri di-render ulang agar tidak memory leak.
+ */
+function revokeDtreasureBlobCache() {
+    dtreasureBlobCache.forEach((blobUrl) => {
+        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+    });
+    dtreasureBlobCache.clear();
+}
+
 const state = new AppState();
 
 // --- DOM Elements ---
@@ -411,51 +468,77 @@ const ui = {
 
     // Di bagian ui.openImageModal()
 async openImageModal(photo) {
-    if (!photo) return;
+        if (!photo) return;
 
-    state.currentImageId = photo.id;
-    api.recordView(photo.id);
+        state.currentImageId = photo.id;
+        api.recordView(photo.id);
 
-    const stats = await api.fetchImageStats(photo.id);
+        const stats = await api.fetchImageStats(photo.id);
 
-    const imageUrl = photo.url.startsWith('http')
-        ? photo.url
-        : `${API_BASE}${photo.url}`;
+        const imageUrl = photo.url.startsWith('http')
+            ? photo.url
+            : `${API_BASE}${photo.url}`;
 
-    elements.modalImg.src = imageUrl;
-    elements.modalTitle.textContent = photo.title || 'Wallpaper';
-    elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
-    elements.modalViewCount.textContent = utils.formatNumber(stats.views);
-    elements.modalDownloadCount.textContent = utils.formatNumber(stats.downloads);
+        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        const isFree = isDtreasure && (state.lifetime || state.purchasedImages.has(photo.id));
 
-    const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        if (modalImgContextMenuHandler) {
+            elements.modalImg.removeEventListener('contextmenu', modalImgContextMenuHandler);
+            modalImgContextMenuHandler = null;
+        }
 
-    if (isDtreasure) {
-        // ✅ DTREASURE: Replace <a> with a <button> so credit check runs via handleDownload
-        // Never expose the raw download URL as an href
-        elements.downloadBtn.removeAttribute('href');
-        elements.downloadBtn.removeAttribute('download');
-        elements.downloadBtn.onclick = (e) => {
-            e.preventDefault();
-            ui.handleDownload(photo);
-        };
+        if (isDtreasure) {
+            modalImgContextMenuHandler = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            };
+            elements.modalImg.addEventListener('contextmenu', modalImgContextMenuHandler);
+            elements.modalImg.setAttribute('draggable', 'false');
+            elements.modalImg.style.webkitUserDrag = 'none';
 
-        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
-        elements.downloadBtn.innerHTML = isFree
-            ? '<i class="fas fa-download mr-2"></i>Download'
-            : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
-    } else {
-        // ✅ FREE: Direct download link
-        elements.downloadBtn.href = imageUrl + '?download=true';
-        elements.downloadBtn.download = photo.title || 'wallpaper';
-        elements.downloadBtn.onclick = null;
-        elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-    }
+            if (isFree) {
+                elements.modalImg.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22800%22 height=%22600%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22800%22 height=%22600%22/%3E%3Ctext fill=%22%239ca3af%22 font-family=%22sans-serif%22 font-size=%2220%22 font-weight=%22bold%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%220.35em%22%3ELoading...%3C/text%3E%3C/svg%3E';
+                loadDtreasureImageAsBlob(imageUrl).then(blobUrl => {
+                    if (state.currentImageId === photo.id) {
+                        elements.modalImg.src = blobUrl || imageUrl;
+                    }
+                });
+            } else {
+                elements.modalImg.src = imageUrl;
+            }
+        } else {
+            elements.modalImg.src = imageUrl;
+            elements.modalImg.removeAttribute('draggable');
+            elements.modalImg.style.webkitUserDrag = '';
+        }
 
-    elements.imageModal.classList.remove('hidden');
-    elements.imageModal.classList.add('flex');
-    document.body.style.overflow = 'hidden';
-},
+        elements.modalTitle.textContent = photo.title || 'Wallpaper';
+        elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
+        elements.modalViewCount.textContent = utils.formatNumber(stats.views);
+        elements.modalDownloadCount.textContent = utils.formatNumber(stats.downloads);
+
+        if (isDtreasure) {
+            elements.downloadBtn.removeAttribute('href');
+            elements.downloadBtn.removeAttribute('download');
+            elements.downloadBtn.onclick = (e) => {
+                e.preventDefault();
+                ui.handleDownload(photo);
+            };
+            elements.downloadBtn.innerHTML = isFree
+                ? '<i class="fas fa-download mr-2"></i>Download'
+                : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
+        } else {
+            elements.downloadBtn.href = imageUrl + '?download=true';
+            elements.downloadBtn.download = photo.title || 'wallpaper';
+            elements.downloadBtn.onclick = null;
+            elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+        }
+
+        elements.imageModal.classList.remove('hidden');
+        elements.imageModal.classList.add('flex');
+        document.body.style.overflow = 'hidden';
+    },
 
     renderGallery() {
         if (!elements.galleryContainer) return;
@@ -959,49 +1042,51 @@ async openImageModal(photo) {
     },
 
     renderDtreasureGallery() {
-        if (!elements.dtreasureGallery) return;
-        
-        if (state.dtreasurePhotos.length === 0) {
-            elements.dtreasureGallery.innerHTML = `
+    if (!elements.dtreasureGallery) return;
+    
+    revokeDtreasureBlobCache();
+    
+    if (state.dtreasurePhotos.length === 0) {
+        elements.dtreasureGallery.innerHTML = `
             <div class="col-span-full text-center py-20">
                 <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
                     <i class="fas fa-gem text-3xl text-gray-400"></i>
                 </div>
                 <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
-            </div>
-        `;
-            this.updateDtreasurePagination();
-            return;
-        }
+            </div>`;
+        this.updateDtreasurePagination();
+        return;
+    }
+    
+    const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    const photosToShow = state.dtreasurePhotos.slice(start, end);
+    
+    elements.dtreasureGallery.innerHTML = '';
+    
+    photosToShow.forEach((photo, index) => {
+        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
         
-        const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
-        const end = start + ITEMS_PER_PAGE;
-        const photosToShow = state.dtreasurePhotos.slice(start, end);
+        const item = document.createElement('div');
+        item.className = `masonry-item fade-in${!isFree ? ' dt-protected' : ''}`;
+        item.style.animationDelay = `${index * 50}ms`;
+        item.dataset.photoId = photo.id;
         
-        elements.dtreasureGallery.innerHTML = '';
+        const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+        const buttonText = isFree ? 'Download' : '10 Credits';
+        const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
         
-        photosToShow.forEach((photo, index) => {
-            const item = document.createElement('div');
-            item.className = "masonry-item fade-in";
-            item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
-            
-            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
-            // ✅ Check if already purchased or lifetime
-            const isFree = state.lifetime || state.purchasedImages.has(photo.id);
-            const buttonText = isFree ? 'Download' : '10 Credits';
-            const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
-            
-            item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title)}" 
-                loading="lazy" 
+        item.innerHTML = `
+            <img
+                src="${placeholderSvg}"
+                data-src="${fullUrl}"
+                alt="${utils.escapeHtml(photo.title)}"
+                loading="lazy"
                 class="loading-shimmer w-full h-auto"
-                decoding="async">
+                decoding="async"
+                draggable="false">
+            ${!isFree ? `<div class="dtreasure-shield" aria-hidden="true"></div>` : ''}
             <div class="masonry-overlay">
                 <div class="stats">
                     <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
@@ -1010,67 +1095,126 @@ async openImageModal(photo) {
                 <button class="download-btn" type="button">
                     <i class="fas ${buttonIcon}"></i> ${buttonText}
                 </button>
-            </div>
-        `;
+            </div>`;
+        
+        if (!isFree) {
+            const shield = item.querySelector('.dtreasure-shield');
             
-            const img = item.querySelector('img');
-            const imageObserver = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        if (img.dataset.src) {
-                            img.src = img.dataset.src;
-                            delete img.dataset.src;
-                        }
-                        observer.unobserve(img);
-                    }
-                });
-            }, { rootMargin: '50px' });
+            item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }, true);
             
-            imageObserver.observe(img);
+            item.addEventListener('dragstart', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, true);
             
-            img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
-            };
+            item.addEventListener('selectstart', (e) => {
+                e.preventDefault();
+            }, true);
             
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
+            item.addEventListener('copy', (e) => {
+                e.preventDefault();
+            }, true);
             
-            elements.dtreasureGallery.appendChild(item);
+            if (shield) {
+                let longPressTimer = null;
+                shield.addEventListener('touchstart', () => {
+                    longPressTimer = setTimeout(() => {
+                        shield.style.pointerEvents = 'none';
+                        requestAnimationFrame(() => {
+                            shield.style.pointerEvents = '';
+                        });
+                    }, 350);
+                }, { passive: true });
+                shield.addEventListener('touchend', () => clearTimeout(longPressTimer), { passive: true });
+                shield.addEventListener('touchmove', () => clearTimeout(longPressTimer), { passive: true });
+            }
+        }
+        
+        const img = item.querySelector('img');
+        
+        img.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
         });
         
-        // ✅ Event delegation
-        this.setupDtreasureEventListeners();
-        this.updateDtreasurePagination();
-    },
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        delete img.dataset.src;
+                    }
+                    observer.unobserve(img);
+                }
+            });
+        }, { rootMargin: '50px' });
+        
+        imageObserver.observe(img);
+        
+        img.onload = function() {
+            this.classList.remove('loading-shimmer');
+            ui.loadStatsForItem(photo.id, item);
+        };
+        
+        img.onerror = function() {
+            this.classList.remove('loading-shimmer');
+            this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+        };
+        
+        elements.dtreasureGallery.appendChild(item);
+    });
+    
+    this.setupDtreasureEventListeners();
+    this.updateDtreasurePagination();
+},
     
     // ✅ NEW METHOD: Setup dtreasure event listeners
     setupDtreasureEventListeners() {
+        // Bersihkan listener lama
         if (this.dtreasureClickHandler) {
             elements.dtreasureGallery.removeEventListener('click', this.dtreasureClickHandler);
         }
-        
+        if (this.dtreasureContextHandler) {
+            elements.dtreasureGallery.removeEventListener('contextmenu', this.dtreasureContextHandler, true);
+        }
+
+        // [P7] Container-level contextmenu block — catch-all layer
+        // Memblokir right-click bahkan jika shield gagal ter-render
+        this.dtreasureContextHandler = (e) => {
+            const protectedItem = e.target.closest('.masonry-item.dt-protected');
+            if (protectedItem) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        };
+        elements.dtreasureGallery.addEventListener('contextmenu', this.dtreasureContextHandler, true);
+
+        // Click handler: download button prioritas, sisanya buka modal
         const handleClick = (e) => {
             const downloadBtn = e.target.closest('.download-btn');
             if (downloadBtn) {
                 e.stopPropagation();
                 const item = downloadBtn.closest('.masonry-item');
-                const photoId = item.dataset.photoId;
+                const photoId = item?.dataset.photoId;
                 const photo = state.dtreasurePhotos.find(p => p.id === photoId);
                 if (photo) ui.handleDownload(photo);
                 return;
             }
-            
+
+            // Klik pada shield atau area item lainnya → buka modal
             const item = e.target.closest('.masonry-item');
-            if (item && !e.target.closest('.download-btn')) {
+            if (item) {
                 const photoId = item.dataset.photoId;
                 const photo = state.dtreasurePhotos.find(p => p.id === photoId);
                 if (photo) ui.openImageModal(photo);
             }
         };
-        
+
         this.dtreasureClickHandler = handleClick;
         elements.dtreasureGallery.addEventListener('click', handleClick);
     },
@@ -1097,6 +1241,11 @@ async openImageModal(photo) {
         if (!category) return;
         
         state.currentCategory = category;
+        // [P8] Keyboard Guard: deaktifkan saat meninggalkan DTREASURE
+        if (category !== 'DTREASURE' && dtreasureKeyboardGuard) {
+            document.removeEventListener('keydown', dtreasureKeyboardGuard, true);
+            dtreasureKeyboardGuard = null;
+        }
         state.currentAnimeAlbum = null;
         state.resetPagination();
         state.searchQuery = '';
@@ -1133,6 +1282,34 @@ async openImageModal(photo) {
         } else if (category === 'DTREASURE') {
             if (elements.dtreasureSection) elements.dtreasureSection.classList.remove('hidden');
             this.renderDtreasureGallery();
+            
+            // [P8] Aktifkan keyboard guard saat masuk DTREASURE
+            // Blokir Ctrl+S (save), Ctrl+U (view-source), Ctrl+P (print)
+            if (!dtreasureKeyboardGuard) {
+                dtreasureKeyboardGuard = (e) => {
+                    const key = (e.key || '').toLowerCase();
+                    const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+                    if (isCtrlOrMeta && ['s', 'u', 'p'].includes(key)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                    }
+                };
+                document.addEventListener('keydown', dtreasureKeyboardGuard, true);
+            }// [P8] Aktifkan keyboard guard saat masuk DTREASURE
+// Blokir Ctrl+S (save), Ctrl+U (view-source), Ctrl+P (print)
+if (!dtreasureKeyboardGuard) {
+    dtreasureKeyboardGuard = (e) => {
+        const key = (e.key || '').toLowerCase();
+        const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+        if (isCtrlOrMeta && ['s', 'u', 'p'].includes(key)) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    };
+    document.addEventListener('keydown', dtreasureKeyboardGuard, true);
+}
         } else {
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
             state.filteredPhotos = state.allPhotos.filter(photo => 
