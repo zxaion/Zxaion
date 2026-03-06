@@ -1,4 +1,3 @@
-
 function parseImageMeta(key, bucket) {
   const allowedExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
   const lower = key.toLowerCase();
