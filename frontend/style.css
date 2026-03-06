@@ -695,14 +695,4 @@ input:focus-visible {
 ::selection {
     background: rgba(251, 191, 36, 0.3);
     color: inherit;
-}/* ============================================
-   DTREASURE THUMBNAIL SHIELD
-   pointer-events:none → klik download-btn
-   tetap bisa menembus shield
-   ============================================ */
-.dtreasure-thumb-shield {
-    pointer-events: none !important;
-    user-select: none;
-    -webkit-user-select: none;
-    cursor: default;
 }
