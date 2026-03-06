@@ -90,10 +90,8 @@
 
         // Custom logo configuration - Set your logo URL here
         window.customLogo = {
-            enabled: true,
-            // ✅ PERBAIKAN: Format direct image URL untuk Google Drive
-            // Share link /view tidak bisa di-render sebagai <img src>
-            url: 'https://drive.google.com/uc?export=view&id=1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM',
+            enabled: true, // Set to true to use custom logo
+            url: 'https://drive.google.com/file/d/1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM/view?usp=drivesdk', // Your custom logo image URL
             alt: 'ZXAION VERSE Logo'
         };
     </script>
@@ -367,7 +365,8 @@
         draggable="false"
         style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;"
     >
-
+<!-- Shield: visual-only overlay, hanya di dalam modal-img-wrapper -->
+    <!-- pointer-events:none → klik/tap tetap bisa menembus ke elemen lain -->
     <!-- proteksi oncontextmenu/ondragstart sudah dihandle di img via applyModalShield() -->
     <div
         id="modal-img-shield"

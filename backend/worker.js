@@ -468,12 +468,11 @@ export default {
         ).all();
 
         const photos = results.map(row => ({
-          id:          row.id,
-          title:       row.title,
-          category:    'COMITBASE',
-          uploader:    'Community',
-          url:         `/api/comitbase/img/${encodeURIComponent(row.r2_key)}`,
-          uploaded:    row.uploaded,
+          id:       row.id,
+          title:    row.title,
+          uploader: 'Community',
+          url:      `/api/comitbase/img/${encodeURIComponent(row.r2_key)}`,
+          uploaded: row.uploaded,
         }));
 
         return new Response(JSON.stringify(photos), {
