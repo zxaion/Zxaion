@@ -156,11 +156,18 @@ export default {
 
     // ----------------------------------------------------------------
     // Helpers
-    // ----------------------------------------------------------------
-    function getUserToken(req) {
-      return req.headers.get('X-User-Token') || 'anonymous';
-    }
+function getUserToken(req) {
+    // Priority 1: dari header (untuk fetch() call)
+    const headerToken = req.headers.get('X-User-Token');
+    if (headerToken) return headerToken;
 
+    // Priority 2: dari URL query param 't' (untuk direct <a> link download)
+    try {
+        return new URL(req.url).searchParams.get('t') || 'anonymous';
+    } catch {
+        return 'anonymous';
+    }
+}
     async function checkRateLimit(endpoint, identifier, limit = 50, windowSec = 3600) {
       const key = `rate:${endpoint}:${identifier}`;
       const now = Math.floor(Date.now() / 1000);
