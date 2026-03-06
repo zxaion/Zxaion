@@ -1,3 +1,5 @@
+
+
 // --- Configuration ---
 const API_BASE = 'https://ai.zxaionverse.workers.dev';
 const ITEMS_PER_PAGE = 30;
@@ -679,10 +681,12 @@ async openImageModal(photo) {
                 elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
             }
 
-            // ── Nonaktifkan shield thumbnail di gallery secara real-time ──
+// ── Nonaktifkan shield thumbnail di gallery secara real-time ──
             this.unlockDtreasureThumbnail(photo.id);
 
-            this.triggerDownload(photo);
+            // ✅ PERBAIKAN: await triggerDownload agar renderDtreasureGallery
+            // tidak menginterupsi proses fetch blob download yang sedang berjalan
+            await this.triggerDownload(photo);
 
             // Re-render gallery untuk sync state tombol seluruh grid
             ui.renderDtreasureGallery();
@@ -770,10 +774,11 @@ async openImageModal(photo) {
             }, 3500);
         }
     } else {
+        // ✅ PERBAIKAN: Hapus target="_blank" — konflik dengan download attribute
+        // Content-Disposition: attachment dari worker sudah menangani download
         const a = document.createElement('a');
-        a.href = downloadUrl;
+        a.href     = downloadUrl;
         a.download = filename;
-        a.target = '_blank';
         document.body.appendChild(a);
         a.click();
         setTimeout(() => document.body.removeChild(a), 100);
@@ -880,7 +885,7 @@ async openImageModal(photo) {
 
     renderComitbaseGallery() {
         if (!elements.comitbaseGallery) return;
-        
+
         if (state.comitbasePhotos.length === 0) {
             elements.comitbaseGallery.innerHTML = `
             <div class="col-span-full text-center py-20">
@@ -895,28 +900,44 @@ async openImageModal(photo) {
             }
             return;
         }
-        
+
         const start = (state.currentComitbasePage - 1) * ITEMS_PER_PAGE;
-        const end = start + ITEMS_PER_PAGE;
+        const end   = start + ITEMS_PER_PAGE;
         const photosToShow = state.comitbasePhotos.slice(start, end);
-        
+
         elements.comitbaseGallery.innerHTML = '';
-        
+
+        // ✅ PERBAIKAN: Satu shared observer untuk semua gambar (bukan per-gambar)
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        delete img.dataset.src;
+                    }
+                    observer.unobserve(img);
+                }
+            });
+        }, { rootMargin: '50px' });
+
+        const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+        const errorSvg       = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+
         photosToShow.forEach((photo, index) => {
-            const item = document.createElement('div');
-            item.className = "masonry-item fade-in";
+            const item     = document.createElement('div');
+            item.className = 'masonry-item fade-in';
             item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
-            
+            item.dataset.photoId      = photo.id;
+
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
+
             item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title)}" 
-                loading="lazy" 
+            <img
+                src="${placeholderSvg}"
+                data-src="${fullUrl}"
+                alt="${utils.escapeHtml(photo.title)}"
+                loading="lazy"
                 class="loading-shimmer w-full h-auto"
                 decoding="async">
             <div class="masonry-overlay">
@@ -929,36 +950,22 @@ async openImageModal(photo) {
                 </button>
             </div>
         `;
-            
+
             const img = item.querySelector('img');
-            const imageObserver = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        if (img.dataset.src) {
-                            img.src = img.dataset.src;
-                            delete img.dataset.src;
-                        }
-                        observer.unobserve(img);
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
             imageObserver.observe(img);
-            
-            img.onload = function() {
+
+            img.onload  = function() {
                 this.classList.remove('loading-shimmer');
                 ui.loadStatsForItem(photo.id, item);
             };
-            
             img.onerror = function() {
                 this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+                this.src = errorSvg;
             };
-            
+
             elements.comitbaseGallery.appendChild(item);
         });
-        
-        // ✅ Event delegation
+
         this.setupComitbaseEventListeners();
         this.updateComitbasePagination();
     },
@@ -1050,13 +1057,11 @@ const isFree       = state.lifetime || state.purchasedImages.has(photo.id);
 const buttonText   = isFree ? 'Download' : '10 Credits';
 const buttonIcon   = isFree ? 'fa-download' : 'fa-lock';
 
-// Shield thumbnail: hanya tampil kalau belum dibeli
+// proteksi contextmenu/drag sudah dihandle langsung di img element
 const thumbShield = isFree ? '' : `
     <div
         class="dtreasure-thumb-shield absolute inset-0 z-[1]"
-        oncontextmenu="return false;"
-        ondragstart="return false;"
-        style="-webkit-tap-highlight-color:transparent; cursor:pointer;">
+        style="pointer-events:none; -webkit-tap-highlight-color:transparent; user-select:none;">
     </div>`;
 
 item.innerHTML = `
@@ -1069,15 +1074,16 @@ item.innerHTML = `
         class="loading-shimmer w-full h-auto select-none"
         decoding="async"
         draggable="false"
+        ${!isFree ? 'oncontextmenu="return false;" ondragstart="return false;"' : ''}
         style="-webkit-user-drag:none; ${isFree ? '' : '-webkit-touch-callout:none;'} user-select:none;">
     ${thumbShield}
 </div>
-<div class="masonry-overlay" style="z-index:2;">
+<div class="masonry-overlay" style="z-index:3; position:absolute; inset:0;">
     <div class="stats">
         <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
         <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
     </div>
-    <button class="download-btn" type="button">
+    <button class="download-btn" type="button" style="position:relative; z-index:4;">
         <i class="fas ${buttonIcon}"></i> ${buttonText}
     </button>
 </div>
@@ -1315,45 +1321,51 @@ item.innerHTML = `
     },
 
     async loadQuicklinks() {
+        const list = document.getElementById('quicklinks-list');
+        if (!list) return;
+
+        // ✅ PERBAIKAN: Cache di memory — hanya fetch sekali selama session
+        if (this._quicklinksCache) {
+            this._renderQuicklinksList(list, this._quicklinksCache);
+            return;
+        }
+
+        list.innerHTML = '<p class="text-center text-gray-400 py-4 text-sm">Loading...</p>';
+
         try {
             const res = await fetch('/quicklink.json');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            const list = document.getElementById('quicklinks-list');
-            
-            if (!list) return;
-            
-            list.innerHTML = '';
-            
-            Object.keys(data).forEach(key => {
-                const btn = document.createElement('button');
-                btn.className = 'w-full text-left bg-gray-50 hover:bg-gray-100 p-4 rounded-xl transition-all duration-300 flex items-center justify-between group dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white';
-                btn.innerHTML = `
-                    <span class="font-semibold">${utils.escapeHtml(data[key].title)}</span>
-                    <i class="fas fa-chevron-right text-gray-400 group-hover:text-gray-600 group-hover:translate-x-1 transition-all duration-300 dark:group-hover:text-gray-300"></i>
-                `;
-                btn.addEventListener('click', () => {
-                    const titleEl = document.getElementById('quicklink-title');
-                    const contentEl = document.getElementById('quicklink-content');
-                    const modalEl = document.getElementById('quicklink-content-modal');
-                    const menuModalEl = document.getElementById('menu-modal');
-                    
-                    if (titleEl) titleEl.textContent = data[key].title;
-                    if (contentEl) contentEl.innerHTML = data[key].content;
-                    if (modalEl) {
-                        modalEl.classList.remove('hidden');
-                        modalEl.classList.add('flex');
-                    }
-                    if (menuModalEl) menuModalEl.classList.add('hidden');
-                });
-                list.appendChild(btn);
-            });
+            this._quicklinksCache = data;
+            this._renderQuicklinksList(list, data);
         } catch (e) {
             console.error('Failed to load quicklinks:', e);
-            const list = document.getElementById('quicklinks-list');
-            if (list) {
-                list.innerHTML = '<p class="text-center text-gray-500 py-4">Failed to load links</p>';
-            }
+            list.innerHTML = '<p class="text-center text-gray-500 py-4 text-sm">Failed to load links</p>';
         }
+    },
+
+    _renderQuicklinksList(list, data) {
+        list.innerHTML = '';
+        Object.keys(data).forEach(key => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full text-left bg-gray-50 hover:bg-gray-100 p-4 rounded-xl transition-all duration-300 flex items-center justify-between group dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white';
+            btn.innerHTML = `
+                <span class="font-semibold">${utils.escapeHtml(data[key].title)}</span>
+                <i class="fas fa-chevron-right text-gray-400 group-hover:text-gray-600 group-hover:translate-x-1 transition-all duration-300 dark:group-hover:text-gray-300"></i>
+            `;
+            btn.addEventListener('click', () => {
+                const titleEl   = document.getElementById('quicklink-title');
+                const contentEl = document.getElementById('quicklink-content');
+                const modalEl   = document.getElementById('quicklink-content-modal');
+                const menuModalEl = document.getElementById('menu-modal');
+
+                if (titleEl)   titleEl.textContent = data[key].title;
+                if (contentEl) contentEl.innerHTML = data[key].content;
+                if (modalEl)   { modalEl.classList.remove('hidden'); modalEl.classList.add('flex'); }
+                if (menuModalEl) menuModalEl.classList.add('hidden');
+            });
+            list.appendChild(btn);
+        });
     },
 
     initLogo() {
@@ -1459,19 +1471,33 @@ function initEvents() {
     });
 
 // ✅ OPTIMIZATION: Improve debounce dengan timeout lebih pendek
-const debouncedSearch = utils.debounce((e) => {
-    const query = e.target.value.trim();
-    if (query.length > 0 || state.searchQuery !== '') {
-        ui.handleSearch(query);
-    }
-}, 300); // ✅ Sudah optimal
-    
+// ✅ PERBAIKAN: Sync kedua input + debounce search
+    const debouncedSearch = utils.debounce((query) => {
+        if (query.length > 0 || state.searchQuery !== '') {
+            ui.handleSearch(query);
+        }
+    }, 300);
+
     if (elements.searchInput) {
-        elements.searchInput.addEventListener('input', debouncedSearch);
+        elements.searchInput.addEventListener('input', (e) => {
+            const query = e.target.value;
+            // Sync ke mobile input
+            if (elements.searchInputMobile) {
+                elements.searchInputMobile.value = query;
+            }
+            debouncedSearch(query.trim());
+        });
     }
-    
+
     if (elements.searchInputMobile) {
-        elements.searchInputMobile.addEventListener('input', debouncedSearch);
+        elements.searchInputMobile.addEventListener('input', (e) => {
+            const query = e.target.value;
+            // Sync ke desktop input
+            if (elements.searchInput) {
+                elements.searchInput.value = query;
+            }
+            debouncedSearch(query.trim());
+        });
     }
 
     // Search clear button
@@ -1797,13 +1823,29 @@ Submitted via ZXAION VERSE COMITBASE`;
         }
     });
 
-    // Close modals on backdrop click
+// Close modals on backdrop click
     document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
         backdrop.addEventListener('click', (e) => {
             if (e.target === backdrop) {
                 backdrop.classList.add('hidden');
                 backdrop.classList.remove('flex');
                 document.body.style.overflow = 'auto';
+
+                // ✅ PERBAIKAN: Reset PayPal UI jika buy-credits-modal ditutup via backdrop
+                if (backdrop.id === 'buy-credits-modal') {
+                    if (elements.paypalButtonContainer) {
+                        elements.paypalButtonContainer.classList.add('hidden');
+                    }
+                    if (elements.paypalButtons) {
+                        elements.paypalButtons.innerHTML = '';
+                    }
+                    if (paypalButtonsInstance) {
+                        try { paypalButtonsInstance.close(); } catch (_) {}
+                        paypalButtonsInstance = null;
+                    }
+                    document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
+                    state.selectedCreditPack = null;
+                }
             }
         });
     });
@@ -2014,14 +2056,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize events
     initEvents();
     
-    // Load credits
+// Load credits
     await api.fetchCreditBalance();
-    
-    // Fetch data
-    await api.fetchImages();
-    await api.fetchComitbaseImages();
-    await api.fetchDtreasureImages();
-    
+
+    // ✅ PERBAIKAN: Fetch semua data secara paralel — 3x lebih cepat
+    await Promise.all([
+        api.fetchImages(),
+        api.fetchComitbaseImages(),
+        api.fetchDtreasureImages()
+    ]);
+
     // Start with All category
     ui.changeCategory('All');
     

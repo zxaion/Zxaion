@@ -90,8 +90,10 @@
 
         // Custom logo configuration - Set your logo URL here
         window.customLogo = {
-            enabled: true, // Set to true to use custom logo
-            url: 'https://drive.google.com/file/d/1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM/view?usp=drivesdk', // Your custom logo image URL
+            enabled: true,
+            // ✅ PERBAIKAN: Format direct image URL untuk Google Drive
+            // Share link /view tidak bisa di-render sebagai <img src>
+            url: 'https://drive.google.com/uc?export=view&id=1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM',
             alt: 'ZXAION VERSE Logo'
         };
     </script>
@@ -354,9 +356,9 @@
         <button id="close-image-modal" class="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all duration-300 z-50 backdrop-blur-md">
             <i class="fas fa-times"></i>
         </button>
+        
         <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
-            
-            <!-- preview -->
+            <!-- GANTI DENGAN INI: -->
 <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden" id="modal-img-wrapper">
     <img
         id="modal-img"
@@ -365,15 +367,13 @@
         draggable="false"
         style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;"
     >
-    <!-- Shield: aktif = belum purchase, nonaktif = sudah purchase/lifetime -->
+
+    <!-- proteksi oncontextmenu/ondragstart sudah dihandle di img via applyModalShield() -->
     <div
         id="modal-img-shield"
         class="hidden absolute inset-0 z-10"
-        oncontextmenu="return false;"
-        ondragstart="return false;"
-        style="-webkit-tap-highlight-color:transparent;"
+        style="pointer-events:none; -webkit-tap-highlight-color:transparent; user-select:none;"
     ></div>
-</div>
             
             <!-- Image Details -->
             <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">
