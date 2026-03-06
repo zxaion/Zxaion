@@ -696,3 +696,74 @@ input:focus-visible {
     background: rgba(251, 191, 36, 0.3);
     color: inherit;
 }
+/* ============================================
+   DTREASURE IMAGE SHIELD — Modal Only
+   ============================================ */
+
+/* Shield overlay — hanya aktif pada area image modal, bukan fullscreen */
+#modal-img-shield {
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    cursor: not-allowed;
+    pointer-events: all; /* intercept semua klik/drag di atas gambar */
+}
+
+/* Ikon shield dengan animasi pulse subtle */
+.modal-shield-icon-wrapper {
+    background: rgba(251, 191, 36, 0.15);
+    border: 2px solid rgba(251, 191, 36, 0.4);
+    animation: shield-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes shield-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.35); }
+    50%       { box-shadow: 0 0 0 12px rgba(251, 191, 36, 0); }
+}
+
+/* Proteksi gambar modal dari drag/copy saat shield aktif */
+#modal-img.is-shielded {
+    pointer-events: none;        /* klik/drag dialihkan ke shield di atas */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+}
+
+/* Download button saat terkunci (DTREASURE belum purchase) */
+#download-btn.dtreasure-locked {
+    background: linear-gradient(135deg, #374151, #1f2937);
+    opacity: 0.85;
+    cursor: pointer; /* tetap bisa diklik untuk trigger purchase flow */
+}
+
+#download-btn.dtreasure-locked:hover {
+    opacity: 1;
+    background: linear-gradient(135deg, #4b5563, #374151);
+}
+
+/* Download button saat unlocked (sudah purchase) */
+#download-btn.dtreasure-unlocked {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+#download-btn.dtreasure-unlocked:hover {
+    background: linear-gradient(135deg, #d97706, #b45309);
+}
+
+/* Pastikan user tidak bisa select/drag teks di dalam shield */
+#modal-img-shield * {
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+}
+
+/* Touch device — blok long-press context menu pada gambar modal */
+@media (hover: none) and (pointer: coarse) {
+    #modal-img {
+        -webkit-touch-callout: none; /* blok save image iOS */
+        touch-action: none;
+    }
+    #modal-img.is-shielded {
+        -webkit-touch-callout: none;
+    }
+}
