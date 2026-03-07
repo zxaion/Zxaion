@@ -29,8 +29,8 @@
     column-count: 2;
     column-gap: 1rem;
     width: 100%;
-    /* ✅ ADD: will-change untuk performance */
-    will-change: column-count;
+    /* ✅ FIX #18: will-change yang valid untuk performa GPU */
+    will-change: auto;
 }
 
 @media (min-width: 640px) {
@@ -86,7 +86,6 @@
     justify-content: flex-end;
     padding: 1rem;
     pointer-events: none;
-    z-index: 2; /* ✅ TAMBAH: pastikan overlay selalu di atas shield */
 }
 
 .masonry-overlay .stats {
@@ -132,55 +131,6 @@
     transform: scale(1.05);
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 }
-/* ============================================
-   DTREASURE — SHIELD & PROTECTION BERLAPIS
-   ============================================ */
-
-/* [L1] Shield transparan duduk di atas <img> (z:1), 
-   di bawah overlay+button (z:2) — blokir right-click & long-press */
-.dtreasure-shield {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1;
-    background: transparent;
-    cursor: default;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;     /* blokir callout iOS (Save Image) */
-    -webkit-tap-highlight-color: transparent;
-}
-
-/* [L2] img di dalam item yang BELUM dibeli: pointer dimatikan & drag diblokir */
-.masonry-item.dt-protected > img {
-    pointer-events: none;
-    -webkit-user-drag: none;
-    user-drag: none;
-    -webkit-user-select: none;
-    user-select: none;
-}
-
-/* [L3] Pastikan overlay & download-btn TETAP bisa diklik (z lebih tinggi dari shield) */
-.masonry-item.dt-protected .masonry-overlay {
-    z-index: 2;
-    pointer-events: none; /* container tidak clickable */
-}
-
-.masonry-item.dt-protected .masonry-overlay .stats,
-.masonry-item.dt-protected .masonry-overlay .download-btn {
-    pointer-events: auto; /* hanya stats & button yang clickable */
-}
-
-/* [L4] Seluruh container galeri DTREASURE: matikan selection & touch callout */
-#dtreasure-gallery {
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-}
 
 /* Hover Effects */
 @media (hover: hover) {
@@ -191,28 +141,8 @@
     }
 
     .masonry-item:hover img {
+        /* ✅ REDUCE: Scale dari 1.08 ke 1.05 */
         transform: scale(1.05);
-    }
-
-    /* ✅ FIX A: Overlay wajib muncul saat hover agar download-btn bisa diklik */
-    .masonry-item:hover .masonry-overlay {
-        opacity: 1;
-    }
-
-    /* ✅ FIX A: Untuk dt-protected: hanya button & stats yang clickable, shield tetap aman */
-    .masonry-item.dt-protected:hover .masonry-overlay {
-        opacity: 1;
-        pointer-events: none; /* overlay-container tetap non-clickable (shield aman) */
-    }
-
-    .masonry-item.dt-protected:hover .masonry-overlay .download-btn,
-    .masonry-item.dt-protected:hover .masonry-overlay .stats {
-        pointer-events: auto; /* hanya button & stats yang bisa diklik */
-    }
-
-    /* ✅ FIX A: Untuk item normal (bukan dt-protected): overlay sepenuhnya interaktif */
-    .masonry-item:not(.dt-protected):hover .masonry-overlay {
-        pointer-events: auto;
     }
 }
 
@@ -370,12 +300,13 @@
     }
 }
 
-/* ✅ Better image sizing in modal */
+/* ✅ FIX #20: Hapus min-height: 100vh — menyebabkan overflow di dalam modal */
 #image-modal .flex-1 {
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 300px;
+    /* Tidak ada override min-height untuk desktop */
 }
 
 @media (min-width: 1024px) {
@@ -577,8 +508,14 @@ nav.scrolled {
 
 /* ============================================
    BUTTON HOVER EFFECTS
+   ✅ FIX #19: Scope ke class spesifik, bukan semua button & a
    ============================================ */
-button, a {
+.btn-animated,
+.social-link,
+.cat-btn,
+.credit-pack-card,
+.crypto-btn,
+.crypto-btn-usdt {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -765,18 +702,4 @@ input:focus-visible {
 ::selection {
     background: rgba(251, 191, 36, 0.3);
     color: inherit;
-}
-
-/* ============================================
-   PRINT PROTECTION — DTREASURE
-   Sembunyikan section DTREASURE saat Ctrl+P / browser print
-   ============================================ */
-@media print {
-    #dtreasure-section,
-    #dtreasure-gallery,
-    #dtreasure-pagination {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-    }
 }

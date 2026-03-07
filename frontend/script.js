@@ -63,63 +63,6 @@ class AppState {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  DTREASURE PROTECTION — Module-level guards & Blob URL loader
-// ═══════════════════════════════════════════════════════════════
-
-/** Keyboard listener guard (aktif hanya saat kategori DTREASURE) */
-let dtreasureKeyboardGuard = null;
-
-/** Named contextmenu handler untuk modal image (agar bisa di-remove bersih) */
-let modalImgContextMenuHandler = null;
-
-/**
- * Blob URL cache: real CDN URL → sementara blob:// URL.
- * Blob URL hancur sendiri saat tab ditutup. Real URL tidak pernah
- * terekspos sebagai src di DOM — menyulitkan pencurian via inspect element.
- */
-const dtreasureBlobCache = new Map();
-
-/**
- * Ambil gambar DTREASURE via fetch (dengan auth token) dan kembalikan
- * sebagai blob:// URL sementara.
- * @param {string} url - URL asli gambar
- * @returns {Promise<string|null>} blob URL, atau null jika gagal (fallback ke url asli)
- */
-async function loadDtreasureImageAsBlob(url) {
-    if (!url) return null;
-    if (dtreasureBlobCache.has(url)) return dtreasureBlobCache.get(url);
-
-    try {
-        const token = getOrCreateUserToken();
-        const res = await fetch(url, {
-            method: 'GET',
-            headers: { 'X-User-Token': token },
-            cache: 'force-cache'
-        });
-        if (!res.ok) return null;
-
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        dtreasureBlobCache.set(url, blobUrl);
-        return blobUrl;
-    } catch (e) {
-        console.warn('[DTREASURE Shield] Blob load failed, using direct URL:', e.message);
-        return null;
-    }
-}
-
-/**
- * Revoke semua blob URL yang tersimpan di cache.
- * Dipanggil saat galeri di-render ulang agar tidak memory leak.
- */
-function revokeDtreasureBlobCache() {
-    dtreasureBlobCache.forEach((blobUrl) => {
-        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
-    });
-    dtreasureBlobCache.clear();
-}
-
 const state = new AppState();
 
 // --- DOM Elements ---
@@ -180,10 +123,13 @@ const utils = {
         };
     },
 
-    getImagePreviewUrl(url) {
-    if (!url) return '';
-    return url;
-},
+    // Ganti method getImagePreviewUrl yang lama dengan ini:
+    getImagePreviewUrl(url, isDtreasure = false) {
+        if (!url) return '';
+        // Untuk DTREASURE, token ditambahkan oleh caller (render methods)
+        // Method ini hanya normalisasi URL relatif → absolut
+        return url.startsWith('http') ? url : `${API_BASE}${url}`;
+    },
 
     formatNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -234,15 +180,15 @@ const api = {
         }
     },
     
-    // Tambahkan di dalam object api, setelah method fetchImages():
+// Letakkan ini tepat setelah penutup method fetchImages() (setelah baris `},`)
+    // dan SEBELUM method fetchComitbaseImages()
 
-// ✅ NEW METHOD: Invalidate cache
-invalidateCache() {
-    this.imageCache.main = null;
-    this.imageCache.comitbase = null;
-    this.imageCache.dtreasure = null;
-    this.imageCache.timestamp = 0;
-},
+    invalidateCache() {
+        this.imageCache.main      = null;
+        this.imageCache.comitbase = null;
+        this.imageCache.dtreasure = null;
+        this.imageCache.timestamp = 0;
+    },
     async fetchComitbaseImages() {
         try {
             const res = await fetch(`${API_BASE}/api/comitbase/list`);
@@ -372,20 +318,76 @@ invalidateCache() {
 },
     async spendCredit(photoId) {
     const token = getOrCreateUserToken();
+    
+    // ✅ PERBAIKAN 1: Strict validation input
+    if (!photoId || typeof photoId !== 'string' || photoId.trim() === '') {
+        return {
+            success: false,
+            error: 'Invalid photo ID'
+        };
+    }
+    
+    if (!token || token === 'anonymous') {
+        return {
+            success: false,
+            error: 'Authentication required'
+        };
+    }
+    
     try {
+        // ✅ PERBAIKAN 2: POST request dengan proper headers
         const res = await fetch(`${API_BASE}/api/credits/spend`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-User-Token': token
+            },
             body: JSON.stringify({ photoId })
         });
+        
+        // ✅ PERBAIKAN 3: Handle all response types
         if (!res.ok) {
-            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-            return { success: false, error: err.error || 'Spend credit failed' };
+            let errData = null;
+            try {
+                errData = await res.json();
+            } catch (_) {
+                // Non-JSON error response
+                return {
+                    success: false,
+                    error: `Server error (HTTP ${res.status})`
+                };
+            }
+            
+            return {
+                success: false,
+                error: errData.error || `Server error (HTTP ${res.status})`
+            };
         }
-        return res.json();
+        
+        const data = await res.json();
+        
+        // ✅ PERBAIKAN 4: Validate response structure
+        if (typeof data.success !== 'boolean') {
+            console.error('[spendCredit] Invalid response format:', data);
+            return {
+                success: false,
+                error: 'Invalid server response'
+            };
+        }
+        
+        return {
+            success: data.success === true,
+            newBalance: data.newBalance || 0,
+            purchased: data.purchased || false,
+            error: data.error || null
+        };
+        
     } catch (e) {
-        console.error('spendCredit network error:', e);
-        return { success: false, error: 'Network error. Please check your connection.' };
+        console.error('[spendCredit] Network error:', e);
+        return {
+            success: false,
+            error: 'Network error. Check your connection.'
+        };
     }
 },
 
@@ -468,160 +470,168 @@ const ui = {
 
     // Di bagian ui.openImageModal()
 async openImageModal(photo) {
-        if (!photo) return;
-
-        state.currentImageId = photo.id;
-        api.recordView(photo.id);
-
-        const stats = await api.fetchImageStats(photo.id);
-
-        const imageUrl = photo.url.startsWith('http')
-            ? photo.url
-            : `${API_BASE}${photo.url}`;
-
-        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-        const isFree = isDtreasure && (state.lifetime || state.purchasedImages.has(photo.id));
-
-        if (modalImgContextMenuHandler) {
-            elements.modalImg.removeEventListener('contextmenu', modalImgContextMenuHandler);
-            modalImgContextMenuHandler = null;
-        }
-
-        if (isDtreasure) {
-            modalImgContextMenuHandler = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            };
-            elements.modalImg.addEventListener('contextmenu', modalImgContextMenuHandler);
-            elements.modalImg.setAttribute('draggable', 'false');
-            elements.modalImg.style.webkitUserDrag = 'none';
-
-            if (isFree) {
-                elements.modalImg.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22800%22 height=%22600%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22800%22 height=%22600%22/%3E%3Ctext fill=%22%239ca3af%22 font-family=%22sans-serif%22 font-size=%2220%22 font-weight=%22bold%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%220.35em%22%3ELoading...%3C/text%3E%3C/svg%3E';
-                loadDtreasureImageAsBlob(imageUrl).then(blobUrl => {
-                    if (state.currentImageId === photo.id) {
-                        elements.modalImg.src = blobUrl || imageUrl;
-                    }
-                });
-            } else {
-                elements.modalImg.src = imageUrl;
-            }
-        } else {
-            elements.modalImg.src = imageUrl;
-            elements.modalImg.removeAttribute('draggable');
-            elements.modalImg.style.webkitUserDrag = '';
-        }
-
-        elements.modalTitle.textContent = photo.title || 'Wallpaper';
-        elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
-        elements.modalViewCount.textContent = utils.formatNumber(stats.views);
-        elements.modalDownloadCount.textContent = utils.formatNumber(stats.downloads);
-
-        if (isDtreasure) {
-            elements.downloadBtn.removeAttribute('href');
-            elements.downloadBtn.removeAttribute('download');
-            elements.downloadBtn.onclick = (e) => {
-                e.preventDefault();
-                ui.handleDownload(photo);
-            };
-            elements.downloadBtn.innerHTML = isFree
-                ? '<i class="fas fa-download mr-2"></i>Download'
-                : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
-        } else {
-            elements.downloadBtn.href = imageUrl + '?download=true';
-            elements.downloadBtn.download = photo.title || 'wallpaper';
-            elements.downloadBtn.onclick = null;
-            elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-        }
-
-        elements.imageModal.classList.remove('hidden');
-        elements.imageModal.classList.add('flex');
-        document.body.style.overflow = 'hidden';
-    },
+    if (!photo) return;
+    
+    state.currentImageId = photo.id;
+    api.recordView(photo.id);
+    
+    const stats = await api.fetchImageStats(photo.id);
+    
+    const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+    
+    // ✅ FIX #4 & #5: Tambahkan token ke URL gambar DTREASURE agar worker bisa validasi
+    let imageUrl = photo.url.startsWith('http') ?
+        photo.url :
+        `${API_BASE}${photo.url}`;
+    
+    if (isDtreasure) {
+        const token = getOrCreateUserToken();
+        imageUrl += `?token=${encodeURIComponent(token)}`;
+    }
+    
+    elements.modalImg.src = imageUrl;
+    elements.modalTitle.textContent = photo.title || 'Wallpaper';
+    elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
+    elements.modalViewCount.textContent = utils.formatNumber(stats.views);
+    elements.modalDownloadCount.textContent = utils.formatNumber(stats.downloads);
+    
+    if (isDtreasure) {
+        // ✅ DTREASURE: Gunakan button (bukan <a>) agar download selalu melalui handleDownload
+        elements.downloadBtn.removeAttribute('href');
+        elements.downloadBtn.removeAttribute('download');
+        elements.downloadBtn.onclick = (e) => {
+            e.preventDefault();
+            ui.handleDownload(photo);
+        };
+        
+        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
+        elements.downloadBtn.innerHTML = isFree ?
+            '<i class="fas fa-download mr-2"></i>Download' :
+            '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
+        
+        // ✅ FIX #6: Cegah right-click pada modal image untuk DTREASURE
+        elements.modalImg.oncontextmenu = (e) => e.preventDefault();
+        elements.modalImg.setAttribute('draggable', 'false');
+    } else {
+        elements.downloadBtn.href = imageUrl + (isDtreasure ? '' : '?download=true');
+        elements.downloadBtn.download = photo.title || 'wallpaper';
+        elements.downloadBtn.onclick = null;
+        elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+        elements.modalImg.oncontextmenu = null;
+        elements.modalImg.removeAttribute('draggable');
+    }
+    
+    // ✅ Fix: override href untuk non-dtreasure agar tidak tercampur state sebelumnya
+    if (!isDtreasure) {
+        const baseImgUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        elements.downloadBtn.href = `${baseImgUrl}?download=true`;
+    }
+    
+    elements.imageModal.classList.remove('hidden');
+    elements.imageModal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+},
 
     renderGallery() {
-        if (!elements.galleryContainer) return;
-        
-        if (state.filteredPhotos.length === 0) {
-            elements.galleryContainer.innerHTML = '';
-            this.showNoResults();
-            if (elements.paginationContainer) {
-                elements.paginationContainer.classList.add('hidden');
-            }
-            return;
-        }
-        
-        this.hideNoResults();
-        
-        const start = (state.currentPage - 1) * ITEMS_PER_PAGE;
-        const end = start + ITEMS_PER_PAGE;
-        const photosToShow = state.filteredPhotos.slice(start, end);
-        
+    if (!elements.galleryContainer) return;
+
+    if (state.filteredPhotos.length === 0) {
         elements.galleryContainer.innerHTML = '';
-        
-        // ✅ Intersection Observer untuk lazy loading
-        const imageObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target;
-                    if (img.dataset.src) {
-                        img.src = img.dataset.src;
-                        delete img.dataset.src;
-                    }
-                    observer.unobserve(img);
+        this.showNoResults();
+        if (elements.paginationContainer) {
+            elements.paginationContainer.classList.add('hidden');
+        }
+        return;
+    }
+
+    this.hideNoResults();
+
+    const start = (state.currentPage - 1) * ITEMS_PER_PAGE;
+    const end   = start + ITEMS_PER_PAGE;
+    const photosToShow = state.filteredPhotos.slice(start, end);
+
+    elements.galleryContainer.innerHTML = '';
+
+    // ✅ FIX #7: Satu shared IntersectionObserver untuk seluruh gallery (bukan per item)
+    const imageObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                if (img.dataset.src) {
+                    img.src = img.dataset.src;
+                    delete img.dataset.src;
                 }
-            });
-        }, { rootMargin: '50px' });
-        
-        photosToShow.forEach((photo, index) => {
-            const item = document.createElement('div');
-            item.className = "masonry-item fade-in";
-            item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
-            
-            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
-            item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}" 
-                loading="lazy" 
-                class="loading-shimmer w-full h-auto"
-                decoding="async">
-            <div class="masonry-overlay">
-                <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
-                </div>
-                <button class="download-btn" type="button">
-                    <i class="fas fa-download"></i> Download
-                </button>
-            </div>
-        `;
-            
-            const img = item.querySelector('img');
-            imageObserver.observe(img);
-            
-            img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
-            };
-            
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
-            
-            elements.galleryContainer.appendChild(item);
+                observer.unobserve(img);
+            }
         });
-        
-        // ✅ Event delegation - single listener untuk semua items
-        this.setupGalleryEventListeners();
-        this.updatePagination();
-    },
+    }, { rootMargin: '50px' });
+
+    const token = getOrCreateUserToken();
+
+    photosToShow.forEach((photo, index) => {
+        const item = document.createElement('div');
+        item.className = "masonry-item fade-in";
+        item.style.animationDelay = `${index * 50}ms`;
+        item.dataset.photoId = photo.id;
+
+        // ✅ FIX #3 & #5: Tambahkan token ke URL DTREASURE agar worker bisa validasi
+        const isDtreasurePhoto = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        const baseUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const fullUrl = isDtreasurePhoto
+            ? `${baseUrl}?token=${encodeURIComponent(token)}`
+            : baseUrl;
+
+        const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+
+        // ✅ FIX #9: Tampilkan lock button untuk item DTREASURE yang belum dibeli
+        const isFree    = !isDtreasurePhoto || state.lifetime || state.purchasedImages.has(photo.id);
+        const btnText   = isFree ? 'Download' : '10 Credits';
+        const btnIcon   = isFree ? 'fa-download' : 'fa-lock';
+        // ✅ FIX #6: draggable=false + oncontextmenu prevent untuk DTREASURE
+        const imgExtras = isDtreasurePhoto
+            ? `draggable="false" oncontextmenu="return false"`
+            : '';
+
+        item.innerHTML = `
+        <img
+            src="${placeholderSvg}"
+            data-src="${fullUrl}"
+            alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}"
+            loading="lazy"
+            class="loading-shimmer w-full h-auto"
+            decoding="async"
+            ${imgExtras}>
+        <div class="masonry-overlay">
+            <div class="stats">
+                <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
+                <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+            </div>
+            <button class="download-btn" type="button">
+                <i class="fas ${btnIcon}"></i> ${btnText}
+            </button>
+        </div>
+    `;
+
+        const img = item.querySelector('img');
+        imageObserver.observe(img);
+
+        img.onload = function() {
+            this.classList.remove('loading-shimmer');
+            ui.loadStatsForItem(photo.id, item);
+        };
+
+        img.onerror = function() {
+            this.classList.remove('loading-shimmer');
+            this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+        };
+
+        elements.galleryContainer.appendChild(item);
+    });
+
+    // ✅ Event delegation - single listener untuk semua items
+    this.setupGalleryEventListeners();
+    this.updatePagination();
+},
     
     // ✅ NEW METHOD: Setup gallery event listeners dengan delegation
     setupGalleryEventListeners() {
@@ -677,89 +687,75 @@ async openImageModal(photo) {
 },
 
     async handleDownload(photo) {
-        if (!photo) return;
-
-        // ✅ Strict check untuk DTREASURE category
-        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-
-        if (isDtreasure) {
-            // Check if lifetime
-            if (state.lifetime) {
-                this.triggerDownload(photo);
-                return;
-            }
-
-            // Check if already purchased — langsung download tanpa potong kredit lagi
-            if (state.purchasedImages.has(photo.id)) {
-                this._updateModalDownloadBtn(photo, true);
-                this.triggerDownload(photo);
-                return;
-            }
-
-            // Check credits — minimal harus 10
-            if (state.credits < 10) {
-                alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
-                document.getElementById('buy-credits-btn')?.click();
-                return;
-            }
-
-            // Spend credit
-            const result = await api.spendCredit(photo.id);
-            if (result.success) {
-                state.credits = result.newBalance;
-                state.purchasedImages.add(photo.id);
-                ui.updateCreditDisplay();
-
-                // ✅ FIX C: Update modal download button UI segera setelah purchase
-                this._updateModalDownloadBtn(photo, true);
-
-                // Trigger download
-                this.triggerDownload(photo);
-
-                // ✅ Refresh gallery untuk hapus shield pada item yang sudah dibeli
-                ui.renderDtreasureGallery();
-            } else {
-                alert('❌ ' + (result.error || 'Download failed. Please try again.'));
-            }
-        } else {
-            // Free download untuk kategori lain
-            this.triggerDownload(photo);
-        }
-    },
-
-    /**
-     * ✅ FIX C: Helper — update tombol download di modal jika gambar yang
-     * sedang dibuka adalah gambar yang baru saja dibeli/sudah dibeli.
-     * @param {Object} photo - object foto
-     * @param {boolean} isFree - true jika sudah purchased atau lifetime
-     */
-    _updateModalDownloadBtn(photo, isFree) {
-        // Hanya update jika modal sedang menampilkan foto yang sama
-        if (state.currentImageId !== photo.id) return;
-        if (!elements.downloadBtn) return;
-
-        if (isFree) {
-            elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-            // Pastikan onclick masih terhubung ke handler yang benar
-            elements.downloadBtn.onclick = (e) => {
-                e.preventDefault();
-                ui.handleDownload(photo);
-            };
-        } else {
-            elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
-            elements.downloadBtn.onclick = (e) => {
-                e.preventDefault();
-                ui.handleDownload(photo);
-            };
-        }
-    },
+  if (!photo) {
+    console.error('handleDownload: Photo is null');
+    return;
+  }
+  
+  // ✅ PERBAIKAN 1: Strict DTREASURE detection
+  const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+  
+  if (isDtreasure) {
+    // ✅ DTREASURE: Check credits + unlock status BEFORE download
+    
+    // Check 1: Lifetime access (free download)
+    if (state.lifetime) {
+      console.log('[Download] Lifetime access confirmed for:', photo.id);
+      this.triggerDownload(photo);
+      return;
+    }
+    
+    // Check 2: Already purchased (free download)
+    if (state.purchasedImages.has(photo.id)) {
+      console.log('[Download] Already purchased:', photo.id);
+      this.triggerDownload(photo);
+      return;
+    }
+    
+    // Check 3: Credits available (exactly 10 required)
+    if (state.credits < 10) {
+      const msg = `❌ Insufficient Credits\n\nRequired: 10 credits\nYour Balance: ${state.credits} credits\n\nPlease buy more credits to continue.`;
+      alert(msg);
+      document.getElementById('buy-credits-btn')?.click();
+      return;
+    }
+    
+    // ✅ PERBAIKAN 2: Spend credits BEFORE download
+    console.log('[Download] Spending 10 credits for DTREASURE:', photo.id);
+    const spendResult = await api.spendCredit(photo.id);
+    
+    if (!spendResult.success) {
+      const errMsg = spendResult.error || 'Credit deduction failed. Please try again.';
+      alert(`❌ ${errMsg}`);
+      return;
+    }
+    
+    // ✅ Update local state
+    state.credits = spendResult.newBalance || 0;
+    state.purchasedImages.add(photo.id);
+    this.updateCreditDisplay();
+    
+    console.log('[Download] Credits deducted. New balance:', state.credits);
+    
+    // ✅ PERBAIKAN 3: Only trigger download after successful credit deduction
+    this.triggerDownload(photo);
+    
+    // ✅ Refresh gallery to update button state
+    this.renderDtreasureGallery();
+    
+  } else {
+    // ✅ Non-DTREASURE: Free download (no credit check needed)
+    console.log('[Download] Free download:', photo.id);
+    this.triggerDownload(photo);
+  }
+},
 
     async triggerDownload(photo) {
     if (!photo || !photo.url) return;
 
     api.recordDownload(photo.id);
 
-    // ✅ FIX: Optimistic counter — parse format K/M dengan benar
+    // Optimistic counter update
     const parseFormattedCount = (text) => {
         if (!text) return 0;
         const str = text.trim();
@@ -775,12 +771,15 @@ async openImageModal(photo) {
     });
 
     const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-    const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-    const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
+    // ✅ FIX: Dapatkan base URL bersih tanpa query param lama (strip token preview jika ada)
+    const cleanUrl = (photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`)
+        .split('?')[0];
     const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
 
     if (isDtreasure) {
         const token = getOrCreateUserToken();
+        // ✅ FIX: Token dikirim via header (fetch), bukan di URL — lebih aman
+        const downloadUrl = `${cleanUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
 
         const loadingToast = document.createElement('div');
         loadingToast.id = 'dl-toast';
@@ -800,15 +799,18 @@ async openImageModal(photo) {
                 throw new Error(errMsg);
             }
 
-            const blob = await res.blob();
+            const blob      = await res.blob();
             const objectUrl = URL.createObjectURL(blob);
+
+            // ✅ FIX: Anchor tidak pernah dimasukkan ke DOM dengan href yang terbuka lama
             const a = document.createElement('a');
-            a.href = objectUrl;
+            a.href     = objectUrl;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+            // Revoke segera setelah click agar URL blob tidak bisa diakses ulang
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 
             loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
             loadingToast.classList.add('bg-green-800');
@@ -829,11 +831,14 @@ async openImageModal(photo) {
                 if (toast) toast.remove();
             }, 3500);
         }
+
     } else {
+        // ✅ Free download — non-DTREASURE tetap pakai anchor biasa
+        const downloadUrl = `${cleanUrl}?download=true`;
         const a = document.createElement('a');
-        a.href = downloadUrl;
+        a.href     = downloadUrl;
         a.download = filename;
-        a.target = '_blank';
+        // ✅ JANGAN tambahkan target="_blank" — menghindari tab baru yang bisa di-inspect
         document.body.appendChild(a);
         a.click();
         setTimeout(() => document.body.removeChild(a), 100);
@@ -939,89 +944,91 @@ async openImageModal(photo) {
 },
 
     renderComitbaseGallery() {
-        if (!elements.comitbaseGallery) return;
-        
-        if (state.comitbasePhotos.length === 0) {
-            elements.comitbaseGallery.innerHTML = `
-            <div class="col-span-full text-center py-20">
-                <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
-                    <i class="fas fa-images text-3xl text-gray-400"></i>
-                </div>
-                <p class="text-gray-500 dark:text-gray-400">No COMITBASE images yet</p>
+    if (!elements.comitbaseGallery) return;
+    
+    if (state.comitbasePhotos.length === 0) {
+        elements.comitbaseGallery.innerHTML = `
+        <div class="col-span-full text-center py-20">
+            <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                <i class="fas fa-images text-3xl text-gray-400"></i>
             </div>
-        `;
-            if (elements.comitbasePagination) {
-                elements.comitbasePagination.classList.add('hidden');
-            }
-            return;
+            <p class="text-gray-500 dark:text-gray-400">No COMITBASE images yet</p>
+        </div>
+    `;
+        if (elements.comitbasePagination) {
+            elements.comitbasePagination.classList.add('hidden');
         }
-        
-        const start = (state.currentComitbasePage - 1) * ITEMS_PER_PAGE;
-        const end = start + ITEMS_PER_PAGE;
-        const photosToShow = state.comitbasePhotos.slice(start, end);
-        
-        elements.comitbaseGallery.innerHTML = '';
-        
-        photosToShow.forEach((photo, index) => {
-            const item = document.createElement('div');
-            item.className = "masonry-item fade-in";
-            item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
-            
-            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-            const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
-            item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title)}" 
-                loading="lazy" 
-                class="loading-shimmer w-full h-auto"
-                decoding="async">
-            <div class="masonry-overlay">
-                <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
-                </div>
-                <button class="download-btn" type="button">
-                    <i class="fas fa-download"></i> Download
-                </button>
-            </div>
-        `;
-            
-            const img = item.querySelector('img');
-            const imageObserver = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        if (img.dataset.src) {
-                            img.src = img.dataset.src;
-                            delete img.dataset.src;
-                        }
-                        observer.unobserve(img);
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
-            imageObserver.observe(img);
-            
-            img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
-            };
-            
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
-            
-            elements.comitbaseGallery.appendChild(item);
+        return;
+    }
+    
+    const start = (state.currentComitbasePage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    const photosToShow = state.comitbasePhotos.slice(start, end);
+    
+    elements.comitbaseGallery.innerHTML = '';
+    
+    // ✅ FIX #7: Satu shared IntersectionObserver — bukan per item
+    const imageObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                if (img.dataset.src) {
+                    img.src = img.dataset.src;
+                    delete img.dataset.src;
+                }
+                observer.unobserve(img);
+            }
         });
+    }, { rootMargin: '50px' });
+    
+    photosToShow.forEach((photo, index) => {
+        const item = document.createElement('div');
+        item.className = "masonry-item fade-in";
+        item.style.animationDelay = `${index * 50}ms`;
+        item.dataset.photoId = photo.id;
         
-        // ✅ Event delegation
-        this.setupComitbaseEventListeners();
-        this.updateComitbasePagination();
-    },
+        const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
+        
+        item.innerHTML = `
+        <img
+            src="${placeholderSvg}"
+            data-src="${fullUrl}"
+            alt="${utils.escapeHtml(photo.title)}"
+            loading="lazy"
+            class="loading-shimmer w-full h-auto"
+            decoding="async">
+        <div class="masonry-overlay">
+            <div class="stats">
+                <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
+                <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+            </div>
+            <button class="download-btn" type="button">
+                <i class="fas fa-download"></i> Download
+            </button>
+        </div>
+    `;
+        
+        const img = item.querySelector('img');
+        imageObserver.observe(img);
+        
+        img.onload = function() {
+            this.classList.remove('loading-shimmer');
+            ui.loadStatsForItem(photo.id, item);
+        };
+        
+        img.onerror = function() {
+            this.classList.remove('loading-shimmer');
+            this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+        };
+        
+        elements.comitbaseGallery.appendChild(item);
+    });
+    
+    // ✅ Event delegation
+    this.setupComitbaseEventListeners();
+    this.updateComitbasePagination();
+},
     
     // ✅ NEW METHOD: Setup comitbase event listeners
     setupComitbaseEventListeners() {
@@ -1076,178 +1083,126 @@ async openImageModal(photo) {
 
     renderDtreasureGallery() {
     if (!elements.dtreasureGallery) return;
-    
-    revokeDtreasureBlobCache();
-    
+
     if (state.dtreasurePhotos.length === 0) {
         elements.dtreasureGallery.innerHTML = `
-            <div class="col-span-full text-center py-20">
-                <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
-                    <i class="fas fa-gem text-3xl text-gray-400"></i>
-                </div>
-                <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
-            </div>`;
+        <div class="col-span-full text-center py-20">
+            <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                <i class="fas fa-gem text-3xl text-gray-400"></i>
+            </div>
+            <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
+        </div>
+    `;
         this.updateDtreasurePagination();
         return;
     }
-    
+
     const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
+    const end   = start + ITEMS_PER_PAGE;
     const photosToShow = state.dtreasurePhotos.slice(start, end);
-    
+
     elements.dtreasureGallery.innerHTML = '';
-    
+
+    // ✅ FIX #8: Satu shared IntersectionObserver — bukan per item
+    const imageObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                if (img.dataset.src) {
+                    img.src = img.dataset.src;
+                    delete img.dataset.src;
+                }
+                observer.unobserve(img);
+            }
+        });
+    }, { rootMargin: '50px' });
+
+    // ✅ FIX #3 & #5: Ambil token sekali di luar loop
+    const token = getOrCreateUserToken();
+
     photosToShow.forEach((photo, index) => {
-        const isFree = state.lifetime || state.purchasedImages.has(photo.id);
-        
         const item = document.createElement('div');
-        item.className = `masonry-item fade-in${!isFree ? ' dt-protected' : ''}`;
+        item.className = "masonry-item fade-in";
         item.style.animationDelay = `${index * 50}ms`;
         item.dataset.photoId = photo.id;
-        
-        const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+
+        // ✅ FIX #5: Tambahkan token ke URL preview agar worker bisa validasi
+        const baseUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const fullUrl = `${baseUrl}?token=${encodeURIComponent(token)}`;
+
         const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-        const buttonText = isFree ? 'Download' : '10 Credits';
-        const buttonIcon = isFree ? 'fa-download' : 'fa-lock';
-        
+
+        const isFree   = state.lifetime || state.purchasedImages.has(photo.id);
+        const btnText  = isFree ? 'Download' : '10 Credits';
+        const btnIcon  = isFree ? 'fa-download' : 'fa-lock';
+
         item.innerHTML = `
-            <img
-                src="${placeholderSvg}"
-                data-src="${fullUrl}"
-                alt="${utils.escapeHtml(photo.title)}"
-                loading="lazy"
-                class="loading-shimmer w-full h-auto"
-                decoding="async"
-                draggable="false">
-            ${!isFree ? `<div class="dtreasure-shield" aria-hidden="true"></div>` : ''}
-            <div class="masonry-overlay">
-                <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
-                </div>
-                <button class="download-btn" type="button">
-                    <i class="fas ${buttonIcon}"></i> ${buttonText}
-                </button>
-            </div>`;
-        
-        if (!isFree) {
-            const shield = item.querySelector('.dtreasure-shield');
-            
-            item.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }, true);
-            
-            item.addEventListener('dragstart', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-            }, true);
-            
-            item.addEventListener('selectstart', (e) => {
-                e.preventDefault();
-            }, true);
-            
-            item.addEventListener('copy', (e) => {
-                e.preventDefault();
-            }, true);
-            
-            if (shield) {
-                let longPressTimer = null;
-                shield.addEventListener('touchstart', () => {
-                    longPressTimer = setTimeout(() => {
-                        shield.style.pointerEvents = 'none';
-                        requestAnimationFrame(() => {
-                            shield.style.pointerEvents = '';
-                        });
-                    }, 350);
-                }, { passive: true });
-                shield.addEventListener('touchend', () => clearTimeout(longPressTimer), { passive: true });
-                shield.addEventListener('touchmove', () => clearTimeout(longPressTimer), { passive: true });
-            }
-        }
-        
+        <img
+            src="${placeholderSvg}"
+            data-src="${fullUrl}"
+            alt="${utils.escapeHtml(photo.title)}"
+            loading="lazy"
+            class="loading-shimmer w-full h-auto"
+            decoding="async"
+            draggable="false"
+            oncontextmenu="return false">
+        <div class="masonry-overlay">
+            <div class="stats">
+                <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
+                <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+            </div>
+            <button class="download-btn" type="button">
+                <i class="fas ${btnIcon}"></i> ${btnText}
+            </button>
+        </div>
+    `;
+
         const img = item.querySelector('img');
-        
-        img.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            return false;
-        });
-        
-        const imageObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    if (img.dataset.src) {
-                        img.src = img.dataset.src;
-                        delete img.dataset.src;
-                    }
-                    observer.unobserve(img);
-                }
-            });
-        }, { rootMargin: '50px' });
-        
         imageObserver.observe(img);
-        
+
         img.onload = function() {
             this.classList.remove('loading-shimmer');
             ui.loadStatsForItem(photo.id, item);
         };
-        
+
         img.onerror = function() {
             this.classList.remove('loading-shimmer');
             this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
         };
-        
+
         elements.dtreasureGallery.appendChild(item);
     });
-    
+
+    // ✅ Event delegation
     this.setupDtreasureEventListeners();
     this.updateDtreasurePagination();
 },
     
     // ✅ NEW METHOD: Setup dtreasure event listeners
     setupDtreasureEventListeners() {
-        // Bersihkan listener lama
         if (this.dtreasureClickHandler) {
             elements.dtreasureGallery.removeEventListener('click', this.dtreasureClickHandler);
         }
-        if (this.dtreasureContextHandler) {
-            elements.dtreasureGallery.removeEventListener('contextmenu', this.dtreasureContextHandler, true);
-        }
-
-        // [P7] Container-level contextmenu block — catch-all layer
-        // Memblokir right-click bahkan jika shield gagal ter-render
-        this.dtreasureContextHandler = (e) => {
-            const protectedItem = e.target.closest('.masonry-item.dt-protected');
-            if (protectedItem) {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-        };
-        elements.dtreasureGallery.addEventListener('contextmenu', this.dtreasureContextHandler, true);
-
-        // Click handler: download button prioritas, sisanya buka modal
+        
         const handleClick = (e) => {
             const downloadBtn = e.target.closest('.download-btn');
             if (downloadBtn) {
                 e.stopPropagation();
                 const item = downloadBtn.closest('.masonry-item');
-                const photoId = item?.dataset.photoId;
+                const photoId = item.dataset.photoId;
                 const photo = state.dtreasurePhotos.find(p => p.id === photoId);
                 if (photo) ui.handleDownload(photo);
                 return;
             }
-
-            // Klik pada shield atau area item lainnya → buka modal
+            
             const item = e.target.closest('.masonry-item');
-            if (item) {
+            if (item && !e.target.closest('.download-btn')) {
                 const photoId = item.dataset.photoId;
                 const photo = state.dtreasurePhotos.find(p => p.id === photoId);
                 if (photo) ui.openImageModal(photo);
             }
         };
-
+        
         this.dtreasureClickHandler = handleClick;
         elements.dtreasureGallery.addEventListener('click', handleClick);
     },
@@ -1274,11 +1229,6 @@ async openImageModal(photo) {
         if (!category) return;
         
         state.currentCategory = category;
-        // [P8] Keyboard Guard: deaktifkan saat meninggalkan DTREASURE
-        if (category !== 'DTREASURE' && dtreasureKeyboardGuard) {
-            document.removeEventListener('keydown', dtreasureKeyboardGuard, true);
-            dtreasureKeyboardGuard = null;
-        }
         state.currentAnimeAlbum = null;
         state.resetPagination();
         state.searchQuery = '';
@@ -1315,20 +1265,6 @@ async openImageModal(photo) {
         } else if (category === 'DTREASURE') {
             if (elements.dtreasureSection) elements.dtreasureSection.classList.remove('hidden');
             this.renderDtreasureGallery();
-
-            // ✅ FIX B: Hapus duplikat — keyboard guard hanya didaftarkan SEKALI
-            if (!dtreasureKeyboardGuard) {
-                dtreasureKeyboardGuard = (e) => {
-                    const key = (e.key || '').toLowerCase();
-                    const isCtrlOrMeta = e.ctrlKey || e.metaKey;
-                    if (isCtrlOrMeta && ['s', 'u', 'p'].includes(key)) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return false;
-                    }
-                };
-                document.addEventListener('keydown', dtreasureKeyboardGuard, true);
-            }
         } else {
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
             state.filteredPhotos = state.allPhotos.filter(photo => 
