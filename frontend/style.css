@@ -191,8 +191,28 @@
     }
 
     .masonry-item:hover img {
-        /* ✅ REDUCE: Scale dari 1.08 ke 1.05 */
         transform: scale(1.05);
+    }
+
+    /* ✅ FIX A: Overlay wajib muncul saat hover agar download-btn bisa diklik */
+    .masonry-item:hover .masonry-overlay {
+        opacity: 1;
+    }
+
+    /* ✅ FIX A: Untuk dt-protected: hanya button & stats yang clickable, shield tetap aman */
+    .masonry-item.dt-protected:hover .masonry-overlay {
+        opacity: 1;
+        pointer-events: none; /* overlay-container tetap non-clickable (shield aman) */
+    }
+
+    .masonry-item.dt-protected:hover .masonry-overlay .download-btn,
+    .masonry-item.dt-protected:hover .masonry-overlay .stats {
+        pointer-events: auto; /* hanya button & stats yang bisa diklik */
+    }
+
+    /* ✅ FIX A: Untuk item normal (bukan dt-protected): overlay sepenuhnya interaktif */
+    .masonry-item:not(.dt-protected):hover .masonry-overlay {
+        pointer-events: auto;
     }
 }
 

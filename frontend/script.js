@@ -677,49 +677,82 @@ async openImageModal(photo) {
 },
 
     async handleDownload(photo) {
-    if (!photo) return;
-    
-    // ✅ Strict check untuk DTREASURE category
-    const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-    
-    if (isDtreasure) {
-        // Check if lifetime
-        if (state.lifetime) {
-            this.triggerDownload(photo);
-            return;
-        }
-        
-        // Check if already purchased
-        if (state.purchasedImages.has(photo.id)) {
-            this.triggerDownload(photo);
-            return;
-        }
-        
-        // ✅ Check credits - MUST have exactly 10
-        if (state.credits < 10) {
-            alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
-            document.getElementById('buy-credits-btn')?.click();
-            return;
-        }
-        
-        // Spend credit
-        const result = await api.spendCredit(photo.id);
-        if (result.success) {
-            state.credits = result.newBalance;
-            state.purchasedImages.add(photo.id);
-            ui.updateCreditDisplay();
-            this.triggerDownload(photo);
-            
-            // ✅ Refresh gallery untuk update button
-            ui.renderDtreasureGallery();
+        if (!photo) return;
+
+        // ✅ Strict check untuk DTREASURE category
+        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+
+        if (isDtreasure) {
+            // Check if lifetime
+            if (state.lifetime) {
+                this.triggerDownload(photo);
+                return;
+            }
+
+            // Check if already purchased — langsung download tanpa potong kredit lagi
+            if (state.purchasedImages.has(photo.id)) {
+                this._updateModalDownloadBtn(photo, true);
+                this.triggerDownload(photo);
+                return;
+            }
+
+            // Check credits — minimal harus 10
+            if (state.credits < 10) {
+                alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
+                document.getElementById('buy-credits-btn')?.click();
+                return;
+            }
+
+            // Spend credit
+            const result = await api.spendCredit(photo.id);
+            if (result.success) {
+                state.credits = result.newBalance;
+                state.purchasedImages.add(photo.id);
+                ui.updateCreditDisplay();
+
+                // ✅ FIX C: Update modal download button UI segera setelah purchase
+                this._updateModalDownloadBtn(photo, true);
+
+                // Trigger download
+                this.triggerDownload(photo);
+
+                // ✅ Refresh gallery untuk hapus shield pada item yang sudah dibeli
+                ui.renderDtreasureGallery();
+            } else {
+                alert('❌ ' + (result.error || 'Download failed. Please try again.'));
+            }
         } else {
-            alert('❌ ' + (result.error || 'Download failed. Please try again.'));
+            // Free download untuk kategori lain
+            this.triggerDownload(photo);
         }
-    } else {
-        // Free download untuk kategori lain
-        this.triggerDownload(photo);
-    }
-},
+    },
+
+    /**
+     * ✅ FIX C: Helper — update tombol download di modal jika gambar yang
+     * sedang dibuka adalah gambar yang baru saja dibeli/sudah dibeli.
+     * @param {Object} photo - object foto
+     * @param {boolean} isFree - true jika sudah purchased atau lifetime
+     */
+    _updateModalDownloadBtn(photo, isFree) {
+        // Hanya update jika modal sedang menampilkan foto yang sama
+        if (state.currentImageId !== photo.id) return;
+        if (!elements.downloadBtn) return;
+
+        if (isFree) {
+            elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+            // Pastikan onclick masih terhubung ke handler yang benar
+            elements.downloadBtn.onclick = (e) => {
+                e.preventDefault();
+                ui.handleDownload(photo);
+            };
+        } else {
+            elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
+            elements.downloadBtn.onclick = (e) => {
+                e.preventDefault();
+                ui.handleDownload(photo);
+            };
+        }
+    },
 
     async triggerDownload(photo) {
     if (!photo || !photo.url) return;
@@ -1282,9 +1315,8 @@ async openImageModal(photo) {
         } else if (category === 'DTREASURE') {
             if (elements.dtreasureSection) elements.dtreasureSection.classList.remove('hidden');
             this.renderDtreasureGallery();
-            
-            // [P8] Aktifkan keyboard guard saat masuk DTREASURE
-            // Blokir Ctrl+S (save), Ctrl+U (view-source), Ctrl+P (print)
+
+            // ✅ FIX B: Hapus duplikat — keyboard guard hanya didaftarkan SEKALI
             if (!dtreasureKeyboardGuard) {
                 dtreasureKeyboardGuard = (e) => {
                     const key = (e.key || '').toLowerCase();
@@ -1296,20 +1328,7 @@ async openImageModal(photo) {
                     }
                 };
                 document.addEventListener('keydown', dtreasureKeyboardGuard, true);
-            }// [P8] Aktifkan keyboard guard saat masuk DTREASURE
-// Blokir Ctrl+S (save), Ctrl+U (view-source), Ctrl+P (print)
-if (!dtreasureKeyboardGuard) {
-    dtreasureKeyboardGuard = (e) => {
-        const key = (e.key || '').toLowerCase();
-        const isCtrlOrMeta = e.ctrlKey || e.metaKey;
-        if (isCtrlOrMeta && ['s', 'u', 'p'].includes(key)) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-        }
-    };
-    document.addEventListener('keydown', dtreasureKeyboardGuard, true);
-}
+            }
         } else {
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
             state.filteredPhotos = state.allPhotos.filter(photo => 
