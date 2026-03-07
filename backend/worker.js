@@ -1,4 +1,7 @@
 
+// ============================================================
+// parseImageMeta — parse R2 object key menjadi metadata image
+// ============================================================
 function parseImageMeta(key, bucket) {
   const allowedExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
   const lower = key.toLowerCase();
@@ -20,19 +23,14 @@ function parseImageMeta(key, bucket) {
     .replace(/[-_]/g, ' ')
     .replace(/\b\w/g, l => l.toUpperCase());
 
-  const urlPrefix = bucket === 'main'
-    ? '/api/img/'
-    : bucket === 'comitbase'
-      ? '/api/comitbase/img/'
-      : '/api/dtreasure/img/';
-
+  // FIX W-22: Hapus field `url` — tidak disimpan ke DB dan tidak dipakai
+  // List endpoints rebuild URL dari r2_key langsung
   return {
-    r2_key:      key,
+    r2_key:       key,
     bucket,
     title,
     category,
     sub_category: subCategory,
-    url:         `${urlPrefix}${encodeURIComponent(key)}`,
   };
 }
 
@@ -52,7 +50,7 @@ async function handleScheduled(env) {
   for (const { bucket, name } of buckets) {
     if (!bucket) continue;
     try {
-      let cursor    = undefined;
+      let cursor     = undefined;
       let totalSynced = 0;
 
       // Pagination cursor — handle bucket > 1000 objek
@@ -63,6 +61,11 @@ async function handleScheduled(env) {
         for (const obj of listResult.objects) {
           const meta = parseImageMeta(obj.key, name);
           if (!meta) continue;
+
+          // FIX W-21: httpEtag bisa null/undefined untuk objek tertentu
+          // Fallback ke 'key:r2_key' agar primary key tidak pernah null
+          const recordId = obj.httpEtag || `key:${obj.key}`;
+          if (!recordId) continue;
 
           stmts.push(
             DB.prepare(`
@@ -76,7 +79,7 @@ async function handleScheduled(env) {
                 uploaded     = excluded.uploaded,
                 last_synced  = excluded.last_synced
             `).bind(
-              obj.httpEtag,
+              recordId,
               obj.key,
               name,
               meta.title,
@@ -132,7 +135,7 @@ export default {
     const PAYPAL_CLIENT_ID        = env.PAYPAL_CLIENT_ID;
     const PAYPAL_CLIENT_SECRET_ID = env.PAYPAL_CLIENT_SECRET_ID;
     const PAYPAL_WEBHOOK_ID       = env.PAYPAL_WEBHOOK_ID;
-    const PAYPAL_BASE = 'https://api-m.paypal.com'; // ✅ LIVE endpoint
+    const PAYPAL_BASE             = 'https://api-m.paypal.com'; // LIVE endpoint
 
     // ----------------------------------------------------------------
     // CORS — multi-origin support
@@ -193,8 +196,8 @@ export default {
       const res = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
         method: 'POST',
         headers: {
-          'Authorization':  `Basic ${credentials}`,
-          'Content-Type':   'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${credentials}`,
+          'Content-Type':  'application/x-www-form-urlencoded',
         },
         body: 'grant_type=client_credentials',
       });
@@ -239,8 +242,7 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: Manual sync trigger (GET /api/admin/sync)
-    // Panggil sekali setelah deploy untuk populate D1 pertama kali
+    // ENDPOINT: Manual sync trigger (POST /api/admin/sync)
     // Proteksi dengan secret header X-Admin-Token
     // ================================================================
     if (path === '/api/admin/sync' && method === 'POST') {
@@ -320,15 +322,15 @@ export default {
           return new Response('OK', { status: 200 });
         }
 
-        const orderId       = webhookEvent.resource?.supplementary_data?.related_ids?.order_id;
+        const orderId        = webhookEvent.resource?.supplementary_data?.related_ids?.order_id;
         const capturedAmount = parseFloat(webhookEvent.resource?.amount?.value || '0');
-        const currencyCode  = webhookEvent.resource?.amount?.currency_code;
+        const currencyCode   = webhookEvent.resource?.amount?.currency_code;
 
         if (!orderId || !capturedAmount || currencyCode !== 'USD') {
           return new Response('OK', { status: 200 });
         }
 
-        // FIX: Cek idempotency di payment_orders, bukan rate_limits
+        // Cek idempotency di payment_orders
         const existingOrder = await DB.prepare(
           'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
         ).bind(orderId).first();
@@ -388,7 +390,7 @@ export default {
           ).bind(userId, totalCredits, totalCredits).run();
         }
 
-        // FIX: Simpan ke payment_orders, bukan rate_limits
+        // Simpan ke payment_orders
         await DB.prepare(`
           INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
           VALUES (?, ?, ?, ?, ?, 'completed', ?)
@@ -411,12 +413,15 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: List main gallery — baca dari D1, bukan langsung R2
+    // ENDPOINT: List main gallery — baca dari D1
     // ================================================================
     if (path === '/api/list' && method === 'GET') {
       try {
-        const page     = Math.max(1, parseInt(url.searchParams.get('page')  || '1'));
-        const limit    = Math.min(500, parseInt(url.searchParams.get('limit') || '500'));
+        // FIX W-20: Sanitasi NaN dari parseInt — bisa crash query jika input non-numerik
+        const rawPage  = parseInt(url.searchParams.get('page')  || '1',  10);
+        const rawLimit = parseInt(url.searchParams.get('limit') || '500', 10);
+        const page     = Math.max(1,   isNaN(rawPage)  ? 1   : rawPage);
+        const limit    = Math.min(500, isNaN(rawLimit) ? 500 : rawLimit);
         const offset   = (page - 1) * limit;
         const category = url.searchParams.get('category') || null;
 
@@ -528,98 +533,98 @@ export default {
       }
     }
 
-// ================================================================
-// ENDPOINT: Record view
-// ================================================================
-if (path.startsWith('/api/view/') && method === 'POST') {
-  const photoId = decodeURIComponent(path.split('/').pop());
-  const userId  = getUserToken(request);
+    // ================================================================
+    // ENDPOINT: Record view
+    // FIX W-12: Skip insert jika anonymous — cegah DB flooding
+    // ================================================================
+    if (path.startsWith('/api/view/') && method === 'POST') {
+      const photoId = decodeURIComponent(path.split('/').pop());
+      const userId  = getUserToken(request);
 
-  // ✅ FIX #17: Skip insert jika anonymous
-  if (!userId || userId === 'anonymous') {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
+      if (!userId || userId === 'anonymous') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
 
-  if (!await checkRateLimit('view', userId, 100, 3600)) {
-    return new Response(null, { status: 429, headers: corsHeaders });
-  }
-  try {
-    await DB.prepare(
-      'INSERT INTO views (photo_id, user_id) VALUES (?, ?)'
-    ).bind(photoId, userId).run();
-    return new Response(null, { status: 204, headers: corsHeaders });
-  } catch (e) {
-    return new Response(null, { status: 200, headers: corsHeaders });
-  }
-}
-
-// ================================================================
-// ENDPOINT: Record download
-// ================================================================
-if (path.startsWith('/api/download/') && method === 'POST') {
-  const photoId = decodeURIComponent(path.split('/').pop());
-  const userId  = getUserToken(request);
-
-  // ✅ FIX #17: Skip insert jika anonymous
-  if (!userId || userId === 'anonymous') {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
-
-  if (!await checkRateLimit('download', userId, 50, 3600)) {
-    return new Response(null, { status: 429, headers: corsHeaders });
-  }
-  try {
-    await DB.prepare(
-      'INSERT INTO downloads (photo_id, user_id) VALUES (?, ?)'
-    ).bind(photoId, userId).run();
-    return new Response(null, { status: 204, headers: corsHeaders });
-  } catch (e) {
-    return new Response(null, { status: 200, headers: corsHeaders });
-  }
-}
-
-// ================================================================
-// ENDPOINT: Credit balance
-// ================================================================
-if (path === '/api/credits/balance' && method === 'GET') {
-  const userId = getUserToken(request);
-
-  // ✅ FIX #16: Jangan simpan user anonymous ke DB
-  if (!userId || userId === 'anonymous') {
-    return new Response(
-      JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-
-  try {
-    let user = await DB.prepare(
-      'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-    ).bind(userId).first();
-
-    if (!user) {
-      await DB.prepare(
-        'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
-      ).bind(userId).run();
-      user = { credits: 0, lifetime: 0 };
+      if (!await checkRateLimit('view', userId, 100, 3600)) {
+        return new Response(null, { status: 429, headers: corsHeaders });
+      }
+      try {
+        await DB.prepare(
+          'INSERT INTO views (photo_id, user_id) VALUES (?, ?)'
+        ).bind(photoId, userId).run();
+        return new Response(null, { status: 204, headers: corsHeaders });
+      } catch (e) {
+        return new Response(null, { status: 200, headers: corsHeaders });
+      }
     }
 
-    const purchasedRows = await DB.prepare(
-      'SELECT photo_id FROM purchased_images WHERE user_id = ?'
-    ).bind(userId).all();
-    const purchased = purchasedRows.results.map(r => r.photo_id);
+    // ================================================================
+    // ENDPOINT: Record download
+    // FIX W-13: Skip insert jika anonymous — cegah DB flooding
+    // ================================================================
+    if (path.startsWith('/api/download/') && method === 'POST') {
+      const photoId = decodeURIComponent(path.split('/').pop());
+      const userId  = getUserToken(request);
 
-    return new Response(
-      JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (e) {
-    return new Response(
-      JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
-      { headers: corsHeaders }
-    );
-  }
-}
+      if (!userId || userId === 'anonymous') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+
+      if (!await checkRateLimit('download', userId, 50, 3600)) {
+        return new Response(null, { status: 429, headers: corsHeaders });
+      }
+      try {
+        await DB.prepare(
+          'INSERT INTO downloads (photo_id, user_id) VALUES (?, ?)'
+        ).bind(photoId, userId).run();
+        return new Response(null, { status: 204, headers: corsHeaders });
+      } catch (e) {
+        return new Response(null, { status: 200, headers: corsHeaders });
+      }
+    }
+
+    // ================================================================
+    // ENDPOINT: Credit balance
+    // FIX W-11: Jangan buat row untuk user anonymous — cegah DB pollution
+    // ================================================================
+    if (path === '/api/credits/balance' && method === 'GET') {
+      const userId = getUserToken(request);
+
+      if (!userId || userId === 'anonymous') {
+        return new Response(
+          JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      try {
+        let user = await DB.prepare(
+          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+        ).bind(userId).first();
+
+        if (!user) {
+          await DB.prepare(
+            'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
+          ).bind(userId).run();
+          user = { credits: 0, lifetime: 0 };
+        }
+
+        const purchasedRows = await DB.prepare(
+          'SELECT photo_id FROM purchased_images WHERE user_id = ?'
+        ).bind(userId).all();
+        const purchased = purchasedRows.results.map(r => r.photo_id);
+
+        return new Response(
+          JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (e) {
+        return new Response(
+          JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+          { headers: corsHeaders }
+        );
+      }
+    }
 
     // ================================================================
     // ENDPOINT: Purchase credits (verifikasi PayPal order)
@@ -704,7 +709,10 @@ if (path === '/api/credits/balance' && method === 'GET') {
           await DB.prepare(`
             INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
             VALUES (?, ?, ?, ?, ?, 'failed', ?)
-          `).bind(`order:${orderId}`, userId, orderId, pack, PACK_PRICES[pack], 'Order not found in PayPal').run();
+          `).bind(
+            `order:${orderId}`, userId, orderId, pack, PACK_PRICES[pack],
+            'Order not found in PayPal'
+          ).run();
 
           return new Response(JSON.stringify({ success: false, error: 'PayPal order not found' }), {
             status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -777,7 +785,8 @@ if (path === '/api/credits/balance' && method === 'GET') {
             INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
             VALUES (?, ?, ?, ?, ?, 'completed', ?)
           `).bind(
-            `order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack], new Date().toISOString()
+            `order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack],
+            new Date().toISOString()
           ).run();
 
           // STEP 8: Fetch updated balance
@@ -854,9 +863,9 @@ if (path === '/api/credits/balance' && method === 'GET') {
             'SELECT credits FROM user_credits WHERE user_id = ?'
           ).bind(userId).first();
           return new Response(JSON.stringify({
-            success:     true,
-            newBalance:  user?.credits || 0,
-            purchased:   true,
+            success:      true,
+            newBalance:   user?.credits || 0,
+            purchased:    true,
             alreadyOwned: true,
           }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
@@ -929,136 +938,141 @@ if (path === '/api/credits/balance' && method === 'GET') {
       }
     }
 
-// ================================================================
-// ENDPOINT: Serve images dari R2
-// ================================================================
-if (
-  path.startsWith('/api/img/') ||
-  path.startsWith('/api/comitbase/img/') ||
-  path.startsWith('/api/dtreasure/img/')
-) {
-  const isDtreasure = path.startsWith('/api/dtreasure/img/');
+    // ================================================================
+    // ENDPOINT: Serve images dari R2
+    //
+    // FIX W-1: Auth wajib untuk SEMUA request DTREASURE (preview + download)
+    // FIX W-1: Hotlink blocking via Origin/Referer validation
+    // FIX W-1: Security headers tambahan untuk DTREASURE
+    // Token diterima dari header X-User-Token (fetch request)
+    //   ATAU query param ?token= (browser img tag)
+    // ================================================================
+    if (
+      path.startsWith('/api/img/') ||
+      path.startsWith('/api/comitbase/img/') ||
+      path.startsWith('/api/dtreasure/img/')
+    ) {
+      const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
-  // ✅ FIX #1 & #2: Auth wajib untuk SEMUA request DTREASURE (preview + download)
-  if (isDtreasure) {
-    // Terima token dari header (fetch request) ATAU query param (browser img tag)
-    const userId = request.headers.get('X-User-Token')
-      || url.searchParams.get('token')
-      || null;
+      if (isDtreasure) {
+        // Terima token dari header (fetch) ATAU query param (browser img tag)
+        const userId = request.headers.get('X-User-Token')
+          || url.searchParams.get('token')
+          || null;
 
-    if (!userId || userId === 'anonymous') {
-      return new Response(JSON.stringify({ error: 'Authentication required' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+        if (!userId || userId === 'anonymous') {
+          return new Response(JSON.stringify({ error: 'Authentication required' }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
 
-    // ✅ FIX #2: Validasi Origin/Referer — blokir hotlinking dari domain luar
-    const reqOrigin  = request.headers.get('Origin')  || '';
-    const reqReferer = request.headers.get('Referer') || '';
-    const isAllowedSource =
-      !reqOrigin && !reqReferer
-        ? true // request langsung (fetch internal, tool, CLI) — diizinkan
-        : ALLOWED_ORIGINS.some(o => reqOrigin === o || reqReferer.startsWith(o));
+        // Blokir hotlinking dari domain luar
+        const reqOrigin  = request.headers.get('Origin')  || '';
+        const reqReferer = request.headers.get('Referer') || '';
+        const isAllowedSource =
+          (!reqOrigin && !reqReferer)
+            ? true // request langsung (fetch server-side, CLI) — izinkan
+            : ALLOWED_ORIGINS.some(o => reqOrigin === o || reqReferer.startsWith(o));
 
-    if (!isAllowedSource) {
-      return new Response(JSON.stringify({ error: 'Forbidden' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+        if (!isAllowedSource) {
+          return new Response(JSON.stringify({ error: 'Forbidden' }), {
+            status: 403,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
 
-    // ✅ FIX #1: Purchase check HANYA untuk ?download=true
-    if (url.searchParams.get('download') === 'true') {
-      try {
-        const userRecord = await DB.prepare(
-          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-        ).bind(userId).first();
+        // Purchase check HANYA untuk ?download=true
+        if (url.searchParams.get('download') === 'true') {
+          try {
+            const userRecord = await DB.prepare(
+              'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+            ).bind(userId).first();
 
-        const hasLifetime = userRecord && !!userRecord.lifetime;
+            const hasLifetime = userRecord && !!userRecord.lifetime;
 
-        if (!hasLifetime) {
-          const photoIdFromQuery = url.searchParams.get('photoId');
-          const rawKey = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
+            if (!hasLifetime) {
+              const photoIdFromQuery = url.searchParams.get('photoId');
+              const rawKey = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
 
-          let purchasedRecord = null;
+              let purchasedRecord = null;
 
-          if (photoIdFromQuery) {
-            purchasedRecord = await DB.prepare(
-              'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-            ).bind(userId, photoIdFromQuery).first();
-          }
+              if (photoIdFromQuery) {
+                purchasedRecord = await DB.prepare(
+                  'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+                ).bind(userId, photoIdFromQuery).first();
+              }
 
-          if (!purchasedRecord) {
-            purchasedRecord = await DB.prepare(
-              'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-            ).bind(userId, rawKey).first();
-          }
+              // Fallback: cek dengan rawKey (backward compat data lama)
+              if (!purchasedRecord) {
+                purchasedRecord = await DB.prepare(
+                  'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
+                ).bind(userId, rawKey).first();
+              }
 
-          if (!purchasedRecord) {
-            return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
-              status: 403,
+              if (!purchasedRecord) {
+                return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
+                  status: 403,
+                  headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                });
+              }
+            }
+          } catch (e) {
+            console.error('Auth check error:', e.message);
+            return new Response(JSON.stringify({ error: 'Authorization check failed' }), {
+              status: 500,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           }
         }
+      }
+
+      let bucket, prefix;
+      if (path.startsWith('/api/comitbase/img/')) {
+        bucket = comitbaseBucket;
+        prefix = '/api/comitbase/img/';
+      } else if (isDtreasure) {
+        bucket = treasureBucket;
+        prefix = '/api/dtreasure/img/';
+      } else {
+        bucket = mainBucket;
+        prefix = '/api/img/';
+      }
+
+      try {
+        const key    = decodeURIComponent(path.slice(prefix.length));
+        const object = await bucket.get(key);
+        if (!object) return new Response('Not found', { status: 404 });
+
+        const headers = new Headers();
+        object.writeHttpMetadata(headers);
+        headers.set('etag', object.httpEtag);
+        headers.set('Access-Control-Allow-Origin',
+          ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
+        headers.set('Vary', 'Origin');
+        headers.set('Cache-Control',
+          isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
+
+        // Security headers tambahan untuk DTREASURE
+        if (isDtreasure) {
+          headers.set('X-Content-Type-Options', 'nosniff');
+          headers.set('X-Robots-Tag',           'noindex, noarchive, noimageindex');
+          headers.set('Content-Security-Policy', "default-src 'none'");
+        }
+
+        if (url.searchParams.get('download') === 'true') {
+          const safeFilename = key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_');
+          headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        }
+
+        return new Response(object.body, { headers });
       } catch (e) {
-        console.error('Auth check error:', e.message);
-        return new Response(JSON.stringify({ error: 'Authorization check failed' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        console.error('Image serve error:', e.message);
+        return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
     }
-  }
-
-  let bucket, prefix;
-  if (path.startsWith('/api/comitbase/img/')) {
-    bucket = comitbaseBucket;
-    prefix = '/api/comitbase/img/';
-  } else if (isDtreasure) {
-    bucket = treasureBucket;
-    prefix = '/api/dtreasure/img/';
-  } else {
-    bucket = mainBucket;
-    prefix = '/api/img/';
-  }
-
-  try {
-    const key    = decodeURIComponent(path.slice(prefix.length));
-    const object = await bucket.get(key);
-    if (!object) return new Response('Not found', { status: 404 });
-
-    const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set('etag', object.httpEtag);
-    headers.set('Access-Control-Allow-Origin',
-      ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
-    headers.set('Vary', 'Origin');
-    headers.set('Cache-Control',
-      isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
-
-    // ✅ FIX #10: Security headers tambahan untuk DTREASURE
-    if (isDtreasure) {
-      headers.set('X-Content-Type-Options', 'nosniff');
-      headers.set('X-Robots-Tag',           'noindex, noarchive, noimageindex');
-      headers.set('Content-Security-Policy', "default-src 'none'");
-    }
-
-    if (url.searchParams.get('download') === 'true') {
-      const safeFilename = key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_');
-      headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
-    }
-
-    return new Response(object.body, { headers });
-  } catch (e) {
-    console.error('Image serve error:', e.message);
-    return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-}
 
     // ================================================================
     // Serve static files dari R2
@@ -1094,10 +1108,10 @@ if (
       if (mimeTypes[ext]) headers.set('Content-Type', mimeTypes[ext]);
 
       if (ext === 'html') {
-        headers.set('X-Frame-Options',         'DENY');
-        headers.set('X-Content-Type-Options',  'nosniff');
-        headers.set('X-XSS-Protection',        '1; mode=block');
-        headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
+        headers.set('X-Frame-Options',        'DENY');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        headers.set('X-XSS-Protection',       '1; mode=block');
+        headers.set('Referrer-Policy',        'strict-origin-when-cross-origin');
         headers.set('Content-Security-Policy',
           "default-src 'self'; " +
           "img-src 'self' data: https:; " +
