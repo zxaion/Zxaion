@@ -88,16 +88,13 @@
             'ORIGINAL': 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Original.jpg'
         };
 
-<script>
-    // ✅ FIX #14: Gunakan URL gambar langsung (bukan Google Drive viewer)
-    // Ganti URL di bawah dengan direct link gambar logo kamu
-    // Contoh: upload logo ke R2 bucket, lalu pakai path /api/img/HEADER/Logo.png
-    window.customLogo = {
-        enabled: true,
-        url: 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png', // ✅ Direct image URL
-        alt: 'ZXAION VERSE Logo'
-    };
-</script>
+        // Custom logo configuration - Set your logo URL here
+        window.customLogo = {
+            enabled: true, // Set to true to use custom logo
+            url: 'https://drive.google.com/file/d/1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM/view?usp=drivesdk', // Your custom logo image URL
+            alt: 'ZXAION VERSE Logo'
+        };
+    </script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased flex flex-col min-h-screen dark:bg-gray-950 dark:text-gray-100 transition-colors duration-300">
 
