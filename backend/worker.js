@@ -515,7 +515,14 @@ export default {
     // ENDPOINT: Image stats
     // ================================================================
     if (path.startsWith('/api/stats/') && method === 'GET') {
-      const photoId = decodeURIComponent(path.split('/').pop());
+      // ✅ FIX #11: Defensif terhadap trailing slash — filter Boolean sebelum pop()
+      const rawSegment = path.split('/').filter(Boolean).pop() || '';
+      const photoId = decodeURIComponent(rawSegment);
+      if (!photoId) {
+        return new Response(JSON.stringify({ error: 'Invalid photo ID' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
       try {
         const views     = await DB.prepare('SELECT COUNT(*) as c FROM views WHERE photo_id = ?').bind(photoId).first();
         const downloads = await DB.prepare('SELECT COUNT(*) as c FROM downloads WHERE photo_id = ?').bind(photoId).first();
@@ -532,7 +539,12 @@ export default {
     // ENDPOINT: Record view
     // ================================================================
     if (path.startsWith('/api/view/') && method === 'POST') {
-      const photoId = decodeURIComponent(path.split('/').pop());
+      // ✅ FIX #11: Defensif terhadap trailing slash
+      const rawSegment = path.split('/').filter(Boolean).pop() || '';
+      const photoId = decodeURIComponent(rawSegment);
+      if (!photoId) {
+        return new Response(null, { status: 400, headers: corsHeaders });
+      }
       const userId  = getUserToken(request);
       if (!await checkRateLimit('view', userId, 100, 3600)) {
         return new Response(null, { status: 429, headers: corsHeaders });
@@ -549,7 +561,12 @@ export default {
     // ENDPOINT: Record download
     // ================================================================
     if (path.startsWith('/api/download/') && method === 'POST') {
-      const photoId = decodeURIComponent(path.split('/').pop());
+      // ✅ FIX #11: Defensif terhadap trailing slash
+      const rawSegment = path.split('/').filter(Boolean).pop() || '';
+      const photoId = decodeURIComponent(rawSegment);
+      if (!photoId) {
+        return new Response(null, { status: 400, headers: corsHeaders });
+      }
       const userId  = getUserToken(request);
       if (!await checkRateLimit('download', userId, 50, 3600)) {
         return new Response(null, { status: 429, headers: corsHeaders });

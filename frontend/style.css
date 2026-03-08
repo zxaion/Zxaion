@@ -144,6 +144,11 @@
         /* ✅ REDUCE: Scale dari 1.08 ke 1.05 */
         transform: scale(1.05);
     }
+
+    /* ✅ FIX #3 CRITICAL: Rule ini hilang — overlay tidak pernah tampil saat hover desktop */
+    .masonry-item:hover .masonry-overlay {
+        opacity: 1;
+    }
 }
 
 /* Touch Device - Always show overlay */

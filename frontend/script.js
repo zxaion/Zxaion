@@ -1,5 +1,4 @@
 
-
 // --- Configuration ---
 const API_BASE = 'https://ai.zxaionverse.workers.dev';
 const ITEMS_PER_PAGE = 30;
@@ -25,6 +24,80 @@ const CREDIT_PACKS = {
     '125$': { credits: 'lifetime', bonus: 0, label: 'LIFETIME PRO', price: 125, color: 'from-amber-400 to-orange-500' }
 };
 
+window.headerBackgrounds = {
+    'All': `${API_BASE}/api/img/HEADER/Home.jpg`,
+    'Anime': `${API_BASE}/api/img/HEADER/Anime.jpg`,
+    'Fantasy': `${API_BASE}/api/img/HEADER/Fantasy.jpg`,
+    'Abstract': `${API_BASE}/api/img/HEADER/Abstract.jpg`,
+    'Photography': `${API_BASE}/api/img/PHOTOGRAPHY/PSX_207.jpg`,
+    'COMITBASE': `${API_BASE}/api/img/HEADER/Combaseheader.jpg`,
+    'DTREASURE': `${API_BASE}/api/img/HEADER/Dtreasure.jpg`,
+    'ZMEME': `${API_BASE}/api/img/HEADER/Memehead.jpg`,
+    'OVERLAY': `${API_BASE}/api/img/HEADER/Overlayhead.jpg`
+};
+
+window.categoryThumbnails = {
+    'Anime': `${API_BASE}/api/img/HEADER/Anime.jpg`,
+    'Fantasy': `${API_BASE}/api/img/HEADER/Fantasy.jpg`,
+    'Abstract': `${API_BASE}/api/img/HEADER/Abstract.jpg`,
+    'Photography': `${API_BASE}/api/img/PHOTOGRAPHY/PSX_207.jpg`,
+    'COMITBASE': `${API_BASE}/api/img/HEADER/Combaseheader.jpg`,
+    'DTREASURE': `${API_BASE}/api/img/HEADER/Dtreasure1.jpg`,
+    'ZMEME': `${API_BASE}/api/img/HEADER/Zmeme.jpg`,
+    'OVERLAY': `${API_BASE}/api/img/HEADER/Overlay.jpg`
+};
+
+window.animeAlbumThumbnails = {
+    'Attack on Titan': `${API_BASE}/api/img/HEADER/AOT.jpg`,
+    'One Piece': `${API_BASE}/api/img/HEADER/One piece.jpg`,
+    'My Hero Academia': `${API_BASE}/api/img/HEADER/Hro academia.jpg`,
+    'Demon Slayer': `${API_BASE}/api/img/ANIME/Demon slayer/ai_generated_by_zxaionverse_djco3hq.jpg`,
+    'One-Punch Man': `${API_BASE}/api/img/HEADER/Onepuvhman.jpg`,
+    'Death Note': `${API_BASE}/api/img/HEADER/Deathnote.jpg`,
+    'Sousou no Frieren': `${API_BASE}/api/img/HEADER/Frieren.jpg`,
+    'Boruto': `${API_BASE}/api/img/HEADER/Boruto.jpg`,
+    'Jujutsu Kaisen': `${API_BASE}/api/img/HEADER/Jjk.jpg`,
+    'Pokémon': `${API_BASE}/api/img/HEADER/Pokemon.jpg`,
+    'Chainsaw Man': `${API_BASE}/api/img/HEADER/Chainsawman.jpg`,
+    'Fate Series': `${API_BASE}/api/img/ANIME/Fate series/PSX_193.jpg`,
+    'Solo Leveling': `${API_BASE}/api/img/HEADER/Sololeveling.jpg`,
+    'Evangelion': `${API_BASE}/api/img/HEADER/Evangelion.jpg`,
+    'Naruto': `${API_BASE}/api/img/HEADER/Naruti.jpg`,
+    'The Seven Deadly Sins': `${API_BASE}/api/img/HEADER/Nanatsu.jpg`,
+    'Tokyo Ghoul': `${API_BASE}/api/img/HEADER/Ghoul.jpg`,
+    'Sword Art Online': `${API_BASE}/api/img/HEADER/SAO.jpg`,
+    'Dragon Ball Super': `${API_BASE}/api/img/HEADER/Goku.jpg`,
+    'Haikyuu!!': `${API_BASE}/api/img/HEADER/Haikyu.jpg`,
+    'Fairy Tail': `${API_BASE}/api/img/HEADER/Fairytail.jpg`,
+    'Hunter x Hunter': `${API_BASE}/api/img/HEADER/Hmterx hunter.jpg`,
+    'Black Clover': `${API_BASE}/api/img/HEADER/Vanesablack clover.jpg`,
+    'Dr. Stone': `${API_BASE}/api/img/HEADER/Dr stone.jpg`,
+    'HSR': `${API_BASE}/api/img/HEADER/Hsr 1.jpg`,
+    'GENSHIN': `${API_BASE}/api/img/HEADER/1Genshin.jpg`,
+    'ZZZ': `${API_BASE}/api/img/HEADER/Zzz 1.jpg`,
+    'WUWA': `${API_BASE}/api/img/HEADER/Wuwa 1.jpg`,
+    'PURAVEN': `${API_BASE}/api/img/HEADER/Puraven.jpg`,
+    'FINAL FANTASY': `${API_BASE}/api/img/HEADER/FF.jpg`,
+    'RESIDENT EVIL': `${API_BASE}/api/img/HEADER/Residentevil.jpg`,
+    'DEAD OR ALIVE': `${API_BASE}/api/img/HEADER/`,
+    'TOKYO REVENGER': `${API_BASE}/api/img/HEADER/TokyoR.jpg`,
+    'FIRE FORCE': `${API_BASE}/api/img/HEADER/Fireforce.jpg`,
+    'ROMANCE ANIME': `${API_BASE}/api/img/HEADER/`,
+    'ISEKAI': `${API_BASE}/api/img/HEADER/Isekai.jpg`,
+    'ORIGINAL': `${API_BASE}/api/img/HEADER/Original.jpg`
+};
+
+
+        // Custom logo configuration - Set your logo URL here
+        window.customLogo = {
+            enabled: true,
+            // ✅ FIX #4: Direct export URL — Google Drive view link tidak bisa render sebagai <img>
+            // Format: https://drive.google.com/uc?export=view&id=FILE_ID
+            // Atau lebih direkomendasikan: gunakan URL dari R2 bucket sendiri
+            url: 'https://drive.google.com/uc?export=view&id=1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM',
+            alt: 'ZXAION VERSE Logo'
+        };
+
 /** Mencegah long-press "Simpan Gambar" di mobile untuk gambar yang dilindungi. */
 function preventTouchSave(e) { e.preventDefault(); }
 
@@ -32,7 +105,15 @@ function preventTouchSave(e) { e.preventDefault(); }
 const getOrCreateUserToken = () => {
     let token = localStorage.getItem('zx_user_token');
     if (!token) {
-        token = 'u_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+        // ✅ FIX #7: crypto.getRandomValues() — cryptographically secure, tidak predictable
+        // Penting karena token ini dipakai untuk transaksi keuangan (credits)
+        // ✅ FIX #7b: Hapus Math.random() dan substr (deprecated)
+        const array = new Uint8Array(16);
+        crypto.getRandomValues(array);
+        const randomHex = Array.from(array)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        token = 'u_' + Date.now().toString(36) + '_' + randomHex;
         localStorage.setItem('zx_user_token', token);
     }
     return token;
@@ -126,10 +207,6 @@ const utils = {
         };
     },
 
-    getImagePreviewUrl(url) {
-    if (!url) return '';
-    return url;
-},
 
     formatNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -149,25 +226,31 @@ const api = {
     
     async fetchImages() {
         try {
-            // ✅ Cache 5 menit
+            // ✅ FIX #2: Cache sekarang menyimpan data yang sudah difilter
+            // Sebelumnya: cache menyimpan raw data, tapi waktu hit cache langsung assign tanpa filter ulang
             const now = Date.now();
             if (this.imageCache.main && (now - this.imageCache.timestamp) < 300000) {
-                state.allPhotos = this.imageCache.main;
+                state.allPhotos = this.imageCache.main; // sudah filtered, aman
                 this.organizeAnimeAlbums();
                 ui.updateOriginalAlbumCount();
                 return true;
             }
-            
+
             const res = await fetch(`${API_BASE}/api/list`);
+            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
             const data = await res.json();
+
             if (Array.isArray(data)) {
-                this.imageCache.main = data;
-                this.imageCache.timestamp = now;
-                
-                state.allPhotos = data.filter(photo => {
+                // ✅ FIX #2: Filter DULU, BARU simpan ke cache
+                const filtered = data.filter(photo => {
                     if (!photo.path) return true;
                     return !photo.path.toLowerCase().startsWith('header/');
                 });
+
+                this.imageCache.main = filtered;       // cache = sudah bersih
+                this.imageCache.timestamp = now;
+
+                state.allPhotos = filtered;
                 this.organizeAnimeAlbums();
                 ui.updateOriginalAlbumCount();
                 return true;
@@ -903,12 +986,27 @@ async openImageModal(photo) {
         const photosToShow = state.comitbasePhotos.slice(start, end);
         
         elements.comitbaseGallery.innerHTML = '';
+
+        // ✅ FIX #5: Satu shared IntersectionObserver untuk semua item
+        // Sebelumnya: new IntersectionObserver() dibuat di dalam forEach = N observer untuk N gambar = memory leak
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        delete img.dataset.src;
+                    }
+                    observer.unobserve(img);
+                }
+            });
+        }, { rootMargin: '50px' });
         
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = "masonry-item fade-in";
             item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
+            item.dataset.photoId = photo.id;
             
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
@@ -933,18 +1031,7 @@ async openImageModal(photo) {
         `;
             
             const img = item.querySelector('img');
-            const imageObserver = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        if (img.dataset.src) {
-                            img.src = img.dataset.src;
-                            delete img.dataset.src;
-                        }
-                        observer.unobserve(img);
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
+            // ✅ FIX #5: Observe pakai shared observer, bukan buat baru tiap item
             imageObserver.observe(img);
             
             img.onload = function() {
@@ -1037,6 +1124,20 @@ async openImageModal(photo) {
         const photosToShow = state.dtreasurePhotos.slice(start, end);
         
         elements.dtreasureGallery.innerHTML = '';
+
+        // ✅ FIX #5: Shared IntersectionObserver — satu instance untuk semua item
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        delete img.dataset.src;
+                    }
+                    observer.unobserve(img);
+                }
+            });
+        }, { rootMargin: '50px' });
         
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
@@ -1086,18 +1187,7 @@ item.innerHTML = `
 `;
             
             const img = item.querySelector('img');
-            const imageObserver = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        if (img.dataset.src) {
-                            img.src = img.dataset.src;
-                            delete img.dataset.src;
-                        }
-                        observer.unobserve(img);
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
+            // ✅ FIX #5: Pakai shared observer di atas, bukan buat baru per item
             imageObserver.observe(img);
             
             img.onload = function() {
@@ -1340,7 +1430,16 @@ item.innerHTML = `
                     const menuModalEl = document.getElementById('menu-modal');
                     
                     if (titleEl) titleEl.textContent = data[key].title;
-                    if (contentEl) contentEl.innerHTML = data[key].content;
+                    if (contentEl) {
+                        // ✅ FIX #6: Sanitasi dasar untuk cegah XSS injection
+                        // Hapus <script>, inline event handlers, dan javascript: URI
+                        // Untuk skala produksi yang lebih besar, gunakan library DOMPurify
+                        const sanitized = (data[key].content || '')
+                            .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+                            .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
+                            .replace(/javascript\s*:/gi, '');
+                        contentEl.innerHTML = sanitized;
+                    }
                     if (modalEl) {
                         modalEl.classList.remove('hidden');
                         modalEl.classList.add('flex');
@@ -1622,7 +1721,7 @@ const debouncedSearch = utils.debounce((e) => {
         closeImageModal.addEventListener('click', () => {
             elements.imageModal.classList.add('hidden');
             elements.imageModal.classList.remove('flex');
-            document.body.style.overflow = 'auto';
+            document.body.style.overflow = ''; // ✅ FIX #9: Reset ke default, bukan paksa 'auto'
         });
     }
     
@@ -1631,7 +1730,7 @@ const debouncedSearch = utils.debounce((e) => {
             if (e.target === elements.imageModal) {
                 elements.imageModal.classList.add('hidden');
                 elements.imageModal.classList.remove('flex');
-                document.body.style.overflow = 'auto';
+                document.body.style.overflow = ''; // ✅ FIX #9
             }
         });
     }
@@ -1795,7 +1894,7 @@ Submitted via ZXAION VERSE COMITBASE`;
                 }
             });
             
-            document.body.style.overflow = 'auto';
+            document.body.style.overflow = ''; // ✅ FIX #9
         }
     });
 
@@ -1805,7 +1904,7 @@ Submitted via ZXAION VERSE COMITBASE`;
             if (e.target === backdrop) {
                 backdrop.classList.add('hidden');
                 backdrop.classList.remove('flex');
-                document.body.style.overflow = 'auto';
+                document.body.style.overflow = ''; // ✅ FIX #9
             }
         });
     });
