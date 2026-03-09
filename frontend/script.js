@@ -88,15 +88,19 @@ window.animeAlbumThumbnails = {
 };
 
 
-        // Custom logo configuration - Set your logo URL here
-        window.customLogo = {
-            enabled: true,
-            // ✅ FIX #4: Direct export URL — Google Drive view link tidak bisa render sebagai <img>
-            // Format: https://drive.google.com/uc?export=view&id=FILE_ID
-            // Atau lebih direkomendasikan: gunakan URL dari R2 bucket sendiri
-            url: 'https://drive.google.com/uc?export=view&id=1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM',
-            alt: 'ZXAION VERSE Logo'
-        };
+// Custom logo configuration - Set your logo URL here
+window.customLogo = {
+    enabled: true,
+    // ✅ FIX: Gunakan direct export URL atau hosting sendiri
+    // Format Google Drive export: https://drive.google.com/uc?export=view&id=FILE_ID
+    // BETTER: Upload logo ke R2 bucket untuk reliability dan performance
+    url: `${API_BASE}/api/img/HEADER/Logo.png`, // Recommended: gunakan dari R2 bucket
+    // Alternatif jika tetap ingin Google Drive (tapi tidak direkomendasikan):
+    // url: 'https://drive.google.com/uc?export=download&id=1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM',
+    alt: 'ZXAION VERSE Logo',
+    // Tambahkan error handling
+    fallbackUrl: '' // Kosongkan untuk gunakan default ZX text
+};
 
 /** Mencegah long-press "Simpan Gambar" di mobile untuk gambar yang dilindungi. */
 function preventTouchSave(e) { e.preventDefault(); }
@@ -275,6 +279,8 @@ invalidateCache() {
     async fetchComitbaseImages() {
         try {
             const res = await fetch(`${API_BASE}/api/comitbase/list`);
+            // ✅ FIX S-6: Cek res.ok sebelum parse JSON
+            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
             const data = await res.json();
             if (Array.isArray(data)) {
                 state.comitbasePhotos = data;
@@ -290,6 +296,8 @@ invalidateCache() {
     async fetchDtreasureImages() {
         try {
             const res = await fetch(`${API_BASE}/api/dtreasure/list`);
+            // ✅ FIX S-6: Cek res.ok sebelum parse JSON
+            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
             const data = await res.json();
             if (Array.isArray(data)) {
                 state.dtreasurePhotos = data;
@@ -660,7 +668,11 @@ async openImageModal(photo) {
             
             img.onload = function() {
                 this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
+                // ✅ FIX S-3: Same guard as renderGallery — prevent double API call
+                if (!item.dataset.statsLoaded) {
+                    item.dataset.statsLoaded = 'true';
+                    ui.loadStatsForItem(photo.id, item);
+                }
             };
             
             img.onerror = function() {
@@ -855,15 +867,18 @@ async openImageModal(photo) {
             }, 3500);
         }
     } else {
+        // ✅ FIX S-2: Hapus target='_blank' — attribute 'download' diabaikan browser
+        // untuk cross-origin URL dengan target='_blank'. Worker sudah set
+        // Content-Disposition: attachment, sehingga server-side header yang mengontrol download.
         const a = document.createElement('a');
         a.href = downloadUrl;
         a.download = filename;
-        a.target = '_blank';
+        // TIDAK ada a.target = '_blank' ← ini yang menyebabkan bug
         document.body.appendChild(a);
         a.click();
         setTimeout(() => document.body.removeChild(a), 100);
     }
-},
+    },
 
     updatePagination() {
         if (!elements.paginationContainer) return;
@@ -1035,14 +1050,18 @@ async openImageModal(photo) {
             imageObserver.observe(img);
             
             img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
-            };
-            
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
+    this.classList.remove('loading-shimmer');
+    // ✅ FIX S-3: Same guard as renderGallery — prevent double API call
+    if (!item.dataset.statsLoaded) {
+        item.dataset.statsLoaded = 'true';
+        ui.loadStatsForItem(photo.id, item);
+    }
+};
+
+img.onerror = function() {
+    this.classList.remove('loading-shimmer');
+    this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+};
             
             elements.comitbaseGallery.appendChild(item);
         });
@@ -1191,14 +1210,18 @@ item.innerHTML = `
             imageObserver.observe(img);
             
             img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                ui.loadStatsForItem(photo.id, item);
-            };
-            
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
+    this.classList.remove('loading-shimmer');
+    // ✅ FIX S-3: Same guard as renderGallery — prevent double API call
+    if (!item.dataset.statsLoaded) {
+        item.dataset.statsLoaded = 'true';
+        ui.loadStatsForItem(photo.id, item);
+    }
+};
+
+img.onerror = function() {
+    this.classList.remove('loading-shimmer');
+    this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+};
             
             elements.dtreasureGallery.appendChild(item);
         });
@@ -1239,20 +1262,27 @@ item.innerHTML = `
 
     updateDtreasurePagination() {
         if (!elements.dtreasurePagination) return;
-        
+
         const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
-        
+
+        // ✅ FIX S-4: Sembunyikan pagination jika tidak ada data atau hanya 1 halaman
+        if (totalPages <= 1) {
+            elements.dtreasurePagination.classList.add('hidden');
+            return;
+        }
+
         elements.dtreasurePagination.classList.remove('hidden');
+
         const pageInfo = document.getElementById('dtreasure-page-info');
         if (pageInfo) {
             pageInfo.textContent = `Page ${state.currentDtreasurePage} of ${totalPages}`;
         }
-        
+
         const prevBtn = document.getElementById('dtreasure-prev');
         const nextBtn = document.getElementById('dtreasure-next');
-        
+
         if (prevBtn) prevBtn.disabled = state.currentDtreasurePage === 1;
-        if (nextBtn) nextBtn.disabled = state.currentDtreasurePage === totalPages || totalPages === 0;
+        if (nextBtn) nextBtn.disabled = state.currentDtreasurePage >= totalPages;
     },
 
     changeCategory(category) {
@@ -1559,20 +1589,33 @@ function initEvents() {
         }
     });
 
-// ✅ OPTIMIZATION: Improve debounce dengan timeout lebih pendek
-const debouncedSearch = utils.debounce((e) => {
-    const query = e.target.value.trim();
-    if (query.length > 0 || state.searchQuery !== '') {
-        ui.handleSearch(query);
-    }
-}, 300); // ✅ Sudah optimal
-    
+// ✅ FIX S-1: Separate debounce instances — shared instance caused timer conflict
+    // Each input has its own debounce timer. Typing in one won't reset the other.
+    // Bonus: inputs are kept in sync so UX is seamless across breakpoints.
+    const debouncedSearchDesktop = utils.debounce((e) => {
+        const query = e.target.value.trim();
+        // Sync ke mobile input agar nilainya sama
+        if (elements.searchInputMobile) elements.searchInputMobile.value = e.target.value;
+        if (query.length > 0 || state.searchQuery !== '') {
+            ui.handleSearch(query);
+        }
+    }, 300);
+
+    const debouncedSearchMobile = utils.debounce((e) => {
+        const query = e.target.value.trim();
+        // Sync ke desktop input agar nilainya sama
+        if (elements.searchInput) elements.searchInput.value = e.target.value;
+        if (query.length > 0 || state.searchQuery !== '') {
+            ui.handleSearch(query);
+        }
+    }, 300);
+
     if (elements.searchInput) {
-        elements.searchInput.addEventListener('input', debouncedSearch);
+        elements.searchInput.addEventListener('input', debouncedSearchDesktop);
     }
-    
+
     if (elements.searchInputMobile) {
-        elements.searchInputMobile.addEventListener('input', debouncedSearch);
+        elements.searchInputMobile.addEventListener('input', debouncedSearchMobile);
     }
 
     // Search clear button

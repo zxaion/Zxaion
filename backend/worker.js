@@ -2,8 +2,15 @@
 function parseImageMeta(key, bucket) {
   const allowedExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
   const lower = key.toLowerCase();
+
+  // Filter ekstensi yang tidak diizinkan
   if (!allowedExt.some(ext => lower.endsWith(ext))) return null;
-  if (lower.startsWith('_') || lower.includes('/header/')) return null;
+
+  // ✅ FIX W-1: Filter file tersembunyi (prefixed '_') DAN semua path yang mengandung
+  // folder HEADER — baik di root ('header/logo.png') MAUPUN di subfolder ('anime/header/x.jpg').
+  // Sebelumnya: lower.includes('/header/') tidak match 'header/logo.png' (tanpa leading slash).
+  if (lower.startsWith('_')) return null;
+  if (lower.startsWith('header/') || lower.includes('/header/')) return null;
 
   const parts = key.split('/');
   let category = 'Other', subCategory = null;

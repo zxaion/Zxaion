@@ -29,8 +29,6 @@
     column-count: 2;
     column-gap: 1rem;
     width: 100%;
-    /* ✅ ADD: will-change untuk performance */
-    will-change: column-count;
 }
 
 @media (min-width: 640px) {
@@ -374,13 +372,17 @@
 /* ============================================
    RESPONSIVE
    ============================================ */
+
+/* ✅ FIX C-1: Single backslash '\:' adalah CSS escape yang benar untuk Tailwind class 'lg:w-96'
+   Double backslash '\\:' sebelumnya salah — selector tidak match apapun (dead CSS).
+   Semua rule responsive untuk image-modal panel tidak pernah berlaku karena bug ini. */
 @media (max-width: 1024px) {
     #image-modal {
         flex-direction: column;
         padding: 1rem;
     }
-    
-    #image-modal .lg\\:w-96 {
+
+    #image-modal .lg\:w-96 {
         width: 100%;
         max-height: 40vh;
     }
@@ -391,19 +393,18 @@
         column-count: 2;
         column-gap: 0.75rem;
     }
-    
+
     .masonry-item {
         margin-bottom: 0.75rem;
         border-radius: 12px;
     }
-    
-    #image-modal .flex-row {
-        flex-direction: column;
-    }
-    
-    #image-modal .lg\\:w-96 {
+
+    /* ✅ Hapus .flex-row selector — tidak ada elemen dengan class 'flex-row' di modal,
+       Tailwind pakai 'flex-col lg:flex-row' bukan class 'flex-row' standalone */
+
+    #image-modal .lg\:w-96 {
         width: 100%;
-        height: 50vh;
+        max-height: 50vh; /* Konsisten: pakai max-height bukan height untuk konten dinamis */
     }
 }
 
