@@ -422,8 +422,10 @@ export default {
     // ================================================================
     if (path === '/api/list' && method === 'GET') {
       try {
-        const page     = Math.max(1, parseInt(url.searchParams.get('page')  || '1'));
-        const limit    = Math.min(500, parseInt(url.searchParams.get('limit') || '500'));
+        const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',  10);
+        const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
+        const page     = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
+        const limit    = Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 500);
         const offset   = (page - 1) * limit;
         const category = url.searchParams.get('category') || null;
 

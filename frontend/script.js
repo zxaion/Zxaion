@@ -79,10 +79,10 @@ window.animeAlbumThumbnails = {
     'PURAVEN': `${API_BASE}/api/img/HEADER/Puraven.jpg`,
     'FINAL FANTASY': `${API_BASE}/api/img/HEADER/FF.jpg`,
     'RESIDENT EVIL': `${API_BASE}/api/img/HEADER/Residentevil.jpg`,
-    'DEAD OR ALIVE': `${API_BASE}/api/img/HEADER/`,
+    'DEAD OR ALIVE': `${API_BASE}/api/img/HEADER/Anime.jpg`,
     'TOKYO REVENGER': `${API_BASE}/api/img/HEADER/TokyoR.jpg`,
     'FIRE FORCE': `${API_BASE}/api/img/HEADER/Fireforce.jpg`,
-    'ROMANCE ANIME': `${API_BASE}/api/img/HEADER/`,
+    'ROMANCE ANIME': `${API_BASE}/api/img/HEADER/Anime.jpg`,
     'ISEKAI': `${API_BASE}/api/img/HEADER/Isekai.jpg`,
     'ORIGINAL': `${API_BASE}/api/img/HEADER/Original.jpg`
 };
@@ -314,6 +314,7 @@ invalidateCache() {
         if (!photoId) return { views: 0, downloads: 0 };
         try {
             const res = await fetch(`${API_BASE}/api/stats/${encodeURIComponent(photoId)}`);
+            if (!res.ok) return { views: 0, downloads: 0 }; // ✅ guard sebelum parse
             const data = await res.json();
             return { views: data.views || 0, downloads: data.downloads || 0 };
         } catch (error) {
@@ -324,20 +325,28 @@ invalidateCache() {
     async recordDownload(photoId) {
         if (!photoId) return;
         try {
-            await fetch(`${API_BASE}/api/download/${encodeURIComponent(photoId)}`, { method: 'POST' });
+            const token = getOrCreateUserToken();
+            await fetch(`${API_BASE}/api/download/${encodeURIComponent(photoId)}`, {
+                method: 'POST',
+                headers: { 'X-User-Token': token }, // ✅ kirim token agar rate limit per-user
+            });
         } catch (error) {
             console.error('Failed to record download:', error);
         }
     },
 
     async recordView(photoId) {
-        if (!photoId) return;
-        try {
-            await fetch(`${API_BASE}/api/view/${encodeURIComponent(photoId)}`, { method: 'POST' });
-        } catch (error) {
-            console.error('Failed to record view:', error);
-        }
-    },
+    if (!photoId) return;
+    try {
+        const token = getOrCreateUserToken();
+        await fetch(`${API_BASE}/api/view/${encodeURIComponent(photoId)}`, {
+            method: 'POST',
+            headers: { 'X-User-Token': token }, // ✅ kirim token agar rate limit per-user
+        });
+    } catch (error) {
+        console.error('Failed to record view:', error);
+    }
+},
 
     async fetchCreditBalance() {
         try {
@@ -345,6 +354,10 @@ invalidateCache() {
             const res = await fetch(`${API_BASE}/api/credits/balance`, {
                 headers: { 'X-User-Token': token }
             });
+            if (!res.ok) {
+                console.error('fetchCreditBalance failed:', res.status);
+                return; // ✅ Jangan parse jika HTTP error
+            }
             const data = await res.json();
             state.credits = data.credits || 0;
             state.lifetime = data.lifetime || false;
@@ -621,9 +634,11 @@ async openImageModal(photo) {
         
         elements.galleryContainer.innerHTML = '';
         
-        // ✅ Intersection Observer untuk lazy loading
-        const imageObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
+// ✅ Disconnect observer lama sebelum buat baru — cegah memory leak
+        if (this._galleryObserver) {
+            this._galleryObserver.disconnect();
+        }
+        const imageObserver = new IntersectionObserver((entries, observer) => {           entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const img = entry.target;
                     if (img.dataset.src) {
@@ -634,6 +649,8 @@ async openImageModal(photo) {
                 }
             });
         }, { rootMargin: '50px' });
+        
+        this._galleryObserver = imageObserver; // simpan reference
         
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
@@ -876,7 +893,10 @@ async openImageModal(photo) {
         // TIDAK ada a.target = '_blank' ← ini yang menyebabkan bug
         document.body.appendChild(a);
         a.click();
-        setTimeout(() => document.body.removeChild(a), 100);
+// ✅ 300ms memberi cukup waktu untuk browser trigger download di device lambat
+setTimeout(() => {
+    if (document.body.contains(a)) document.body.removeChild(a);
+}, 300);
     }
     },
 
@@ -1002,8 +1022,9 @@ async openImageModal(photo) {
         
         elements.comitbaseGallery.innerHTML = '';
 
-        // ✅ FIX #5: Satu shared IntersectionObserver untuk semua item
-        // Sebelumnya: new IntersectionObserver() dibuat di dalam forEach = N observer untuk N gambar = memory leak
+if (this._comitbaseObserver) {
+            this._comitbaseObserver.disconnect();
+        }
         const imageObserver = new IntersectionObserver((entries, observer) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
@@ -1016,7 +1037,8 @@ async openImageModal(photo) {
                 }
             });
         }, { rootMargin: '50px' });
-        
+        this._comitbaseObserver = imageObserver; // ✅ simpan reference
+
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = "masonry-item fade-in";
@@ -1144,7 +1166,10 @@ img.onerror = function() {
         
         elements.dtreasureGallery.innerHTML = '';
 
-        // ✅ FIX #5: Shared IntersectionObserver — satu instance untuk semua item
+// ✅ Disconnect observer lama sebelum buat baru — cegah memory leak
+        if (this._dtreasureObserver) {
+            this._dtreasureObserver.disconnect();
+        }
         const imageObserver = new IntersectionObserver((entries, observer) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
@@ -1157,12 +1182,13 @@ img.onerror = function() {
                 }
             });
         }, { rootMargin: '50px' });
-        
+        this._dtreasureObserver = imageObserver; // ✅ simpan reference
+
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = "masonry-item fade-in";
             item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
+            item.dataset.photoId = photo.id;
             
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
@@ -2021,20 +2047,23 @@ function initPayPalPurchase(packKey, price) {
         let retryCount = 0;
         const maxRetries = 3;
         
-        while (retryCount < maxRetries && !result) {
+        while (retryCount < maxRetries) {
           try {
             result = await api.purchaseCredits(packKey, capturedOrderId);
-            if (result.success) break;
-            
-            // Jika gagal, tunggu sebelum retry
-            if (retryCount < maxRetries - 1) {
-              console.log(`⏳ Retry ${retryCount + 1}/${maxRetries - 1}...`);
-              await new Promise(resolve => setTimeout(resolve, 2000));
+            if (result.success) break; // ✅ Sukses, hentikan retry
+
+            // Gagal tapi bukan exception — tunggu lalu retry
+            retryCount++;
+            if (retryCount < maxRetries) {
+              console.log(`⏳ Retry ${retryCount}/${maxRetries}... Error: ${result.error}`);
+              await new Promise(resolve => setTimeout(resolve, 2000 * retryCount)); // backoff
             }
-            retryCount++;
           } catch (e) {
-            console.error(`Attempt ${retryCount + 1} error:`, e);
             retryCount++;
+            console.error(`Attempt ${retryCount} network error:`, e);
+            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+            }
           }
         }
         
@@ -2062,7 +2091,7 @@ api.invalidateCache(); // ✅ Force re-fetch list di next page load
             buyCreditsModal.classList.add('hidden');
             buyCreditsModal.classList.remove('flex');
           }
-          document.body.style.overflow = 'auto';
+          document.body.style.overflow = '';
           
           // Reset PayPal UI
           if (elements.paypalButtonContainer) {
