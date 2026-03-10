@@ -169,28 +169,31 @@ export default {
     }
 
     async function checkRateLimit(endpoint, identifier, limit = 50, windowSec = 3600) {
-      const key = `rate:${endpoint}:${identifier}`;
-      const now = Math.floor(Date.now() / 1000);
-      try {
-        const record = await DB.prepare(
-          'SELECT * FROM rate_limits WHERE id = ?'
-        ).bind(key).first();
-
-        if (!record || record.reset_time < now) {
-          await DB.prepare(
-            'INSERT OR REPLACE INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?)'
-          ).bind(key, now + windowSec).run();
-          return true;
-        }
-        if (record.count >= limit) return false;
-        await DB.prepare(
-          'UPDATE rate_limits SET count = count + 1 WHERE id = ?'
-        ).bind(key).run();
-        return true;
-      } catch (e) {
-        return true; // fail open
-      }
-    }
+  const key = `rate:${endpoint}:${identifier}`;
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    // FIX: Satu operasi atomic INSERT+UPDATE — eliminasi TOCTOU race condition.
+    // Logika: jika tidak ada record / sudah expired → buat baru (count=1).
+    //         jika ada dan masih aktif → increment count secara atomic.
+    await DB.prepare(`
+      INSERT INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        count      = CASE WHEN reset_time < ? THEN 1         ELSE count + 1 END,
+        reset_time = CASE WHEN reset_time < ? THEN ?         ELSE reset_time END
+    `).bind(key, now + windowSec, now, now, now + windowSec).run();
+    
+    // Baca hasil akhir setelah atomic upsert
+    const record = await DB.prepare(
+      'SELECT count FROM rate_limits WHERE id = ?'
+    ).bind(key).first();
+    
+    return !record || record.count <= limit;
+  } catch (e) {
+    // Fail open: jangan blok request jika DB error
+    console.error('[RateLimit] DB error:', e.message);
+    return true;
+  }
+}
 
     async function getPayPalAccessToken() {
       if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET_ID) {
@@ -214,19 +217,20 @@ export default {
     }
 
     async function verifyPayPalOrder(orderId, accessToken) {
-      const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type':  'application/json',
-        },
-      });
-      if (!res.ok) {
-        console.error(`verifyPayPalOrder failed: HTTP ${res.status} for order ${orderId}`);
-        return null;
-      }
-      return res.json();
-    }
+  const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type':  'application/json',
+    },
+  });
+  if (!res.ok) {
+    console.error(`verifyPayPalOrder failed: HTTP ${res.status} for order ${orderId}`);
+    return null;
+  }
+  // FIX: Tambah await — fungsi kini benar-benar async dan exception ter-catch oleh caller
+  return await res.json();
+}
 
     // ================================================================
     // ENDPOINT: Health check
@@ -282,17 +286,33 @@ export default {
           return new Response('Invalid JSON', { status: 400 });
         }
 
-        // Verify webhook signature headers
-        const transmissionId   = request.headers.get('paypal-transmission-id');
-        const transmissionTime = request.headers.get('paypal-transmission-time');
-        const certUrl          = request.headers.get('paypal-cert-url');
-        const transmissionSig  = request.headers.get('paypal-transmission-sig');
-        const authAlgo         = request.headers.get('paypal-auth-algo');
+// ================================================================
+// Validasi header webhook PayPal — REPLACE blok ini
+// ================================================================
+const transmissionId   = request.headers.get('paypal-transmission-id');
+const transmissionTime = request.headers.get('paypal-transmission-time');
+const certUrl          = request.headers.get('paypal-cert-url');
+const transmissionSig  = request.headers.get('paypal-transmission-sig');
+const authAlgo         = request.headers.get('paypal-auth-algo');
 
-        if (!transmissionId || !transmissionSig || !certUrl) {
-          console.error('Missing PayPal webhook headers');
-          return new Response('Unauthorized', { status: 401 });
-        }
+// FIX #2: Tambah authAlgo ke validasi wajib
+if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
+  console.error('Missing required PayPal webhook headers');
+  return new Response('Unauthorized', { status: 401 });
+}
+
+// FIX #1: SSRF guard — pastikan certUrl hanya dari domain resmi PayPal
+const PAYPAL_CERT_DOMAINS = [
+  'https://api.paypal.com',
+  '',
+  'https://api-m.paypal.com',
+  '',
+];
+const isCertUrlTrusted = PAYPAL_CERT_DOMAINS.some(domain => certUrl.startsWith(domain));
+if (!isCertUrlTrusted) {
+  console.error('Webhook certUrl domain not trusted:', certUrl);
+  return new Response('Unauthorized', { status: 401 });
+}
 
         try {
           const accessToken = await getPayPalAccessToken();
@@ -459,11 +479,12 @@ export default {
           },
         });
       } catch (e) {
-        console.error('/api/list error:', e.message);
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 500, headers: corsHeaders,
-        });
-      }
+  console.error('/api/list error:', e.message);
+  return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    // FIX: Tambah Content-Type — tanpa ini fetch().json() di client gagal parse
+    status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
     }
 
     // ================================================================
@@ -488,9 +509,12 @@ export default {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       } catch (e) {
-        console.error('/api/comitbase/list error:', e.message);
-        return new Response('[]', { headers: corsHeaders });
-      }
+  console.error('/api/comitbase/list error:', e.message);
+  // FIX: Return array kosong dengan Content-Type yang benar
+  return new Response('[]', {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
     }
 
     // ================================================================
@@ -533,15 +557,21 @@ export default {
         });
       }
       try {
-        const views     = await DB.prepare('SELECT COUNT(*) as c FROM views WHERE photo_id = ?').bind(photoId).first();
-        const downloads = await DB.prepare('SELECT COUNT(*) as c FROM downloads WHERE photo_id = ?').bind(photoId).first();
-        return new Response(JSON.stringify({
-          views:     views?.c     || 0,
-          downloads: downloads?.c || 0,
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      } catch (e) {
-        return new Response(JSON.stringify({ views: 0, downloads: 0 }), { headers: corsHeaders });
-      }
+  const [views, downloads] = await Promise.all([
+    DB.prepare('SELECT COUNT(*) as c FROM views WHERE photo_id = ?').bind(photoId).first(),
+    DB.prepare('SELECT COUNT(*) as c FROM downloads WHERE photo_id = ?').bind(photoId).first(),
+  ]);
+  
+  return new Response(JSON.stringify({
+    views: views?.c || 0,
+    downloads: downloads?.c || 0,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+} catch (e) {
+  console.error('/api/stats error:', e.message);
+  return new Response(JSON.stringify({ views: 0, downloads: 0 }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
     }
 
     // ================================================================
@@ -588,39 +618,55 @@ export default {
       }
     }
 
-    // ================================================================
-    // ENDPOINT: Credit balance
-    // ================================================================
-    if (path === '/api/credits/balance' && method === 'GET') {
-      const userId = getUserToken(request);
-      try {
-        let user = await DB.prepare(
-          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-        ).bind(userId).first();
+// ================================================================
+// ENDPOINT: Credit balance — REPLACE seluruh blok ini
+// ================================================================
+if (path === '/api/credits/balance' && method === 'GET') {
+  const userId = getUserToken(request);
 
-        if (!user) {
-          user = { credits: 0, lifetime: 0 };
-          await DB.prepare(
-            'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
-          ).bind(userId).run();
-        }
+  // FIX W2-#1: Tolak anonymous sebelum menyentuh DB.
+  // Versi lama: setiap request tanpa token membuat row baru 'anonymous'
+  // di user_credits → DB bloat tanpa batas.
+  if (!userId || userId === 'anonymous') {
+    return new Response(
+      JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
-        const purchasedRows = await DB.prepare(
-          'SELECT photo_id FROM purchased_images WHERE user_id = ?'
-        ).bind(userId).all();
-        const purchased = purchasedRows.results.map(r => r.photo_id);
+  try {
+    let user = await DB.prepare(
+      'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+    ).bind(userId).first();
 
-        return new Response(
-          JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } catch (e) {
-        return new Response(
-          JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
-          { headers: corsHeaders }
-        );
-      }
+    if (!user) {
+      user = { credits: 0, lifetime: 0 };
+      // Safe: userId sudah dipastikan bukan 'anonymous'
+      await DB.prepare(
+        'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
+      ).bind(userId).run();
     }
+
+    // FIX W2-#2: Tambah LIMIT 1000 — cegah response raksasa jika
+    // user memiliki ribuan purchased items atau data korup.
+    const purchasedRows = await DB.prepare(
+      'SELECT photo_id FROM purchased_images WHERE user_id = ? LIMIT 1000'
+    ).bind(userId).all();
+    const purchased = purchasedRows.results.map(r => r.photo_id);
+
+    return new Response(
+      JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (e) {
+    console.error('/api/credits/balance error:', e.message);
+    return new Response(
+      JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+      // FIX W2-#4: Tambah Content-Type pada error response
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
 
     // ================================================================
     // ENDPOINT: Purchase credits (verifikasi PayPal order)
@@ -982,11 +1028,11 @@ export default {
             }
           }
         } catch (e) {
-          console.error('Auth check error:', e.message);
-          return new Response(JSON.stringify({ error: 'Authorization check failed' }), {
-            status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
+  console.error('/api/dtreasure/list error:', e.message);
+  return new Response('[]', {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
       }
 
       let bucket, prefix;
@@ -1016,9 +1062,15 @@ export default {
           isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
 
         if (url.searchParams.get('download') === 'true') {
-          const safeFilename = key.split('/').pop().replace(/[^a-zA-Z0-9._-]/g, '_');
-          headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
-        }
+  const rawFilename = key.split('/').pop();
+  const asciiFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  // RFC 5987: encode UTF-8 untuk support nama file unicode
+  const encodedFilename = encodeURIComponent(rawFilename);
+  headers.set(
+    'Content-Disposition',
+    `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`
+  );
+}
 
         return new Response(object.body, { headers });
       } catch (e) {
@@ -1029,59 +1081,81 @@ export default {
       }
     }
 
-    // ================================================================
-    // Serve static files dari R2
-    // ================================================================
-    try {
-      let key = path === '/' ? 'index.html' : path.slice(1);
-      if (key.startsWith('api/')) return new Response('Not Found', { status: 404 });
+// ================================================================
+// Serve static files dari R2 — REPLACE seluruh blok ini
+// ================================================================
+try {
+  let key = path === '/' ? 'index.html' : path.slice(1);
+  if (key.startsWith('api/')) return new Response('Not Found', { status: 404 });
 
-      const object = await mainBucket.get(key) || await mainBucket.get('index.html');
-      if (!object) return new Response('Not found', { status: 404 });
+  const ext = key.split('.').pop().toLowerCase();
+  const mimeTypes = {
+    html:  'text/html; charset=utf-8',
+    css:   'text/css; charset=utf-8',
+    js:    'application/javascript; charset=utf-8',
+    json:  'application/json',
+    png:   'image/png',
+    jpg:   'image/jpeg',
+    jpeg:  'image/jpeg',
+    webp:  'image/webp',
+    svg:   'image/svg+xml',
+    ico:   'image/x-icon',
+    woff2: 'font/woff2',
+    woff:  'font/woff',
+  };
 
-      const headers = new Headers();
-      object.writeHttpMetadata(headers);
-      headers.set('etag', object.httpEtag);
-      headers.set('Access-Control-Allow-Origin',
-        ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
-      headers.set('Vary', 'Origin');
+  // FIX W2-#3: Pisahkan fetch antara file asli dan fallback index.html.
+  // Versi lama: `await bucket.get(key) || await bucket.get('index.html')`
+  // menyebabkan style.css/script.js yang hilang diam-diam serve HTML,
+  // browser menerima HTML dengan Content-Type: text/css → render error.
+  let object = await mainBucket.get(key);
+  const isFallback = !object;
 
-      const ext = key.split('.').pop().toLowerCase();
-      const mimeTypes = {
-        html:  'text/html; charset=utf-8',
-        css:   'text/css; charset=utf-8',
-        js:    'application/javascript; charset=utf-8',
-        png:   'image/png',
-        jpg:   'image/jpeg',
-        jpeg:  'image/jpeg',
-        webp:  'image/webp',
-        svg:   'image/svg+xml',
-        ico:   'image/x-icon',
-        woff2: 'font/woff2',
-        woff:  'font/woff',
-      };
-      if (mimeTypes[ext]) headers.set('Content-Type', mimeTypes[ext]);
-
-      if (ext === 'html') {
-        headers.set('X-Frame-Options',         'DENY');
-        headers.set('X-Content-Type-Options',  'nosniff');
-        headers.set('X-XSS-Protection',        '1; mode=block');
-        headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
-        headers.set('Content-Security-Policy',
-          "default-src 'self'; " +
-          "img-src 'self' data: https:; " +
-          "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://www.paypal.com; " +
-          "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
-          "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
-          "connect-src 'self' https://ai.zxaionverse.workers.dev https://www.paypal.com; " +
-          "frame-src https://www.paypal.com;"
-        );
-      }
-
-      return new Response(object.body, { headers });
-    } catch (e) {
-      console.error('Static file error:', e.message);
-      return new Response('Internal error', { status: 500 });
+  // Hanya fallback ke index.html untuk route navigasi (HTML pages), 
+  // bukan untuk aset statis seperti .css, .js, .png, dsb.
+  const isAsset = ext && ext !== 'html' && mimeTypes[ext];
+  if (!object) {
+    if (isAsset) {
+      // Aset statis tidak ditemukan → 404 eksplisit, jangan sembunyikan dengan HTML
+      return new Response('Not Found', { status: 404 });
     }
+    // Untuk non-aset (navigasi SPA), fallback ke index.html
+    object = await mainBucket.get('index.html');
+  }
+
+  if (!object) return new Response('Not found', { status: 404 });
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('Access-Control-Allow-Origin',
+    ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
+  headers.set('Vary', 'Origin');
+
+  // Set MIME type — gunakan key asli (bukan fallback) untuk deteksi ext
+  const servedExt = isFallback ? 'html' : ext;
+  if (mimeTypes[servedExt]) headers.set('Content-Type', mimeTypes[servedExt]);
+
+  if (servedExt === 'html') {
+    headers.set('X-Frame-Options',         'DENY');
+    headers.set('X-Content-Type-Options',  'nosniff');
+    headers.set('X-XSS-Protection',        '1; mode=block');
+    headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
+    headers.set('Content-Security-Policy',
+      "default-src 'self'; " +
+      "img-src 'self' data: https:; " +
+      "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://www.paypal.com; " +
+      "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
+      "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
+      "connect-src 'self' https://ai.zxaionverse.workers.dev https://www.paypal.com; " +
+      "frame-src https://www.paypal.com;"
+    );
+  }
+
+  return new Response(object.body, { headers });
+} catch (e) {
+  console.error('Static file error:', e.message);
+  return new Response('Internal error', { status: 500 });
+}
   },
 };

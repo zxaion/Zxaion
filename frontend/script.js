@@ -581,7 +581,16 @@ async openImageModal(photo) {
         : `${API_BASE}${photo.url}`;
 
     elements.modalImg.src = imageUrl;
-    elements.modalTitle.textContent    = photo.title || 'Wallpaper';
+
+// FIX S2-#3: Fallback saat gambar modal gagal load — tanpa ini,
+// modal menampilkan ikon broken image kosong tanpa feedback ke user.
+elements.modalImg.onerror = function() {
+    this.onerror = null; // Cegah infinite loop jika fallback juga gagal
+    this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
+};
+elements.modalImg.onload = function() {
+    this.onerror = null; // Bersihkan error handler setelah sukses
+};    elements.modalTitle.textContent    = photo.title || 'Wallpaper';
     elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
     elements.modalViewCount.textContent    = utils.formatNumber(stats.views);
     elements.modalDownloadCount.textContent = utils.formatNumber(stats.downloads);
@@ -1463,79 +1472,98 @@ img.onerror = function() {
     },
 
     async loadQuicklinks() {
-        try {
-            const res = await fetch('/quicklink.json');
-            const data = await res.json();
-            const list = document.getElementById('quicklinks-list');
-            
-            if (!list) return;
-            
-            list.innerHTML = '';
-            
-            Object.keys(data).forEach(key => {
-                const btn = document.createElement('button');
-                btn.className = 'w-full text-left bg-gray-50 hover:bg-gray-100 p-4 rounded-xl transition-all duration-300 flex items-center justify-between group dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white';
-                btn.innerHTML = `
-                    <span class="font-semibold">${utils.escapeHtml(data[key].title)}</span>
-                    <i class="fas fa-chevron-right text-gray-400 group-hover:text-gray-600 group-hover:translate-x-1 transition-all duration-300 dark:group-hover:text-gray-300"></i>
-                `;
-                btn.addEventListener('click', () => {
-                    const titleEl = document.getElementById('quicklink-title');
-                    const contentEl = document.getElementById('quicklink-content');
-                    const modalEl = document.getElementById('quicklink-content-modal');
-                    const menuModalEl = document.getElementById('menu-modal');
-                    
-                    if (titleEl) titleEl.textContent = data[key].title;
-                    if (contentEl) {
-                        // ✅ FIX #6: Sanitasi dasar untuk cegah XSS injection
-                        // Hapus <script>, inline event handlers, dan javascript: URI
-                        // Untuk skala produksi yang lebih besar, gunakan library DOMPurify
-                        const sanitized = (data[key].content || '')
-                            .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-                            .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
-                            .replace(/javascript\s*:/gi, '');
-                        contentEl.innerHTML = sanitized;
-                    }
-                    if (modalEl) {
-                        modalEl.classList.remove('hidden');
-                        modalEl.classList.add('flex');
-                    }
-                    if (menuModalEl) menuModalEl.classList.add('hidden');
-                });
-                list.appendChild(btn);
-            });
-        } catch (e) {
-            console.error('Failed to load quicklinks:', e);
-            const list = document.getElementById('quicklinks-list');
-            if (list) {
-                list.innerHTML = '<p class="text-center text-gray-500 py-4">Failed to load links</p>';
-            }
+    const list = document.getElementById('quicklinks-list');
+    if (!list) return;
+
+    try {
+        const res = await fetch('/quicklink.json');
+
+        // FIX: Cek res.ok sebelum parse — tanpa ini, 404 akan coba parse HTML sebagai JSON
+        if (!res.ok) {
+            throw new Error(`Failed to load quicklinks: HTTP ${res.status}`);
         }
-    },
+
+        const data = await res.json();
+
+        list.innerHTML = '';
+
+        Object.keys(data).forEach(key => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'w-full text-left bg-gray-50 hover:bg-gray-100 p-4 rounded-xl transition-all duration-300 flex items-center justify-between group dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white';
+            btn.innerHTML = `
+                <span class="font-semibold">${utils.escapeHtml(data[key].title)}</span>
+                <i class="fas fa-chevron-right text-gray-400 group-hover:text-gray-600 group-hover:translate-x-1 transition-all duration-300 dark:group-hover:text-gray-300"></i>
+            `;
+            btn.addEventListener('click', () => {
+                const titleEl   = document.getElementById('quicklink-title');
+                const contentEl = document.getElementById('quicklink-content');
+                const modalEl   = document.getElementById('quicklink-content-modal');
+                const menuModalEl = document.getElementById('menu-modal');
+
+                if (titleEl) titleEl.textContent = data[key].title;
+                if (contentEl) {
+                    // Sanitasi dasar: hapus script tags, inline handlers, javascript: URI
+                    const sanitized = (data[key].content || '')
+                        .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+                        .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
+                        .replace(/javascript\s*:/gi, '');
+                    contentEl.innerHTML = sanitized;
+                }
+                if (modalEl) {
+                    modalEl.classList.remove('hidden');
+                    modalEl.classList.add('flex');
+                }
+                // FIX: Tutup menu modal ketika membuka content modal
+                if (menuModalEl) {
+                    menuModalEl.classList.add('hidden');
+                    menuModalEl.classList.remove('flex');
+                }
+            });
+            list.appendChild(btn);
+        });
+
+    } catch (e) {
+        console.error('Failed to load quicklinks:', e);
+        list.innerHTML = '<p class="text-center text-gray-500 py-4 dark:text-gray-400">Failed to load links</p>';
+    }
+},
 
     initLogo() {
-        // Check for custom logo configuration
-        if (window.customLogo && window.customLogo.enabled && window.customLogo.url) {
-            const logoText = document.getElementById('logo-text');
-            const logoImage = document.getElementById('logo-image');
-            const footerLogoText = document.getElementById('footer-logo-text');
-            const footerLogoImage = document.getElementById('footer-logo-image');
-            
-            if (logoText) logoText.classList.add('hidden');
-            if (logoImage) {
-                logoImage.src = window.customLogo.url;
-                logoImage.alt = window.customLogo.alt || 'Logo';
-                logoImage.classList.remove('hidden');
-            }
-            
-            if (footerLogoText) footerLogoText.classList.add('hidden');
-            if (footerLogoImage) {
-                footerLogoImage.src = window.customLogo.url;
-                footerLogoImage.alt = window.customLogo.alt || 'Logo';
-                footerLogoImage.classList.remove('hidden');
-            }
-        }
-    },
+    if (!window.customLogo?.enabled || !window.customLogo?.url) return;
+
+    const logoText      = document.getElementById('logo-text');
+    const logoImage     = document.getElementById('logo-image');
+    const footerLogoText  = document.getElementById('footer-logo-text');
+    const footerLogoImage = document.getElementById('footer-logo-image');
+
+    // Helper: Setup logo image dengan onerror fallback ke teks
+    const setupLogoImage = (imgEl, textEl, url, alt) => {
+        if (!imgEl) return;
+
+        // FIX S2-#4: Siapkan onerror SEBELUM set src — jika src di-set dulu
+        // dan gagal secara synchronous, onerror mungkin tidak terpanggil.
+        imgEl.onerror = function() {
+            this.onerror = null;
+            this.classList.add('hidden');
+            // Fallback ke teks 'ZX' jika gambar gagal
+            if (textEl) textEl.classList.remove('hidden');
+            console.warn('Logo image failed to load, using text fallback');
+        };
+        imgEl.onload = function() {
+            this.onload = null;
+            if (textEl) textEl.classList.add('hidden');
+        };
+
+        imgEl.src = url;
+        imgEl.alt = alt || 'Logo';
+        // Tampilkan dulu — onerror akan sembunyikan jika gagal
+        imgEl.classList.remove('hidden');
+    };
+
+    setupLogoImage(logoImage,      logoText,      window.customLogo.url, window.customLogo.alt);
+    setupLogoImage(footerLogoImage, footerLogoText, window.customLogo.url, window.customLogo.alt);
+},
 
     renderCreditPacks() {
         const packsDiv = document.getElementById('credit-packs');
@@ -1544,10 +1572,9 @@ img.onerror = function() {
         packsDiv.innerHTML = '';
         
         Object.entries(CREDIT_PACKS).forEach(([key, pack]) => {
-            const isLifetime = pack.credits === 'lifetime';
-            const totalCredits = isLifetime ? '∞' : (pack.credits + (pack.bonus || 0)).toLocaleString();
-            
-            const btn = document.createElement('button');
+    const isLifetime = pack.credits === 'lifetime';
+    const btn = document.createElement('button');
+    btn.type = 'button'; 
             btn.className = `credit-pack-card w-full bg-gradient-to-r ${pack.color} p-0.5 rounded-2xl transition-all duration-300`;
             btn.innerHTML = `
                 <div class="bg-white dark:bg-gray-800 rounded-[14px] p-4 flex items-center justify-between">
@@ -1910,21 +1937,36 @@ Submitted via ZXAION VERSE COMITBASE`;
     }
     
     if (closeBuyCredits && buyCreditsModal) {
-        closeBuyCredits.addEventListener('click', () => {
-            buyCreditsModal.classList.add('hidden');
-            buyCreditsModal.classList.remove('flex');
-            // Reset PayPal container
-            if (elements.paypalButtonContainer) {
-                elements.paypalButtonContainer.classList.add('hidden');
+    closeBuyCredits.addEventListener('click', () => {
+        // FIX: Destroy PayPal instance sebelum close modal
+        // Tanpa ini: paypalButtonsInstance tetap hidup, DOM-nya sudah di-clear,
+        // menyebabkan error saat initPayPalPurchase dipanggil lagi.
+        if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
+            try {
+                paypalButtonsInstance.close();
+            } catch (e) {
+                console.warn('PayPal instance close error on modal dismiss:', e);
             }
-            if (elements.paypalButtons) {
-                elements.paypalButtons.innerHTML = '';
-            }
-            // Remove selected state
-            document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
-            state.selectedCreditPack = null;
-        });
-    }
+            paypalButtonsInstance = null;
+        }
+
+        buyCreditsModal.classList.add('hidden');
+        buyCreditsModal.classList.remove('flex');
+        document.body.style.overflow = '';
+
+        // Reset PayPal container UI
+        if (elements.paypalButtonContainer) {
+            elements.paypalButtonContainer.classList.add('hidden');
+        }
+        if (elements.paypalButtons) {
+            elements.paypalButtons.innerHTML = '';
+        }
+
+        // Reset selected pack state
+        document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
+        state.selectedCreditPack = null;
+    });
+}
 
     // Dark mode toggle
     const darkModeToggle = document.getElementById('darkmode-toggle');
@@ -1944,28 +1986,49 @@ Submitted via ZXAION VERSE COMITBASE`;
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        // ESC to close modals
-        if (e.key === 'Escape') {
-            const modals = [
-                elements.imageModal,
-                document.getElementById('donation-modal'),
-                document.getElementById('zverse-modal'),
-                document.getElementById('menu-modal'),
-                document.getElementById('quicklink-content-modal'),
-                document.getElementById('buy-credits-modal'),
-                document.getElementById('crypto-modal')
-            ];
-            
-            modals.forEach(modal => {
-                if (modal && !modal.classList.contains('hidden')) {
-                    modal.classList.add('hidden');
-                    modal.classList.remove('flex');
+    if (e.key === 'Escape') {
+        const modals = [
+            elements.imageModal,
+            document.getElementById('donation-modal'),
+            document.getElementById('zverse-modal'),
+            document.getElementById('menu-modal'),
+            document.getElementById('quicklink-content-modal'),
+            document.getElementById('buy-credits-modal'),
+            document.getElementById('crypto-modal')
+        ];
+
+        let anyModalWasOpen = false;
+        modals.forEach(modal => {
+            if (modal && !modal.classList.contains('hidden')) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                anyModalWasOpen = true;
+
+                // FIX S2-#2: Cleanup PayPal instance saat buy-credits-modal ditutup via ESC
+                // Tanpa ini: ESC menutup modal tapi paypalButtonsInstance tetap hidup,
+                // menyebabkan error saat user membuka modal lagi dan pilih pack berbeda.
+                if (modal.id === 'buy-credits-modal') {
+                    if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
+                        try { paypalButtonsInstance.close(); } catch (_) {}
+                        paypalButtonsInstance = null;
+                    }
+                    if (elements.paypalButtonContainer) {
+                        elements.paypalButtonContainer.classList.add('hidden');
+                    }
+                    if (elements.paypalButtons) {
+                        elements.paypalButtons.innerHTML = '';
+                    }
+                    document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
+                    state.selectedCreditPack = null;
                 }
-            });
-            
-            document.body.style.overflow = ''; // ✅ FIX #9
+            }
+        });
+
+        if (anyModalWasOpen) {
+            document.body.style.overflow = '';
         }
-    });
+    }
+});
 
     // Close modals on backdrop click
     document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
@@ -2181,32 +2244,23 @@ window.openAnimeCollection = (albumTitle) => {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // Initialize logo
+    // Initialize logo dan events lebih dulu (sinkron, tidak perlu tunggu network)
     ui.initLogo();
-    
-    // Initialize events
     initEvents();
-    
-    // Load credits
-    await api.fetchCreditBalance();
-    
-    // Fetch data
-    await api.fetchImages();
-    await api.fetchComitbaseImages();
-    await api.fetchDtreasureImages();
-    
-    // Start with All category
+
+    await Promise.all([
+        api.fetchCreditBalance(),
+        api.fetchImages(),
+        api.fetchComitbaseImages(),
+        api.fetchDtreasureImages(),
+    ]);
+
     ui.changeCategory('All');
-    
-    // Add scroll listener for nav shadow
+
+
+    const nav = document.querySelector('nav');
     window.addEventListener('scroll', () => {
-        const nav = document.querySelector('nav');
-        if (nav) {
-            if (window.scrollY > 10) {
-                nav.classList.add('scrolled');
-            } else {
-                nav.classList.remove('scrolled');
-            }
-        }
-    });
+        if (!nav) return;
+        nav.classList.toggle('scrolled', window.scrollY > 10);
+    }, { passive: true }); // passive: true → hint browser untuk tidak blok scroll
 });
