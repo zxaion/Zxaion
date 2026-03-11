@@ -348,6 +348,22 @@ invalidateCache() {
     }
 },
 
+    async fetchTrendingImages(limit = 20) {
+        try {
+            const res = await fetch(`${API_BASE}/api/trending?limit=${limit}`);
+            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+        } catch (e) {
+            console.error('Error fetching trending images:', e);
+            // Fallback: sort dari state.allPhotos jika endpoint gagal
+            return state.allPhotos
+                .map(p => ({ ...p, score: (p.viewCount || 0) + (p.downloadCount || 0) }))
+                .sort((a, b) => b.score - a.score)
+                .slice(0, limit);
+        }
+    },
+
     async fetchCreditBalance() {
         try {
             const token = getOrCreateUserToken();
@@ -602,15 +618,35 @@ elements.modalImg.onload = function() {
     this.applyModalShield(isDtreasure && !isPurchased);
 
     if (isDtreasure) {
-        elements.downloadBtn.removeAttribute('href');
-        elements.downloadBtn.removeAttribute('download');
-        elements.downloadBtn.onclick = (e) => {
-            e.preventDefault();
-            ui.handleDownload(photo);
-        };
-        elements.downloadBtn.innerHTML = isPurchased
-            ? '<i class="fas fa-download mr-2"></i>Download'
-            : '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
+        if (isPurchased) {
+            // ✅ Direct anchor download — mempertahankan user-gesture context
+            // Tidak bergantung pada fetch() async yang kehilangan gesture context di iOS Safari
+            const token       = getOrCreateUserToken();
+            const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
+            const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
+
+            elements.downloadBtn.href = downloadUrl;
+            elements.downloadBtn.setAttribute('download', filename);
+            elements.downloadBtn.onclick = () => {
+                api.recordDownload(photo.id);
+                // Optimistic counter update di modal
+                const el = elements.modalDownloadCount;
+                if (el) {
+                    const cur = parseInt(el.textContent.replace(/[^0-9]/g, '')) || 0;
+                    el.textContent = utils.formatNumber(cur + 1);
+                }
+            };
+            elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+        } else {
+            elements.downloadBtn.removeAttribute('href');
+            elements.downloadBtn.removeAttribute('download');
+            elements.downloadBtn.onclick = (e) => {
+                e.preventDefault();
+                ui.handleDownload(photo);
+            };
+            elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
+        }
     } else {
         elements.downloadBtn.href     = imageUrl + '?download=true';
         elements.downloadBtn.download = photo.title || 'wallpaper';
@@ -625,29 +661,27 @@ elements.modalImg.onload = function() {
 
     renderGallery() {
         if (!elements.galleryContainer) return;
-        
+
         if (state.filteredPhotos.length === 0) {
             elements.galleryContainer.innerHTML = '';
             this.showNoResults();
-            if (elements.paginationContainer) {
-                elements.paginationContainer.classList.add('hidden');
-            }
+            if (elements.paginationContainer) elements.paginationContainer.classList.add('hidden');
             return;
         }
-        
+
         this.hideNoResults();
-        
-        const start = (state.currentPage - 1) * ITEMS_PER_PAGE;
-        const end = start + ITEMS_PER_PAGE;
+
+        const start        = (state.currentPage - 1) * ITEMS_PER_PAGE;
+        const end          = start + ITEMS_PER_PAGE;
         const photosToShow = state.filteredPhotos.slice(start, end);
-        
+
         elements.galleryContainer.innerHTML = '';
-        
-// ✅ Disconnect observer lama sebelum buat baru — cegah memory leak
-        if (this._galleryObserver) {
-            this._galleryObserver.disconnect();
-        }
-        const imageObserver = new IntersectionObserver((entries, observer) => {           entries.forEach(entry => {
+
+        // ✅ Disconnect observer lama — cegah memory leak
+        if (this._galleryObserver) this._galleryObserver.disconnect();
+
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const img = entry.target;
                     if (img.dataset.src) {
@@ -657,58 +691,56 @@ elements.modalImg.onload = function() {
                     observer.unobserve(img);
                 }
             });
-        }, { rootMargin: '50px' });
-        
-        this._galleryObserver = imageObserver; // simpan reference
-        
+        }, { rootMargin: '100px' });
+
+        this._galleryObserver = imageObserver;
+
+        const fragment = document.createDocumentFragment();
+
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
-            item.className = "masonry-item fade-in";
+            item.className = 'masonry-item fade-in';
             item.style.animationDelay = `${index * 50}ms`;
-            item.dataset.photoId = photo.id; // ✅ Store ID, not URL
-            
-            const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            item.dataset.photoId = photo.id;
+
+            const fullUrl        = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-            
+
+            // ✅ Stats pre-loaded dari /api/list — eliminasi N+1 API calls
+            const viewCount     = utils.formatNumber(photo.viewCount     || 0);
+            const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+
             item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}" 
-                loading="lazy" 
+            <img
+                src="${placeholderSvg}"
+                data-src="${fullUrl}"
+                alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}"
+                loading="lazy"
                 class="loading-shimmer w-full h-auto"
                 decoding="async">
             <div class="masonry-overlay">
                 <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">${viewCount}</span></span>
+                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">${downloadCount}</span></span>
                 </div>
                 <button class="download-btn" type="button">
                     <i class="fas fa-download"></i> Download
                 </button>
-            </div>
-        `;
-            
+            </div>`;
+
             const img = item.querySelector('img');
             imageObserver.observe(img);
-            
-            img.onload = function() {
-                this.classList.remove('loading-shimmer');
-                // ✅ FIX S-3: Same guard as renderGallery — prevent double API call
-                if (!item.dataset.statsLoaded) {
-                    item.dataset.statsLoaded = 'true';
-                    ui.loadStatsForItem(photo.id, item);
-                }
-            };
-            
+
+            img.onload  = function() { this.classList.remove('loading-shimmer'); };
             img.onerror = function() {
                 this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
+                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
             };
-            
-            elements.galleryContainer.appendChild(item);
+
+            fragment.appendChild(item);
         });
-        
+
+        elements.galleryContainer.appendChild(fragment);
         // ✅ Event delegation - single listener untuk semua items
         this.setupGalleryEventListeners();
         this.updatePagination();
@@ -795,16 +827,26 @@ elements.modalImg.onload = function() {
             state.purchasedImages.add(photo.id);
             ui.updateCreditDisplay();
 
-            // ── Nonaktifkan shield modal secara real-time ─────────────────
+            // ── Update modal download button ke direct link setelah purchase ──
             if (state.currentImageId === photo.id) {
                 this.applyModalShield(false);
-                // Update tombol download juga
+
+                // ✅ Ganti ke direct anchor download — fix untuk iOS Safari
+                const token       = getOrCreateUserToken();
+                const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+                const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
+                const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
+
+                elements.downloadBtn.href = downloadUrl;
+                elements.downloadBtn.setAttribute('download', filename);
+                elements.downloadBtn.onclick = () => { api.recordDownload(photo.id); };
                 elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
             }
 
             // ── Nonaktifkan shield thumbnail di gallery secara real-time ──
             this.unlockDtreasureThumbnail(photo.id);
 
+            // ✅ Trigger download langsung setelah purchase berhasil
             this.triggerDownload(photo);
 
             // Re-render gallery untuk sync state tombol seluruh grid
@@ -1057,43 +1099,37 @@ if (this._comitbaseObserver) {
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
             
+            // ✅ Stats pre-loaded dari /api/comitbase/list
+            const viewCount     = utils.formatNumber(photo.viewCount     || 0);
+            const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+
             item.innerHTML = `
-            <img 
-                src="${placeholderSvg}" 
-                data-src="${fullUrl}" 
-                alt="${utils.escapeHtml(photo.title)}" 
-                loading="lazy" 
+            <img
+                src="${placeholderSvg}"
+                data-src="${fullUrl}"
+                alt="${utils.escapeHtml(photo.title)}"
+                loading="lazy"
                 class="loading-shimmer w-full h-auto"
                 decoding="async">
             <div class="masonry-overlay">
                 <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">${viewCount}</span></span>
+                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">${downloadCount}</span></span>
                 </div>
                 <button class="download-btn" type="button">
                     <i class="fas fa-download"></i> Download
                 </button>
-            </div>
-        `;
-            
-            const img = item.querySelector('img');
-            // ✅ FIX #5: Observe pakai shared observer, bukan buat baru tiap item
-            imageObserver.observe(img);
-            
-            img.onload = function() {
-    this.classList.remove('loading-shimmer');
-    // ✅ FIX S-3: Same guard as renderGallery — prevent double API call
-    if (!item.dataset.statsLoaded) {
-        item.dataset.statsLoaded = 'true';
-        ui.loadStatsForItem(photo.id, item);
-    }
-};
+            </div>`;
 
-img.onerror = function() {
-    this.classList.remove('loading-shimmer');
-    this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-};
-            
+            const img = item.querySelector('img');
+            imageObserver.observe(img);
+
+            img.onload  = function() { this.classList.remove('loading-shimmer'); };
+            img.onerror = function() {
+                this.classList.remove('loading-shimmer');
+                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
+            };
+
             elements.comitbaseGallery.appendChild(item);
         });
         
@@ -1202,13 +1238,17 @@ img.onerror = function() {
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
             
-// Cek status purchase per item
-const isFree       = state.lifetime || state.purchasedImages.has(photo.id);
-const buttonText   = isFree ? 'Download' : '10 Credits';
-const buttonIcon   = isFree ? 'fa-download' : 'fa-lock';
+            // ✅ Cek status purchase per item
+            const isFree       = state.lifetime || state.purchasedImages.has(photo.id);
+            const buttonText   = isFree ? 'Download' : '10 Credits';
+            const buttonIcon   = isFree ? 'fa-download' : 'fa-lock';
 
-// Shield thumbnail: hanya tampil kalau belum dibeli
-const thumbShield = isFree ? '' : `
+            // ✅ Stats pre-loaded dari /api/dtreasure/list
+            const viewCount     = utils.formatNumber(photo.viewCount     || 0);
+            const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+
+            // Shield thumbnail: hanya tampil kalau belum dibeli
+            const thumbShield = isFree ? '' : `
     <div
         class="dtreasure-thumb-shield absolute inset-0 z-[1]"
         oncontextmenu="return false;"
@@ -1216,7 +1256,7 @@ const thumbShield = isFree ? '' : `
         style="-webkit-tap-highlight-color:transparent; cursor:pointer;">
     </div>`;
 
-item.innerHTML = `
+            item.innerHTML = `
 <div class="relative" style="line-height:0;">
     <img
         src="${placeholderSvg}"
@@ -1231,33 +1271,23 @@ item.innerHTML = `
 </div>
 <div class="masonry-overlay" style="z-index:2;">
     <div class="stats">
-        <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">0</span></span>
-        <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">0</span></span>
+        <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">${viewCount}</span></span>
+        <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">${downloadCount}</span></span>
     </div>
     <button class="download-btn" type="button">
         <i class="fas ${buttonIcon}"></i> ${buttonText}
     </button>
-</div>
-`;
-            
-            const img = item.querySelector('img');
-            // ✅ FIX #5: Pakai shared observer di atas, bukan buat baru per item
-            imageObserver.observe(img);
-            
-            img.onload = function() {
-    this.classList.remove('loading-shimmer');
-    // ✅ FIX S-3: Same guard as renderGallery — prevent double API call
-    if (!item.dataset.statsLoaded) {
-        item.dataset.statsLoaded = 'true';
-        ui.loadStatsForItem(photo.id, item);
-    }
-};
+</div>`;
 
-img.onerror = function() {
-    this.classList.remove('loading-shimmer');
-    this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" dy="10.5" font-weight="bold" x="50%25" y="50%25" text-anchor="middle"%3EImage Error%3C/text%3E%3C/svg%3E';
-};
-            
+            const img = item.querySelector('img');
+            imageObserver.observe(img);
+
+            img.onload  = function() { this.classList.remove('loading-shimmer'); };
+            img.onerror = function() {
+                this.classList.remove('loading-shimmer');
+                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
+            };
+
             elements.dtreasureGallery.appendChild(item);
         });
         
@@ -1322,59 +1352,72 @@ img.onerror = function() {
 
     changeCategory(category) {
         if (!category) return;
-        
-        state.currentCategory = category;
+
+        state.currentCategory  = category;
         state.currentAnimeAlbum = null;
         state.resetPagination();
         state.searchQuery = '';
-        
+
         // Clear search inputs
         if (elements.searchInput) elements.searchInput.value = '';
         if (elements.searchInputMobile) elements.searchInputMobile.value = '';
         if (elements.searchClear) elements.searchClear.classList.add('hidden');
-        
+
         // Update active category button
         document.querySelectorAll('.cat-btn').forEach(btn => btn.classList.remove('active'));
-        const activeId = category === 'All' ? 'cat-all' : `cat-${category.toLowerCase()}`;
+        const activeId  = category === 'All' ? 'cat-all' : `cat-${category.toLowerCase()}`;
         const activeBtn = document.getElementById(activeId);
         if (activeBtn) activeBtn.classList.add('active');
-        
+
         // Hide all sections
-        if (elements.animeCollections) elements.animeCollections.classList.add('hidden');
-        if (elements.comitbaseSection) elements.comitbaseSection.classList.add('hidden');
-        if (elements.dtreasureSection) elements.dtreasureSection.classList.add('hidden');
-        if (elements.galleryContainer) elements.galleryContainer.classList.add('hidden');
+        if (elements.animeCollections)  elements.animeCollections.classList.add('hidden');
+        if (elements.comitbaseSection)  elements.comitbaseSection.classList.add('hidden');
+        if (elements.dtreasureSection)  elements.dtreasureSection.classList.add('hidden');
+        if (elements.galleryContainer)  elements.galleryContainer.classList.add('hidden');
         if (elements.paginationContainer) elements.paginationContainer.classList.add('hidden');
-        
+
+        // ✅ Ranking carousel hanya tampil di Home (All)
+        const rankingSection = document.getElementById('ranking-carousel-section');
+        if (rankingSection) rankingSection.classList.toggle('hidden', category !== 'All');
+
         // Show appropriate section
         if (category === 'All') {
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
-            state.filteredPhotos = utils.shuffleArray([...state.allPhotos]);
+            // ✅ Home page hanya menampilkan gambar kategori Anime
+            state.filteredPhotos = utils.shuffleArray(
+                state.allPhotos.filter(p => p.category && p.category.toLowerCase() === 'anime')
+            );
             this.renderGallery();
+            // ✅ Render ranking carousel (async, non-blocking)
+            this.renderTopRankingCarousel().catch(e =>
+                console.error('renderTopRankingCarousel error:', e)
+            );
+
         } else if (category === 'Anime') {
             if (elements.animeCollections) elements.animeCollections.classList.remove('hidden');
             this.renderAnimeCollections();
+
         } else if (category === 'COMITBASE') {
             if (elements.comitbaseSection) elements.comitbaseSection.classList.remove('hidden');
             this.renderComitbaseGallery();
+
         } else if (category === 'DTREASURE') {
             if (elements.dtreasureSection) elements.dtreasureSection.classList.remove('hidden');
             this.renderDtreasureGallery();
+
         } else {
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
-            state.filteredPhotos = state.allPhotos.filter(photo => 
+            state.filteredPhotos = state.allPhotos.filter(photo =>
                 photo.category && photo.category.toLowerCase() === category.toLowerCase()
             );
             this.renderGallery();
         }
-        
+
         this.updateHeroSection(category);
-        
+
         // Scroll to top of content
         const hero = document.getElementById('page-hero');
-        if (hero) {
-            hero.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+        if (hero) hero.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
 
     updateHeroSection(category) {
@@ -1404,6 +1447,109 @@ img.onerror = function() {
         
         const actions = document.getElementById('hero-actions');
         if (actions) actions.innerHTML = '';
+    },
+
+
+    /**
+     * Render carousel Top-20 trending images.
+     * Fetch dari /api/trending (server-side sorted) dengan fallback ke client-side.
+     * Auto-refresh setiap kali changeCategory('All') dipanggil.
+     */
+    async renderTopRankingCarousel() {
+        const carousel = document.getElementById('ranking-carousel');
+        if (!carousel) return;
+
+        // Skeleton loading saat fetch
+        carousel.innerHTML = Array.from({ length: 6 }, () =>
+            '<div class="flex-none rounded-2xl overflow-hidden bg-gray-800 ranking-card-skeleton" style="min-width:144px;width:144px;aspect-ratio:9/16;"></div>'
+        ).join('');
+
+        const photos = await api.fetchTrendingImages(20);
+
+        if (!photos || photos.length === 0) {
+            carousel.innerHTML =
+                '<div class="flex items-center justify-center w-full py-6">' +
+                '<p class="text-gray-500 text-sm">No trending data yet — start exploring!</p>' +
+                '</div>';
+            return;
+        }
+
+        carousel.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+
+        photos.forEach((photo, index) => {
+            const fullUrl    = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            const rankColors = [
+                'from-amber-400 to-yellow-500',
+                'from-gray-300 to-gray-400',
+                'from-amber-700 to-amber-800',
+            ];
+            const rankColor = index < 3 ? rankColors[index] : 'from-gray-700 to-gray-800';
+            const rankLabel = index < 3 ? ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'][index] : `#${index + 1}`;
+            const isMedal   = index < 3;
+            const score     = (photo.viewCount || 0) + (photo.downloadCount || 0);
+
+            const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='144' height='256'%3E%3Crect fill='%23222' width='144' height='256'/%3E%3C/svg%3E";
+
+            const card = document.createElement('div');
+            card.className = 'ranking-card flex-none cursor-pointer group relative rounded-2xl overflow-hidden shadow-lg ring-1 ring-white/10 bg-gray-900';
+            card.style.cssText = 'min-width:144px;width:144px;';
+
+            card.innerHTML =
+                '<div class="relative w-full" style="aspect-ratio:9/16;">' +
+                    '<img' +
+                        ' src="' + placeholderSvg + '"' +
+                        ' data-src="' + fullUrl + '"' +
+                        ' alt="' + utils.escapeHtml(photo.title) + '"' +
+                        ' class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-300 ranking-lazy-img"' +
+                        ' loading="lazy" decoding="async" draggable="false">' +
+                    '<div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent pointer-events-none"></div>' +
+                    '<div class="absolute top-2 left-2 bg-gradient-to-br ' + rankColor + ' rounded-full w-8 h-8 flex items-center justify-center shadow-lg ' + (isMedal ? 'text-base' : 'text-white text-xs font-black') + '">' + rankLabel + '</div>' +
+                    '<div class="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1">' +
+                        '<i class="fas fa-fire text-amber-400" style="font-size:8px;"></i>' +
+                        '<span class="text-white text-[10px] font-bold">' + utils.formatNumber(score) + '</span>' +
+                    '</div>' +
+                    '<div class="absolute bottom-0 left-0 right-0 p-2 pointer-events-none">' +
+                        '<p class="text-white text-[11px] font-bold leading-tight" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' +
+                            utils.escapeHtml(photo.title || 'Wallpaper') +
+                        '</p>' +
+                        '<div class="flex items-center gap-2 mt-1.5">' +
+                            '<span class="flex items-center gap-0.5 text-gray-300 text-[9px]">' +
+                                '<i class="fas fa-eye text-green-400" style="font-size:8px;"></i> ' + utils.formatNumber(photo.viewCount || 0) +
+                            '</span>' +
+                            '<span class="flex items-center gap-0.5 text-gray-300 text-[9px]">' +
+                                '<i class="fas fa-download text-blue-400" style="font-size:8px;"></i> ' + utils.formatNumber(photo.downloadCount || 0) +
+                            '</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            // ✅ Lazy load gambar via IntersectionObserver scoped ke carousel container
+            const img = card.querySelector('img.ranking-lazy-img');
+            if (img) {
+                if ('IntersectionObserver' in window) {
+                    const obs = new IntersectionObserver((entries, observer) => {
+                        entries.forEach(entry => {
+                            if (entry.isIntersecting && img.dataset.src) {
+                                img.src = img.dataset.src;
+                                delete img.dataset.src;
+                                img.onerror = () => { img.style.opacity = '0.2'; };
+                                observer.unobserve(img);
+                            }
+                        });
+                    }, { root: carousel, rootMargin: '200px' });
+                    obs.observe(img);
+                } else if (img.dataset.src) {
+                    img.src = img.dataset.src;
+                    delete img.dataset.src;
+                }
+            }
+
+            card.addEventListener('click', () => ui.openImageModal(photo));
+            fragment.appendChild(card);
+        });
+
+        carousel.appendChild(fragment);
     },
 
     handleSearch(query) {
@@ -2244,10 +2390,11 @@ window.openAnimeCollection = (albumTitle) => {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // Initialize logo dan events lebih dulu (sinkron, tidak perlu tunggu network)
+    // ✅ Init logo & events lebih dulu — sinkron, tidak perlu tunggu network
     ui.initLogo();
     initEvents();
 
+    // ✅ Fetch semua data secara paralel — maksimalkan performa
     await Promise.all([
         api.fetchCreditBalance(),
         api.fetchImages(),
@@ -2255,12 +2402,59 @@ document.addEventListener('DOMContentLoaded', async () => {
         api.fetchDtreasureImages(),
     ]);
 
+    // ✅ Render initial view setelah semua data siap
     ui.changeCategory('All');
 
-
+    // ✅ Sticky nav shadow on scroll
     const nav = document.querySelector('nav');
     window.addEventListener('scroll', () => {
         if (!nav) return;
         nav.classList.toggle('scrolled', window.scrollY > 10);
-    }, { passive: true }); // passive: true → hint browser untuk tidak blok scroll
+    }, { passive: true });
+
+    // ✅ Carousel scroll & drag-to-scroll (mouse)
+    const carouselScrollLeft  = document.getElementById('carousel-scroll-left');
+    const carouselScrollRight = document.getElementById('carousel-scroll-right');
+    const rankingCarousel     = document.getElementById('ranking-carousel');
+
+    if (carouselScrollLeft && rankingCarousel) {
+        carouselScrollLeft.addEventListener('click', () => {
+            rankingCarousel.scrollBy({ left: -420, behavior: 'smooth' });
+        });
+    }
+    if (carouselScrollRight && rankingCarousel) {
+        carouselScrollRight.addEventListener('click', () => {
+            rankingCarousel.scrollBy({ left: 420, behavior: 'smooth' });
+        });
+    }
+
+    // ✅ Mouse drag-to-scroll untuk desktop UX
+    if (rankingCarousel) {
+        let isDragging   = false;
+        let startX       = 0;
+        let scrollLeftAt = 0;
+
+        rankingCarousel.addEventListener('mousedown', (e) => {
+            isDragging   = true;
+            startX       = e.pageX - rankingCarousel.offsetLeft;
+            scrollLeftAt = rankingCarousel.scrollLeft;
+            rankingCarousel.style.userSelect = 'none';
+        });
+
+        const stopDrag = () => {
+            isDragging = false;
+            rankingCarousel.style.removeProperty('user-select');
+        };
+
+        rankingCarousel.addEventListener('mouseleave', stopDrag);
+        rankingCarousel.addEventListener('mouseup', stopDrag);
+
+        rankingCarousel.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const x    = e.pageX - rankingCarousel.offsetLeft;
+            const walk = (x - startX) * 1.5;
+            rankingCarousel.scrollLeft = scrollLeftAt - walk;
+        });
+    }
 });

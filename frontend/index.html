@@ -157,6 +157,42 @@
         </div>
     </header>
 
+    <!-- ✅ Top 20 Ranking Carousel — tampil hanya di Home page -->
+    <section id="ranking-carousel-section" class="hidden w-full bg-gradient-to-b from-gray-950 to-gray-900 py-5 px-4 border-b border-white/5">
+        <div class="max-w-[1600px] mx-auto">
+            <!-- Header -->
+            <div class="flex items-center justify-between mb-4 px-1">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/30 flex-shrink-0">
+                        <i class="fas fa-trophy text-white text-xs"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-white font-black text-sm md:text-base uppercase tracking-widest">🔥 Top 20 Trending</h2>
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider">Auto-updated · Most Viewed &amp; Downloaded</p>
+                    </div>
+                </div>
+                <!-- Scroll hint arrows -->
+                <div class="flex items-center gap-2">
+                    <button id="carousel-scroll-left" type="button"
+                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
+                        aria-label="Scroll left">
+                        <i class="fas fa-chevron-left text-xs"></i>
+                    </button>
+                    <button id="carousel-scroll-right" type="button"
+                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
+                        aria-label="Scroll right">
+                        <i class="fas fa-chevron-right text-xs"></i>
+                    </button>
+                </div>
+            </div>
+            <!-- Carousel Track -->
+            <div id="ranking-carousel"
+                 class="flex gap-3 overflow-x-auto pb-2"
+                 style="scroll-behavior:smooth;scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;">
+            </div>
+        </div>
+    </section>
+
     <!-- Main Content -->
     <main class="max-w-[1600px] mx-auto px-3 md:px-6 pb-10 flex-grow w-full min-h-[600px]">
         <!-- Gallery Container -->

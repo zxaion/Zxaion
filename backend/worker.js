@@ -304,9 +304,8 @@ if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
 // FIX #1: SSRF guard — pastikan certUrl hanya dari domain resmi PayPal
 const PAYPAL_CERT_DOMAINS = [
   'https://api.paypal.com',
-  '',
   'https://api-m.paypal.com',
-  '',
+  'https://api.sandbox.paypal.com',
 ];
 const isCertUrlTrusted = PAYPAL_CERT_DOMAINS.some(domain => certUrl.startsWith(domain));
 if (!isCertUrlTrusted) {
@@ -461,14 +460,17 @@ if (!isCertUrlTrusted) {
         const { results } = await DB.prepare(query).bind(...bindings).all();
 
         const photos = results.map(row => ({
-          id:          row.id,
-          title:       row.title,
-          category:    row.category,
-          subCategory: row.sub_category,
-          url:         `/api/img/${encodeURIComponent(row.r2_key)}`,
-          size:        row.size,
-          uploaded:    row.uploaded,
-          path:        row.r2_key,
+          id:            row.id,
+          title:         row.title,
+          category:      row.category,
+          subCategory:   row.sub_category,
+          url:           `/api/img/${encodeURIComponent(row.r2_key)}`,
+          size:          row.size,
+          uploaded:      row.uploaded,
+          path:          row.r2_key,
+          // ✅ Pre-load stats — eliminasi N+1 API calls di frontend
+          viewCount:     row.view_count     || 0,
+          downloadCount: row.download_count || 0,
         }));
 
         return new Response(JSON.stringify(photos), {
@@ -491,64 +493,131 @@ if (!isCertUrlTrusted) {
     // ENDPOINT: COMITBASE list — baca dari D1
     // ================================================================
     if (path === '/api/comitbase/list' && method === 'GET') {
-      if (!comitbaseBucket) return new Response('[]', { headers: corsHeaders });
+      if (!comitbaseBucket) return new Response('[]', {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
       try {
         const { results } = await DB.prepare(
-          "SELECT * FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC LIMIT 500"
+          `SELECT id, title, r2_key, uploaded, view_count, download_count
+           FROM images WHERE bucket = 'comitbase'
+           ORDER BY uploaded DESC LIMIT 500`
         ).all();
 
         const photos = results.map(row => ({
-          id:       row.id,
-          title:    row.title,
-          uploader: 'Community',
-          url:      `/api/comitbase/img/${encodeURIComponent(row.r2_key)}`,
-          uploaded: row.uploaded,
+          id:            row.id,
+          title:         row.title,
+          uploader:      'Community',
+          url:           `/api/comitbase/img/${encodeURIComponent(row.r2_key)}`,
+          uploaded:      row.uploaded,
+          // ✅ Pre-load stats — konsisten dengan /api/list
+          viewCount:     row.view_count     || 0,
+          downloadCount: row.download_count || 0,
         }));
 
         return new Response(JSON.stringify(photos), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: {
+            ...corsHeaders,
+            'Content-Type':  'application/json',
+            'Cache-Control': 'public, max-age=60',
+          },
         });
       } catch (e) {
-  console.error('/api/comitbase/list error:', e.message);
-  // FIX: Return array kosong dengan Content-Type yang benar
-  return new Response('[]', {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+        console.error('/api/comitbase/list error:', e.message);
+        return new Response('[]', {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // ================================================================
     // ENDPOINT: DTREASURE list — baca dari D1
     // ================================================================
     if (path === '/api/dtreasure/list' && method === 'GET') {
-      if (!treasureBucket) return new Response('[]', { headers: corsHeaders });
+      if (!treasureBucket) return new Response('[]', {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
       try {
         const { results } = await DB.prepare(
-          "SELECT * FROM images WHERE bucket = 'dtreasure' ORDER BY uploaded DESC LIMIT 500"
+          `SELECT id, title, r2_key, uploaded, view_count, download_count
+           FROM images WHERE bucket = 'dtreasure'
+           ORDER BY uploaded DESC LIMIT 500`
         ).all();
 
         const photos = results.map(row => ({
-          id:       row.id,
-          title:    row.title,
-          category: 'DTREASURE',
-          url:      `/api/dtreasure/img/${encodeURIComponent(row.r2_key)}`,
-          uploaded: row.uploaded,
+          id:            row.id,
+          title:         row.title,
+          category:      'DTREASURE',
+          url:           `/api/dtreasure/img/${encodeURIComponent(row.r2_key)}`,
+          uploaded:      row.uploaded,
+          // ✅ Pre-load stats
+          viewCount:     row.view_count     || 0,
+          downloadCount: row.download_count || 0,
         }));
 
         return new Response(JSON.stringify(photos), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: {
+            ...corsHeaders,
+            'Content-Type':  'application/json',
+            'Cache-Control': 'private, max-age=30',
+          },
         });
       } catch (e) {
         console.error('/api/dtreasure/list error:', e.message);
-        return new Response('[]', { headers: corsHeaders });
+        return new Response('[]', {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
     }
 
     // ================================================================
-    // ENDPOINT: Image stats
+    // ENDPOINT: Top trending images — untuk ranking carousel
+    // ================================================================
+    if (path === '/api/trending' && method === 'GET') {
+      const rawLimit = parseInt(url.searchParams.get('limit') ?? '20', 10);
+      const limit    = Math.min(50, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
+
+      try {
+        const { results } = await DB.prepare(`
+          SELECT id, title, r2_key, bucket, category, sub_category,
+                 view_count, download_count,
+                 (COALESCE(view_count, 0) + COALESCE(download_count, 0)) AS score
+          FROM images
+          WHERE bucket = 'main'
+            AND category != 'Header'
+          ORDER BY score DESC, uploaded DESC
+          LIMIT ?
+        `).bind(limit).all();
+
+        const photos = results.map(row => ({
+          id:            row.id,
+          title:         row.title,
+          category:      row.category,
+          subCategory:   row.sub_category,
+          url:           `/api/img/${encodeURIComponent(row.r2_key)}`,
+          viewCount:     row.view_count     || 0,
+          downloadCount: row.download_count || 0,
+          score:         row.score          || 0,
+        }));
+
+        return new Response(JSON.stringify(photos), {
+          headers: {
+            ...corsHeaders,
+            'Content-Type':  'application/json',
+            'Cache-Control': 'public, max-age=120',
+          },
+        });
+      } catch (e) {
+        console.error('/api/trending error:', e.message);
+        return new Response(JSON.stringify([]), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // ================================================================
+    // ENDPOINT: Image stats — O(1) lookup via images table columns
     // ================================================================
     if (path.startsWith('/api/stats/') && method === 'GET') {
-      // ✅ FIX #11: Defensif terhadap trailing slash — filter Boolean sebelum pop()
       const rawSegment = path.split('/').filter(Boolean).pop() || '';
       const photoId = decodeURIComponent(rawSegment);
       if (!photoId) {
@@ -557,63 +626,81 @@ if (!isCertUrlTrusted) {
         });
       }
       try {
-  const [views, downloads] = await Promise.all([
-    DB.prepare('SELECT COUNT(*) as c FROM views WHERE photo_id = ?').bind(photoId).first(),
-    DB.prepare('SELECT COUNT(*) as c FROM downloads WHERE photo_id = ?').bind(photoId).first(),
-  ]);
-  
-  return new Response(JSON.stringify({
-    views: views?.c || 0,
-    downloads: downloads?.c || 0,
-  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-} catch (e) {
-  console.error('/api/stats error:', e.message);
-  return new Response(JSON.stringify({ views: 0, downloads: 0 }), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+        // ✅ O(1) lookup — baca langsung dari kolom counter di images table
+        const row = await DB.prepare(
+          'SELECT view_count, download_count FROM images WHERE id = ?'
+        ).bind(photoId).first();
+
+        return new Response(JSON.stringify({
+          views:     row?.view_count     || 0,
+          downloads: row?.download_count || 0,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (e) {
+        console.error('/api/stats error:', e.message);
+        return new Response(JSON.stringify({ views: 0, downloads: 0 }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // ================================================================
-    // ENDPOINT: Record view
+    // ENDPOINT: Record view — global counter + per-user history
     // ================================================================
     if (path.startsWith('/api/view/') && method === 'POST') {
-      // ✅ FIX #11: Defensif terhadap trailing slash
       const rawSegment = path.split('/').filter(Boolean).pop() || '';
       const photoId = decodeURIComponent(rawSegment);
       if (!photoId) {
         return new Response(null, { status: 400, headers: corsHeaders });
       }
-      const userId  = getUserToken(request);
+      const userId = getUserToken(request);
       if (!await checkRateLimit('view', userId, 100, 3600)) {
         return new Response(null, { status: 429, headers: corsHeaders });
       }
       try {
-        await DB.prepare('INSERT INTO views (photo_id, user_id) VALUES (?, ?)').bind(photoId, userId).run();
+        // ✅ Atomic global counter increment — tidak terpengaruh UNIQUE constraint per-user
+        await DB.prepare(
+          'UPDATE images SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?'
+        ).bind(photoId).run();
+
+        // Simpan riwayat per-user secara non-blocking (fire-and-forget)
+        DB.prepare(
+          'INSERT OR IGNORE INTO views (photo_id, user_id) VALUES (?, ?)'
+        ).bind(photoId, userId).run().catch(() => {});
+
         return new Response(null, { status: 204, headers: corsHeaders });
       } catch (e) {
+        console.error('/api/view error:', e.message);
         return new Response(null, { status: 200, headers: corsHeaders });
       }
     }
 
-    // ================================================================
-    // ENDPOINT: Record download
+        // ================================================================
+    // ENDPOINT: Record download — global counter + per-user history
     // ================================================================
     if (path.startsWith('/api/download/') && method === 'POST') {
-      // ✅ FIX #11: Defensif terhadap trailing slash
       const rawSegment = path.split('/').filter(Boolean).pop() || '';
       const photoId = decodeURIComponent(rawSegment);
       if (!photoId) {
         return new Response(null, { status: 400, headers: corsHeaders });
       }
-      const userId  = getUserToken(request);
+      const userId = getUserToken(request);
       if (!await checkRateLimit('download', userId, 50, 3600)) {
         return new Response(null, { status: 429, headers: corsHeaders });
       }
       try {
-        await DB.prepare('INSERT INTO downloads (photo_id, user_id) VALUES (?, ?)').bind(photoId, userId).run();
+        // ✅ Atomic global counter increment
+        await DB.prepare(
+          'UPDATE images SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?'
+        ).bind(photoId).run();
+
+        // Simpan riwayat per-user secara non-blocking (fire-and-forget)
+        DB.prepare(
+          'INSERT OR IGNORE INTO downloads (photo_id, user_id) VALUES (?, ?)'
+        ).bind(photoId, userId).run().catch(() => {});
+
         return new Response(null, { status: 204, headers: corsHeaders });
       } catch (e) {
+        console.error('/api/download error:', e.message);
         return new Response(null, { status: 200, headers: corsHeaders });
       }
     }
@@ -979,6 +1066,9 @@ if (path === '/api/credits/balance' && method === 'GET') {
     // ================================================================
     // ENDPOINT: Serve images dari R2
     // ================================================================
+    // ================================================================
+    // ENDPOINT: Serve images dari R2 (main, comitbase, dtreasure)
+    // ================================================================
     if (
       path.startsWith('/api/img/') ||
       path.startsWith('/api/comitbase/img/') ||
@@ -986,9 +1076,15 @@ if (path === '/api/credits/balance' && method === 'GET') {
     ) {
       const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
-      // Server-side auth hanya untuk download DTREASURE
+      // ✅ Auth untuk DTREASURE download
+      // Mendukung dua metode: header X-User-Token ATAU query param userToken
+      // (query param diperlukan untuk direct anchor download di iOS Safari)
       if (isDtreasure && url.searchParams.get('download') === 'true') {
-        const userId = getUserToken(request);
+        const headerToken = getUserToken(request);
+        const userId = (headerToken && headerToken !== 'anonymous')
+          ? headerToken
+          : (url.searchParams.get('userToken') || 'anonymous');
+
         if (!userId || userId === 'anonymous') {
           return new Response(JSON.stringify({ error: 'Authentication required' }), {
             status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1008,13 +1104,14 @@ if (path === '/api/credits/balance' && method === 'GET') {
 
             let purchasedRecord = null;
 
+            // Check by photoId (httpEtag) — primary method
             if (photoIdFromQuery) {
               purchasedRecord = await DB.prepare(
                 'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
               ).bind(userId, photoIdFromQuery).first();
             }
 
-            // Fallback: cek dengan rawKey (backward compat data lama)
+            // Fallback: check by r2_key — backward compatibility
             if (!purchasedRecord) {
               purchasedRecord = await DB.prepare(
                 'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
@@ -1028,11 +1125,13 @@ if (path === '/api/credits/balance' && method === 'GET') {
             }
           }
         } catch (e) {
-  console.error('/api/dtreasure/list error:', e.message);
-  return new Response('[]', {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+          // ✅ W-4: Return proper 500 — bukan '[]' yang menyebabkan download corrupt
+          console.error('[DTREASURE Download] Auth check DB error:', e.message);
+          return new Response(JSON.stringify({ error: 'Server error during authorization check' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
       }
 
       let bucket, prefix;
@@ -1062,15 +1161,15 @@ if (path === '/api/credits/balance' && method === 'GET') {
           isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
 
         if (url.searchParams.get('download') === 'true') {
-  const rawFilename = key.split('/').pop();
-  const asciiFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
-  // RFC 5987: encode UTF-8 untuk support nama file unicode
-  const encodedFilename = encodeURIComponent(rawFilename);
-  headers.set(
-    'Content-Disposition',
-    `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`
-  );
-}
+          const rawFilename     = key.split('/').pop();
+          const asciiFilename   = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
+          // RFC 5987: encode UTF-8 untuk support nama file unicode
+          const encodedFilename = encodeURIComponent(rawFilename);
+          headers.set(
+            'Content-Disposition',
+            `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`
+          );
+        }
 
         return new Response(object.body, { headers });
       } catch (e) {
