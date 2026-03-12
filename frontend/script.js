@@ -183,6 +183,15 @@ const elements = {
 
 // --- Utility Functions ---
 const utils = {
+    // ✅ PERBAIKAN B: Utilitas parsing agar string 'K/M' diterjemahkan dengan benar
+    parseFormattedCount(text) {
+        if (!text) return 0;
+        const str = String(text).trim();
+        if (str.endsWith('M')) return Math.round(parseFloat(str) * 1_000_000);
+        if (str.endsWith('K')) return Math.round(parseFloat(str) * 1_000);
+        return parseInt(str.replace(/[^0-9]/g, '')) || 0;
+    },
+
     escapeHtml(text) {
         if (!text) return '';
         const div = document.createElement('div');
@@ -628,14 +637,18 @@ elements.modalImg.onload = function() {
 
             elements.downloadBtn.href = downloadUrl;
             elements.downloadBtn.setAttribute('download', filename);
+            // ✅ PERBAIKAN B: Memperbaiki update counter UI pada grid ketika download dilakukan lewat modal
             elements.downloadBtn.onclick = () => {
                 api.recordDownload(photo.id);
-                // Optimistic counter update di modal
                 const el = elements.modalDownloadCount;
                 if (el) {
-                    const cur = parseInt(el.textContent.replace(/[^0-9]/g, '')) || 0;
+                    const cur = utils.parseFormattedCount(el.textContent);
                     el.textContent = utils.formatNumber(cur + 1);
                 }
+                document.querySelectorAll(`.download-count[data-id="${photo.id}"]`).forEach(gridEl => {
+                    const cur = utils.parseFormattedCount(gridEl.textContent);
+                    gridEl.textContent = utils.formatNumber(cur + 1);
+                });
             };
             elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
         } else {
@@ -650,7 +663,18 @@ elements.modalImg.onload = function() {
     } else {
         elements.downloadBtn.href     = imageUrl + '?download=true';
         elements.downloadBtn.download = photo.title || 'wallpaper';
-        elements.downloadBtn.onclick  = null;
+        elements.downloadBtn.onclick  = () => {
+            api.recordDownload(photo.id);
+            const el = elements.modalDownloadCount;
+            if (el) {
+                const cur = utils.parseFormattedCount(el.textContent);
+                el.textContent = utils.formatNumber(cur + 1);
+            }
+            document.querySelectorAll(`.download-count[data-id="${photo.id}"]`).forEach(gridEl => {
+                const cur = utils.parseFormattedCount(gridEl.textContent);
+                gridEl.textContent = utils.formatNumber(cur + 1);
+            });
+        };
         elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
     }
 
@@ -837,11 +861,25 @@ elements.modalImg.onload = function() {
                 const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
                 const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
 
+                // ✅ PERBAIKAN C: Sinkronisasi Counter di Modal Pasca-Purchase
                 elements.downloadBtn.href = downloadUrl;
                 elements.downloadBtn.setAttribute('download', filename);
-                elements.downloadBtn.onclick = () => { api.recordDownload(photo.id); };
+                elements.downloadBtn.onclick = () => { 
+                    api.recordDownload(photo.id); 
+                    
+                    // Update angka counter secara optimistik di modal UI
+                    const el = elements.modalDownloadCount;
+                    if (el) {
+                        const cur = utils.parseFormattedCount(el.textContent);
+                        el.textContent = utils.formatNumber(cur + 1);
+                    }
+                    // Update angka counter di grid UI yang sedang aktif
+                    document.querySelectorAll(`.download-count[data-id="${photo.id}"]`).forEach(gridEl => {
+                        const cur = utils.parseFormattedCount(gridEl.textContent);
+                        gridEl.textContent = utils.formatNumber(cur + 1);
+                    });
+                };
                 elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-            }
 
             // ── Nonaktifkan shield thumbnail di gallery secara real-time ──
             this.unlockDtreasureThumbnail(photo.id);
@@ -873,9 +911,10 @@ elements.modalImg.onload = function() {
         return parseInt(str) || 0;
     };
 
+    // ✅ PERBAIKAN B: Gunakan fungsi utulitas terpusat agar tidak duplikat
     const downloadCounts = document.querySelectorAll(`.download-count[data-id="${photo.id}"]`);
     downloadCounts.forEach(el => {
-        const count = parseFormattedCount(el.textContent);
+        const count = utils.parseFormattedCount(el.textContent);
         el.textContent = utils.formatNumber(count + 1);
     });
 
@@ -2394,16 +2433,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     ui.initLogo();
     initEvents();
 
-    // ✅ Fetch semua data secara paralel — maksimalkan performa
-    await Promise.all([
-        api.fetchCreditBalance(),
-        api.fetchImages(),
-        api.fetchComitbaseImages(),
-        api.fetchDtreasureImages(),
-    ]);
+// ✅ PERBAIKAN A: Non-blocking parallel fetch
+    // Mengubah perilaku menunggu semua data (yang membuat loading sangat lambat),
+    // menjadi hanya menunggu data "utama" sehingga user bisa melihat UI lebih cepat.
+    const creditsPromise = api.fetchCreditBalance().catch(console.error);
+    const comitbasePromise = api.fetchComitbaseImages().catch(console.error);
+    const dtreasurePromise = api.fetchDtreasureImages().catch(console.error);
 
-    // ✅ Render initial view setelah semua data siap
+    // ✅ Tunggu list main images agar home bisa langsung tampil dengan instant
+    await api.fetchImages();
     ui.changeCategory('All');
+
+    // ✅ Lanjutkan memuat sisanya di background tanpa nge-block User Experience UI
+    await Promise.all([creditsPromise, comitbasePromise, dtreasurePromise]);
 
     // ✅ Sticky nav shadow on scroll
     const nav = document.querySelector('nav');
