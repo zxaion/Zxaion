@@ -146,7 +146,6 @@ export default {
     // ----------------------------------------------------------------
     const ALLOWED_ORIGINS = [
       'https://zxaion-verse.pages.dev',
-      'https://zxaionverse.com',
     ];
     const origin = request.headers.get('Origin') || '';
     const corsHeaders = {
