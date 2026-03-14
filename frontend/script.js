@@ -153,6 +153,113 @@ class AppState {
 
 const state = new AppState();
 
+// ============================================================
+// ADS MODULE — Google AdSense Integration
+// Tambahkan setelah deklarasi `const state = new AppState();`
+// ============================================================
+const ads = {
+    // Publisher ID — ganti dengan milik kamu
+    CLIENT_ID: 'ca-pub-4913648248892788',
+
+    // Slot IDs — isi setelah dapat approval AdSense
+    SLOTS: {
+        BANNER_TOP:   'SLOT_ID_BANNER_TOP',
+        MODAL:        'SLOT_ID_MODAL',
+        CONTENT:      'SLOT_ID_CONTENT',
+        IN_FEED:      'SLOT_ID_IN_FEED',  // untuk sisipan di galeri
+    },
+
+    // Jarak antar injeksi iklan dalam masonry grid
+    IN_FEED_INTERVAL: 10,
+
+    /**
+     * Push adsbygoogle setelah DOM element siap.
+     * Guard: cegah double-push pada element yang sudah punya data-adsbygoogle-status.
+     */
+    push(el) {
+        if (!el || el.dataset.adsbygoogleStatus) return;
+        try {
+            (window.adsbygoogle = window.adsbygoogle || []).push({});
+        } catch (e) {
+            console.warn('[AdSense] Push error:', e.message);
+        }
+    },
+
+    /**
+     * Init semua slot statis di page (banner top, after-gallery, modal sidebar).
+     * Dipanggil sekali setelah DOMContentLoaded.
+     */
+    initStaticSlots() {
+        // Kumpulkan semua ins.adsbygoogle yang belum di-push
+        document.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(ins => {
+            this.push(ins);
+        });
+    },
+
+    /**
+     * Buat satu in-feed ad element untuk disisipkan ke masonry grid.
+     * Menggunakan Native/In-feed format agar blend dengan konten.
+     */
+    createInFeedAd() {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'masonry-item ad-in-feed-item';
+        wrapper.setAttribute('aria-label', 'Advertisement');
+        wrapper.innerHTML = `
+            <div class="relative rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-800 min-h-[200px] flex flex-col">
+                <span class="absolute top-2 left-2 z-10 text-[9px] text-gray-400 bg-white/80 dark:bg-gray-900/80 px-1.5 py-0.5 rounded uppercase tracking-wider">Ad</span>
+                <ins class="adsbygoogle flex-1"
+                     style="display:block;min-height:200px;"
+                     data-ad-client="${this.CLIENT_ID}"
+                     data-ad-slot="${this.SLOTS.IN_FEED}"
+                     data-ad-format="fluid"
+                     data-ad-layout-key="-fb+5w+4e-db+86"></ins>
+            </div>
+        `;
+        // Push setelah element dibuat — element harus di-append ke DOM dulu
+        return wrapper;
+    },
+
+    /**
+     * Sisipkan in-feed ads ke dalam container gallery setelah render.
+     * Dipanggil dari renderGallery() setelah fragment di-append.
+     * 
+     * @param {HTMLElement} container - gallery container element
+     */
+    injectInFeedAds(container) {
+        if (!container || !window.adsbygoogle) return;
+
+        const items = container.querySelectorAll('.masonry-item:not(.ad-in-feed-item)');
+        const interval = this.IN_FEED_INTERVAL;
+
+        // Insert setelah setiap N item (non-destructive — tidak re-render)
+        for (let i = interval - 1; i < items.length; i += interval) {
+            const adEl = this.createInFeedAd();
+            // insertAdjacentElement aman — tidak reset event listener existing items
+            items[i].insertAdjacentElement('afterend', adEl);
+        }
+
+        // Push semua ins yang baru ditambahkan
+        container.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(ins => {
+            this.push(ins);
+        });
+    },
+
+    /**
+     * Show/hide slot iklan sesuai kategori aktif.
+     * DTREASURE = premium content, hindari iklan di sana.
+     */
+    handleCategoryChange(category) {
+        const bannerTop    = document.getElementById('ad-banner-top');
+        const afterGallery = document.getElementById('ad-after-gallery');
+
+        // Jangan tampilkan iklan di DTREASURE — UX premium
+        const isPremium = category === 'DTREASURE';
+
+        if (bannerTop)    bannerTop.classList.toggle('hidden', isPremium);
+        if (afterGallery) afterGallery.classList.toggle('hidden', isPremium);
+    }
+};
+
 // --- DOM Elements ---
 const elements = {
     galleryContainer: document.getElementById('gallery-container'),
@@ -656,6 +763,9 @@ elements.modalImg.onload = function() {
 
     elements.imageModal.classList.remove('hidden');
     elements.imageModal.classList.add('flex');
+    // Tambahkan di ui.openImageModal(), setelah elements.imageModal.classList.add('flex');
+const modalAdIns = document.querySelector('#ad-modal-sidebar ins:not([data-adsbygoogle-status])');
+if (modalAdIns) ads.push(modalAdIns);
     document.body.style.overflow = 'hidden';
 },
 
@@ -743,6 +853,21 @@ elements.modalImg.onload = function() {
         elements.galleryContainer.appendChild(fragment);
         // ✅ Event delegation - single listener untuk semua items
         this.setupGalleryEventListeners();
+        // Di dalam ui.renderGallery(), setelah baris:
+// elements.galleryContainer.appendChild(fragment);
+// this.setupGalleryEventListeners();
+
+// ✅ Inject in-feed ads setelah galeri selesai di-render
+ads.injectInFeedAds(elements.galleryContainer);
+
+// ✅ Tampilkan slot after-gallery jika ada konten
+const afterGallery = document.getElementById('ad-after-gallery');
+if (afterGallery && state.filteredPhotos.length > 0) {
+    afterGallery.classList.remove('hidden');
+    // Push hanya jika belum pernah di-push
+    const ins = afterGallery.querySelector('ins:not([data-adsbygoogle-status])');
+    if (ins) ads.push(ins);
+}
         this.updatePagination();
     },
     
@@ -1354,6 +1479,8 @@ if (this._comitbaseObserver) {
         if (!category) return;
 
         state.currentCategory  = category;
+        // Tambahkan di ui.changeCategory(), setelah state.currentCategory = category;
+ads.handleCategoryChange(category);
         state.currentAnimeAlbum = null;
         state.resetPagination();
         state.searchQuery = '';
@@ -2404,6 +2531,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ✅ Render initial view setelah semua data siap
     ui.changeCategory('All');
+    // Setelah: ui.changeCategory('All');
+// Tambahkan:
+ads.initStaticSlots();
 
     // ✅ Sticky nav shadow on scroll
     const nav = document.querySelector('nav');

@@ -779,3 +779,68 @@ input:focus-visible {
     background: rgba(251, 191, 36, 0.3);
     color: inherit;
 }
+
+/* ============================================
+   GOOGLE ADSENSE AD UNITS
+   ============================================ */
+
+/* Banner top — tidak ganggu layout */
+#ad-banner-top {
+    min-height: 90px;
+    transition: opacity 0.3s ease;
+}
+
+/* In-feed ad — blend dengan masonry grid */
+.ad-in-feed-item {
+    cursor: default;
+    pointer-events: auto;
+}
+
+/* Pastikan in-feed tidak ter-hover seperti image card */
+.ad-in-feed-item:hover {
+    transform: none;
+    box-shadow: none;
+    z-index: auto;
+}
+
+/* Label "Ad" badge */
+.ad-in-feed-item [aria-label="Advertisement"] span {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+}
+
+/* After-gallery ad spacing */
+#ad-after-gallery {
+    padding: 1rem 0;
+}
+
+/* Modal sidebar ad */
+#ad-modal-sidebar {
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f9fafb;
+}
+
+.dark #ad-modal-sidebar {
+    background: #1f2937;
+}
+
+/* Prevent layout shift — reserve minimum height */
+ins.adsbygoogle[data-ad-format="auto"] {
+    min-height: 100px;
+}
+
+ins.adsbygoogle[data-ad-format="fluid"] {
+    min-height: 200px;
+}
+
+/* Hide empty ad containers gracefully */
+ins.adsbygoogle[data-ad-status="unfilled"] {
+    display: none !important;
+}
+
+/* Dark mode — ad container background */
+.dark #ad-banner-top {
+    background: #111827;
+    border-color: #1f2937;
+}

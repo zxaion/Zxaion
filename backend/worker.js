@@ -1235,21 +1235,53 @@ try {
   const servedExt = isFallback ? 'html' : ext;
   if (mimeTypes[servedExt]) headers.set('Content-Type', mimeTypes[servedExt]);
 
-  if (servedExt === 'html') {
+  // REPLACE blok CSP lama di static file server
+if (servedExt === 'html') {
     headers.set('X-Frame-Options',         'DENY');
     headers.set('X-Content-Type-Options',  'nosniff');
     headers.set('X-XSS-Protection',        '1; mode=block');
     headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
     headers.set('Content-Security-Policy',
+      // default
       "default-src 'self'; " +
-      "img-src 'self' data: https:; " +
-      "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://www.paypal.com; " +
-      "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
-      "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
-      "connect-src 'self' https://ai.zxaionverse.workers.dev https://www.paypal.com; " +
-      "frame-src https://www.paypal.com;"
+      // images — tambah Google ad domains
+      "img-src 'self' data: https: blob:; " +
+      // scripts — tambah AdSense + GPT stack
+      "script-src 'self' 'unsafe-inline' " +
+        "https://cdn.tailwindcss.com " +
+        "https://cdnjs.cloudflare.com " +
+        "https://www.paypal.com " +
+        "https://pagead2.googlesyndication.com " +
+        "https://partner.googleadservices.com " +
+        "https://tpc.googlesyndication.com " +
+        "https://securepubads.g.doubleclick.net " +
+        "https://www.googletagservices.com " +
+        "https://www.gstatic.com " +
+        "https://adservice.google.com " +
+        "https://adservice.google.co.id; " +     // sesuaikan untuk ID
+      // styles
+      "style-src 'self' 'unsafe-inline' " +
+        "https://cdnjs.cloudflare.com " +
+        "https://fonts.googleapis.com; " +
+      // fonts
+      "font-src 'self' " +
+        "https://cdnjs.cloudflare.com " +
+        "https://fonts.gstatic.com; " +
+      // connect — tambah DoubleClick
+      "connect-src 'self' " +
+        "https://ai.zxaionverse.workers.dev " +
+        "https://www.paypal.com " +
+        "https://pagead2.googlesyndication.com " +
+        "https://googleads.g.doubleclick.net " +
+        "https://www.google.com; " +
+      // frames — PayPal + AdSense frames
+      "frame-src " +
+        "https://www.paypal.com " +
+        "https://googleads.g.doubleclick.net " +
+        "https://tpc.googlesyndication.com " +
+        "https://www.google.com;"
     );
-  }
+}
 
   return new Response(object.body, { headers });
 } catch (e) {
