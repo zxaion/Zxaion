@@ -1,12 +1,4 @@
 
-// ================================================================
-// PATCH NOTES:
-// 1. PayPal SDK: HAPUS dari index.html, load on-demand di loadPayPalSDK()
-// 2. fetchImages: fetch 30 item pertama dulu → fast first paint
-//                 sisa halaman di-fetch background via _fetchRemainingPages()
-// 3. Cache API di worker.js handles edge caching untuk images
-// ================================================================
-
 // --- Configuration ---
 const API_BASE = 'https://ai.zxaionverse.workers.dev';
 const ITEMS_PER_PAGE = 30;
@@ -95,19 +87,31 @@ window.animeAlbumThumbnails = {
     'ORIGINAL': `${API_BASE}/api/img/HEADER/Original.jpg`
 };
 
+
+// Custom logo configuration - Set your logo URL here
 window.customLogo = {
     enabled: true,
-    url: `${API_BASE}/api/img/HEADER/Logo.png`,
+    // ✅ FIX: Gunakan direct export URL atau hosting sendiri
+    // Format Google Drive export: https://drive.google.com/uc?export=view&id=FILE_ID
+    // BETTER: Upload logo ke R2 bucket untuk reliability dan performance
+    url: `${API_BASE}/api/img/HEADER/Logo.png`, // Recommended: gunakan dari R2 bucket
+    // Alternatif jika tetap ingin Google Drive (tapi tidak direkomendasikan):
+    // url: 'https://drive.google.com/uc?export=download&id=1FKrwpLSO6pffNyV4fX7gu0K5PDEwkReM',
     alt: 'ZXAION VERSE Logo',
-    fallbackUrl: ''
+    // Tambahkan error handling
+    fallbackUrl: '' // Kosongkan untuk gunakan default ZX text
 };
 
+/** Mencegah long-press "Simpan Gambar" di mobile untuk gambar yang dilindungi. */
 function preventTouchSave(e) { e.preventDefault(); }
 
 // --- User Token ---
 const getOrCreateUserToken = () => {
     let token = localStorage.getItem('zx_user_token');
     if (!token) {
+        // ✅ FIX #7: crypto.getRandomValues() — cryptographically secure, tidak predictable
+        // Penting karena token ini dipakai untuk transaksi keuangan (credits)
+        // ✅ FIX #7b: Hapus Math.random() dan substr (deprecated)
         const array = new Uint8Array(16);
         crypto.getRandomValues(array);
         const randomHex = Array.from(array)
@@ -150,18 +154,28 @@ class AppState {
 const state = new AppState();
 
 // ============================================================
-// ADS MODULE
+// ADS MODULE — Google AdSense Integration
+// Tambahkan setelah deklarasi `const state = new AppState();`
 // ============================================================
 const ads = {
+    // Publisher ID — ganti dengan milik kamu
     CLIENT_ID: 'ca-pub-4913648248892788',
+
+    // Slot IDs — isi setelah dapat approval AdSense
     SLOTS: {
         BANNER_TOP:   'SLOT_ID_BANNER_TOP',
         MODAL:        'SLOT_ID_MODAL',
         CONTENT:      'SLOT_ID_CONTENT',
-        IN_FEED:      'SLOT_ID_IN_FEED',
+        IN_FEED:      'SLOT_ID_IN_FEED',  // untuk sisipan di galeri
     },
+
+    // Jarak antar injeksi iklan dalam masonry grid
     IN_FEED_INTERVAL: 10,
 
+    /**
+     * Push adsbygoogle setelah DOM element siap.
+     * Guard: cegah double-push pada element yang sudah punya data-adsbygoogle-status.
+     */
     push(el) {
         if (!el || el.dataset.adsbygoogleStatus) return;
         try {
@@ -171,12 +185,21 @@ const ads = {
         }
     },
 
+    /**
+     * Init semua slot statis di page (banner top, after-gallery, modal sidebar).
+     * Dipanggil sekali setelah DOMContentLoaded.
+     */
     initStaticSlots() {
+        // Kumpulkan semua ins.adsbygoogle yang belum di-push
         document.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(ins => {
             this.push(ins);
         });
     },
 
+    /**
+     * Buat satu in-feed ad element untuk disisipkan ke masonry grid.
+     * Menggunakan Native/In-feed format agar blend dengan konten.
+     */
     createInFeedAd() {
         const wrapper = document.createElement('div');
         wrapper.className = 'masonry-item ad-in-feed-item';
@@ -192,26 +215,46 @@ const ads = {
                      data-ad-layout-key="-fb+5w+4e-db+86"></ins>
             </div>
         `;
+        // Push setelah element dibuat — element harus di-append ke DOM dulu
         return wrapper;
     },
 
+    /**
+     * Sisipkan in-feed ads ke dalam container gallery setelah render.
+     * Dipanggil dari renderGallery() setelah fragment di-append.
+     * 
+     * @param {HTMLElement} container - gallery container element
+     */
     injectInFeedAds(container) {
         if (!container || !window.adsbygoogle) return;
+
         const items = container.querySelectorAll('.masonry-item:not(.ad-in-feed-item)');
         const interval = this.IN_FEED_INTERVAL;
+
+        // Insert setelah setiap N item (non-destructive — tidak re-render)
         for (let i = interval - 1; i < items.length; i += interval) {
             const adEl = this.createInFeedAd();
+            // insertAdjacentElement aman — tidak reset event listener existing items
             items[i].insertAdjacentElement('afterend', adEl);
         }
+
+        // Push semua ins yang baru ditambahkan
         container.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(ins => {
             this.push(ins);
         });
     },
 
+    /**
+     * Show/hide slot iklan sesuai kategori aktif.
+     * DTREASURE = premium content, hindari iklan di sana.
+     */
     handleCategoryChange(category) {
         const bannerTop    = document.getElementById('ad-banner-top');
         const afterGallery = document.getElementById('ad-after-gallery');
+
+        // Jangan tampilkan iklan di DTREASURE — UX premium
         const isPremium = category === 'DTREASURE';
+
         if (bannerTop)    bannerTop.classList.toggle('hidden', isPremium);
         if (afterGallery) afterGallery.classList.toggle('hidden', isPremium);
     }
@@ -275,6 +318,7 @@ const utils = {
         };
     },
 
+
     formatNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
@@ -290,40 +334,36 @@ const api = {
         dtreasure: null,
         timestamp: 0
     },
-
-    // ================================================================
-    // PATCH: fetchImages — fetch 30 item pertama dulu untuk fast first paint,
-    //        sisa halaman di-fetch background via _fetchRemainingPages()
-    // ================================================================
+    
     async fetchImages() {
         try {
+            // ✅ FIX #2: Cache sekarang menyimpan data yang sudah difilter
+            // Sebelumnya: cache menyimpan raw data, tapi waktu hit cache langsung assign tanpa filter ulang
             const now = Date.now();
             if (this.imageCache.main && (now - this.imageCache.timestamp) < 300000) {
-                state.allPhotos = this.imageCache.main;
+                state.allPhotos = this.imageCache.main; // sudah filtered, aman
                 this.organizeAnimeAlbums();
                 ui.updateOriginalAlbumCount();
                 return true;
             }
 
-            // Fetch halaman pertama saja (30 item) — fast first paint
-            const res = await fetch(`${API_BASE}/api/list?limit=30&page=1`);
+            const res = await fetch(`${API_BASE}/api/list`);
             if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
             const data = await res.json();
 
             if (Array.isArray(data)) {
+                // ✅ FIX #2: Filter DULU, BARU simpan ke cache
                 const filtered = data.filter(photo => {
                     if (!photo.path) return true;
                     return !photo.path.toLowerCase().startsWith('header/');
                 });
 
+                this.imageCache.main = filtered;       // cache = sudah bersih
+                this.imageCache.timestamp = now;
+
                 state.allPhotos = filtered;
                 this.organizeAnimeAlbums();
                 ui.updateOriginalAlbumCount();
-
-                // Background fetch sisa halaman tanpa block UI
-                // Tidak di-await — fire and forget
-                this._fetchRemainingPages();
-
                 return true;
             }
             return false;
@@ -333,72 +373,20 @@ const api = {
             return false;
         }
     },
+    
+    // Tambahkan di dalam object api, setelah method fetchImages():
 
-    // ================================================================
-    // PATCH NEW: Background fetch sisa halaman setelah UI sudah render
-    // Fetch page 2, 3, dst. secara sequential dengan 100 item per batch.
-    // Setelah semua selesai, update cache dan organizeAnimeAlbums.
-    // ================================================================
-    async _fetchRemainingPages() {
-        let page = 2;
-        let hasMore = true;
-        const BATCH = 100;
-
-        while (hasMore) {
-            try {
-                // Delay kecil agar tidak bersaing dengan request penting lainnya
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                const res = await fetch(`${API_BASE}/api/list?limit=${BATCH}&page=${page}`);
-                if (!res.ok) break;
-
-                const data = await res.json();
-                if (!Array.isArray(data) || data.length === 0) {
-                    hasMore = false;
-                    break;
-                }
-
-                const filtered = data.filter(photo => {
-                    if (!photo.path) return true;
-                    return !photo.path.toLowerCase().startsWith('header/');
-                });
-
-                // Merge ke state — existing items tidak di-replace (no duplicate by id)
-                const existingIds = new Set(state.allPhotos.map(p => p.id));
-                const newItems = filtered.filter(p => !existingIds.has(p.id));
-                if (newItems.length > 0) {
-                    state.allPhotos = [...state.allPhotos, ...newItems];
-                    this.organizeAnimeAlbums();
-                    ui.updateOriginalAlbumCount();
-                }
-
-                // Stop jika batch tidak penuh — sudah halaman terakhir
-                if (data.length < BATCH) {
-                    hasMore = false;
-                }
-                page++;
-            } catch (e) {
-                console.warn(`[_fetchRemainingPages] page ${page} failed:`, e.message);
-                break;
-            }
-        }
-
-        // Cache hasil final setelah semua halaman terkumpul
-        this.imageCache.main = state.allPhotos;
-        this.imageCache.timestamp = Date.now();
-        console.log(`[fetchImages] Total: ${state.allPhotos.length} photos loaded`);
-    },
-
-    invalidateCache() {
-        this.imageCache.main = null;
-        this.imageCache.comitbase = null;
-        this.imageCache.dtreasure = null;
-        this.imageCache.timestamp = 0;
-    },
-
+// ✅ NEW METHOD: Invalidate cache
+invalidateCache() {
+    this.imageCache.main = null;
+    this.imageCache.comitbase = null;
+    this.imageCache.dtreasure = null;
+    this.imageCache.timestamp = 0;
+},
     async fetchComitbaseImages() {
         try {
             const res = await fetch(`${API_BASE}/api/comitbase/list`);
+            // ✅ FIX S-6: Cek res.ok sebelum parse JSON
             if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
             const data = await res.json();
             if (Array.isArray(data)) {
@@ -415,6 +403,7 @@ const api = {
     async fetchDtreasureImages() {
         try {
             const res = await fetch(`${API_BASE}/api/dtreasure/list`);
+            // ✅ FIX S-6: Cek res.ok sebelum parse JSON
             if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
             const data = await res.json();
             if (Array.isArray(data)) {
@@ -432,7 +421,7 @@ const api = {
         if (!photoId) return { views: 0, downloads: 0 };
         try {
             const res = await fetch(`${API_BASE}/api/stats/${encodeURIComponent(photoId)}`);
-            if (!res.ok) return { views: 0, downloads: 0 };
+            if (!res.ok) return { views: 0, downloads: 0 }; // ✅ guard sebelum parse
             const data = await res.json();
             return { views: data.views || 0, downloads: data.downloads || 0 };
         } catch (error) {
@@ -446,7 +435,7 @@ const api = {
             const token = getOrCreateUserToken();
             await fetch(`${API_BASE}/api/download/${encodeURIComponent(photoId)}`, {
                 method: 'POST',
-                headers: { 'X-User-Token': token },
+                headers: { 'X-User-Token': token }, // ✅ kirim token agar rate limit per-user
             });
         } catch (error) {
             console.error('Failed to record download:', error);
@@ -454,17 +443,17 @@ const api = {
     },
 
     async recordView(photoId) {
-        if (!photoId) return;
-        try {
-            const token = getOrCreateUserToken();
-            await fetch(`${API_BASE}/api/view/${encodeURIComponent(photoId)}`, {
-                method: 'POST',
-                headers: { 'X-User-Token': token },
-            });
-        } catch (error) {
-            console.error('Failed to record view:', error);
-        }
-    },
+    if (!photoId) return;
+    try {
+        const token = getOrCreateUserToken();
+        await fetch(`${API_BASE}/api/view/${encodeURIComponent(photoId)}`, {
+            method: 'POST',
+            headers: { 'X-User-Token': token }, // ✅ kirim token agar rate limit per-user
+        });
+    } catch (error) {
+        console.error('Failed to record view:', error);
+    }
+},
 
     async fetchTrendingImages(limit = 20) {
         try {
@@ -474,6 +463,7 @@ const api = {
             return Array.isArray(data) ? data : [];
         } catch (e) {
             console.error('Error fetching trending images:', e);
+            // Fallback: sort dari state.allPhotos jika endpoint gagal
             return state.allPhotos
                 .map(p => ({ ...p, score: (p.viewCount || 0) + (p.downloadCount || 0) }))
                 .sort((a, b) => b.score - a.score)
@@ -489,7 +479,7 @@ const api = {
             });
             if (!res.ok) {
                 console.error('fetchCreditBalance failed:', res.status);
-                return;
+                return; // ✅ Jangan parse jika HTTP error
             }
             const data = await res.json();
             state.credits = data.credits || 0;
@@ -501,72 +491,76 @@ const api = {
         }
     },
 
+    // ✅ PERBAIKAN - Replace function `purchaseCredits` di object `api`
+
     async purchaseCredits(packKey, orderId) {
-        const token = getOrCreateUserToken();
-        try {
-            const res = await fetch(`${API_BASE}/api/credits/purchase`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-User-Token': token
-                },
-                body: JSON.stringify({ pack: packKey, orderId })
-            });
-
-            const data = await res.json();
-
-            if (res.ok && data.success === true) {
-                return {
-                    success: true,
-                    newBalance: data.newBalance ?? 0,
-                    lifetime: data.lifetime ?? false,
-                    error: null,
-                };
-            } else if (data.message === 'Order already processed') {
-                return {
-                    success: true,
-                    newBalance: data.newBalance ?? 0,
-                    lifetime: data.lifetime ?? false,
-                    error: null,
-                };
-            } else {
-                return {
-                    success: false,
-                    error: data.error || 'Payment verification failed',
-                    orderId: data.orderId || orderId,
-                    newBalance: 0,
-                    lifetime: false
-                };
-            }
-        } catch (e) {
-            console.error('purchaseCredits network error:', e);
-            return {
-                success: false,
-                error: 'Network error. Please check your connection.',
-                newBalance: 0,
-                lifetime: false
-            };
+    const token = getOrCreateUserToken();
+    try {
+        const res = await fetch(`${API_BASE}/api/credits/purchase`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-User-Token': token
+            },
+            body: JSON.stringify({ pack: packKey, orderId })
+        });
+        
+        const data = await res.json();
+        
+        // ✅ PERBAIKAN: Handle semua response cases dengan proper
+        if (res.ok && data.success === true) {
+          return {
+            success: true,
+            newBalance: data.newBalance ?? 0,
+            lifetime: data.lifetime ?? false,
+            error: null,
+          };
+        } else if (data.message === 'Order already processed') {
+          // Order sudah diproses sebelumnya, ini OK
+          return {
+            success: true,
+            newBalance: data.newBalance ?? 0,
+            lifetime: data.lifetime ?? false,
+            error: null,
+          };
+        } else {
+          // Error dari server
+          return {
+            success: false,
+            error: data.error || 'Payment verification failed',
+            orderId: data.orderId || orderId,
+            newBalance: 0,
+            lifetime: false
+          };
         }
-    },
-
+    } catch (e) {
+        console.error('purchaseCredits network error:', e);
+        return { 
+          success: false, 
+          error: 'Network error. Please check your connection.',
+          newBalance: 0, 
+          lifetime: false 
+        };
+    }
+},
     async spendCredit(photoId) {
-        const token = getOrCreateUserToken();
-        try {
-            const res = await fetch(`${API_BASE}/api/credits/spend`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
-                body: JSON.stringify({ photoId })
-            });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-                return { success: false, error: err.error || 'Spend credit failed' };
-            }
-            return res.json();
-        } catch (e) {
-            console.error('spendCredit network error:', e);
-            return { success: false, error: 'Network error. Please check your connection.' };
+    const token = getOrCreateUserToken();
+    try {
+        const res = await fetch(`${API_BASE}/api/credits/spend`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+            body: JSON.stringify({ photoId })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            return { success: false, error: err.error || 'Spend credit failed' };
         }
-    },
+        return res.json();
+    } catch (e) {
+        console.error('spendCredit network error:', e);
+        return { success: false, error: 'Network error. Please check your connection.' };
+    }
+},
 
     organizeAnimeAlbums() {
         state.animeAlbums = {};
@@ -574,7 +568,7 @@ const api = {
             if (photo.category && photo.category.toLowerCase() === 'anime' && photo.subCategory) {
                 const folderName = photo.subCategory;
                 let albumTitle = null;
-
+                
                 if (folderName.toLowerCase() === 'random') {
                     albumTitle = 'ORIGINAL';
                 } else {
@@ -584,15 +578,15 @@ const api = {
                         .split(' ')
                         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                         .join(' ');
-
-                    const matchedAlbum = ANIME_SUB_ALBUMS.find(album =>
+                    
+                    const matchedAlbum = ANIME_SUB_ALBUMS.find(album => 
                         album.toLowerCase() === normalizedName.toLowerCase() ||
                         normalizedName.toLowerCase().includes(album.toLowerCase()) ||
                         album.toLowerCase().includes(normalizedName.toLowerCase())
                     );
                     albumTitle = matchedAlbum || normalizedName;
                 }
-
+                
                 if (albumTitle) {
                     if (!state.animeAlbums[albumTitle]) {
                         state.animeAlbums[albumTitle] = {
@@ -605,7 +599,8 @@ const api = {
                 }
             }
         });
-
+        
+        // Sort alphabetically
         const sorted = {};
         Object.keys(state.animeAlbums).sort().forEach(key => {
             sorted[key] = state.animeAlbums[key];
@@ -643,122 +638,136 @@ const ui = {
         const noResults = document.getElementById('no-results');
         if (noResults) noResults.classList.add('hidden');
     },
+    
+    // ─── Shield Helper ─────────────────────────────────────────────────────────
+// protect = true  → aktifkan shield (belum purchase)
+// protect = false → nonaktifkan shield (sudah purchase / lifetime / bukan DTREASURE)
+applyModalShield(protect) {
+    const shield = document.getElementById('modal-img-shield');
+    const img    = elements.modalImg;
+    if (!shield || !img) return;
 
-    applyModalShield(protect) {
-        const shield = document.getElementById('modal-img-shield');
-        const img    = elements.modalImg;
-        if (!shield || !img) return;
+    if (protect) {
+        shield.classList.remove('hidden');
+        img.oncontextmenu = (e) => e.preventDefault();
+        img.ondragstart   = (e) => e.preventDefault();
+        img.addEventListener('touchstart', preventTouchSave, { passive: false });
+    } else {
+        shield.classList.add('hidden');
+        img.oncontextmenu = null;
+        img.ondragstart   = null;
+        img.removeEventListener('touchstart', preventTouchSave);
+    }
+},
 
-        if (protect) {
-            shield.classList.remove('hidden');
-            img.oncontextmenu = (e) => e.preventDefault();
-            img.ondragstart   = (e) => e.preventDefault();
-            img.addEventListener('touchstart', preventTouchSave, { passive: false });
-        } else {
-            shield.classList.add('hidden');
-            img.oncontextmenu = null;
-            img.ondragstart   = null;
-            img.removeEventListener('touchstart', preventTouchSave);
-        }
-    },
+/**
+ * Melepas shield pada thumbnail gallery DTREASURE yang sudah dipurchase,
+ * tanpa perlu re-render seluruh gallery.
+ */
+unlockDtreasureThumbnail(photoId) {
+    const item = elements.dtreasureGallery?.querySelector(
+        `.masonry-item[data-photo-id="${photoId}"]`
+    );
+    if (!item) return;
 
-    unlockDtreasureThumbnail(photoId) {
-        const item = elements.dtreasureGallery?.querySelector(
-            `.masonry-item[data-photo-id="${photoId}"]`
-        );
-        if (!item) return;
+    // Hapus shield overlay transparan pada thumbnail
+    const shield = item.querySelector('.dtreasure-thumb-shield');
+    if (shield) shield.remove();
 
-        const shield = item.querySelector('.dtreasure-thumb-shield');
-        if (shield) shield.remove();
+    // Hapus atribut proteksi pada img
+    const img = item.querySelector('img');
+    if (img) {
+        img.oncontextmenu = null;
+        img.ondragstart   = null;
+        img.removeEventListener('touchstart', preventTouchSave);
+        img.style.removeProperty('-webkit-touch-callout');
+    }
 
-        const img = item.querySelector('img');
-        if (img) {
-            img.oncontextmenu = null;
-            img.ondragstart   = null;
-            img.removeEventListener('touchstart', preventTouchSave);
-            img.style.removeProperty('-webkit-touch-callout');
-        }
+    // Update teks tombol download di thumbnail
+    const btn = item.querySelector('.download-btn');
+    if (btn) {
+        btn.innerHTML = '<i class="fas fa-download"></i> Download';
+    }
+},
 
-        const btn = item.querySelector('.download-btn');
-        if (btn) {
-            btn.innerHTML = '<i class="fas fa-download"></i> Download';
-        }
-    },
+    // Di bagian ui.openImageModal()
+async openImageModal(photo) {
+    if (!photo) return;
 
-    async openImageModal(photo) {
-        if (!photo) return;
+    state.currentImageId = photo.id;
+    api.recordView(photo.id);
 
-        state.currentImageId = photo.id;
-        api.recordView(photo.id);
+    const stats = await api.fetchImageStats(photo.id);
 
-        const stats = await api.fetchImageStats(photo.id);
+    const imageUrl = photo.url.startsWith('http')
+        ? photo.url
+        : `${API_BASE}${photo.url}`;
 
-        const imageUrl = photo.url.startsWith('http')
-            ? photo.url
-            : `${API_BASE}${photo.url}`;
+    elements.modalImg.src = imageUrl;
 
-        elements.modalImg.src = imageUrl;
+// FIX S2-#3: Fallback saat gambar modal gagal load — tanpa ini,
+// modal menampilkan ikon broken image kosong tanpa feedback ke user.
+elements.modalImg.onerror = function() {
+    this.onerror = null; // Cegah infinite loop jika fallback juga gagal
+    this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
+};
+elements.modalImg.onload = function() {
+    this.onerror = null; // Bersihkan error handler setelah sukses
+};    elements.modalTitle.textContent    = photo.title || 'Wallpaper';
+    elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
+    elements.modalViewCount.textContent    = utils.formatNumber(stats.views);
+    elements.modalDownloadCount.textContent = utils.formatNumber(stats.downloads);
 
-        elements.modalImg.onerror = function() {
-            this.onerror = null;
-            this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
-        };
-        elements.modalImg.onload = function() {
-            this.onerror = null;
-        };
+    const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+    const isPurchased  = state.lifetime || state.purchasedImages.has(photo.id);
 
-        elements.modalTitle.textContent    = photo.title || 'Wallpaper';
-        elements.modalCategory.textContent = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
-        elements.modalViewCount.textContent    = utils.formatNumber(stats.views);
-        elements.modalDownloadCount.textContent = utils.formatNumber(stats.downloads);
+    // Shield: ON hanya jika DTREASURE dan BELUM dibeli
+    this.applyModalShield(isDtreasure && !isPurchased);
 
-        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-        const isPurchased  = state.lifetime || state.purchasedImages.has(photo.id);
+    if (isDtreasure) {
+        if (isPurchased) {
+            // ✅ Direct anchor download — mempertahankan user-gesture context
+            // Tidak bergantung pada fetch() async yang kehilangan gesture context di iOS Safari
+            const token       = getOrCreateUserToken();
+            const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
+            const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
 
-        this.applyModalShield(isDtreasure && !isPurchased);
-
-        if (isDtreasure) {
-            if (isPurchased) {
-                const token       = getOrCreateUserToken();
-                const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-                const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-                const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
-
-                elements.downloadBtn.href = downloadUrl;
-                elements.downloadBtn.setAttribute('download', filename);
-                elements.downloadBtn.onclick = () => {
-                    api.recordDownload(photo.id);
-                    const el = elements.modalDownloadCount;
-                    if (el) {
-                        const cur = parseInt(el.textContent.replace(/[^0-9]/g, '')) || 0;
-                        el.textContent = utils.formatNumber(cur + 1);
-                    }
-                };
-                elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-            } else {
-                elements.downloadBtn.removeAttribute('href');
-                elements.downloadBtn.removeAttribute('download');
-                elements.downloadBtn.onclick = (e) => {
-                    e.preventDefault();
-                    ui.handleDownload(photo);
-                };
-                elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
-            }
-        } else {
-            elements.downloadBtn.href     = imageUrl + '?download=true';
-            elements.downloadBtn.download = photo.title || 'wallpaper';
-            elements.downloadBtn.onclick  = null;
+            elements.downloadBtn.href = downloadUrl;
+            elements.downloadBtn.setAttribute('download', filename);
+            elements.downloadBtn.onclick = () => {
+                api.recordDownload(photo.id);
+                // Optimistic counter update di modal
+                const el = elements.modalDownloadCount;
+                if (el) {
+                    const cur = parseInt(el.textContent.replace(/[^0-9]/g, '')) || 0;
+                    el.textContent = utils.formatNumber(cur + 1);
+                }
+            };
             elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+        } else {
+            elements.downloadBtn.removeAttribute('href');
+            elements.downloadBtn.removeAttribute('download');
+            elements.downloadBtn.onclick = (e) => {
+                e.preventDefault();
+                ui.handleDownload(photo);
+            };
+            elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
         }
+    } else {
+        elements.downloadBtn.href     = imageUrl + '?download=true';
+        elements.downloadBtn.download = photo.title || 'wallpaper';
+        elements.downloadBtn.onclick  = null;
+        elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+    }
 
-        elements.imageModal.classList.remove('hidden');
-        elements.imageModal.classList.add('flex');
-
-        const modalAdIns = document.querySelector('#ad-modal-sidebar ins:not([data-adsbygoogle-status])');
-        if (modalAdIns) ads.push(modalAdIns);
-
-        document.body.style.overflow = 'hidden';
-    },
+    elements.imageModal.classList.remove('hidden');
+    elements.imageModal.classList.add('flex');
+    // Tambahkan di ui.openImageModal(), setelah elements.imageModal.classList.add('flex');
+const modalAdIns = document.querySelector('#ad-modal-sidebar ins:not([data-adsbygoogle-status])');
+if (modalAdIns) ads.push(modalAdIns);
+    document.body.style.overflow = 'hidden';
+},
 
     renderGallery() {
         if (!elements.galleryContainer) return;
@@ -778,6 +787,7 @@ const ui = {
 
         elements.galleryContainer.innerHTML = '';
 
+        // ✅ Disconnect observer lama — cegah memory leak
         if (this._galleryObserver) this._galleryObserver.disconnect();
 
         const imageObserver = new IntersectionObserver((entries, observer) => {
@@ -806,6 +816,7 @@ const ui = {
             const fullUrl        = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
 
+            // ✅ Stats pre-loaded dari /api/list — eliminasi N+1 API calls
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
 
@@ -840,25 +851,35 @@ const ui = {
         });
 
         elements.galleryContainer.appendChild(fragment);
+        // ✅ Event delegation - single listener untuk semua items
         this.setupGalleryEventListeners();
-        ads.injectInFeedAds(elements.galleryContainer);
+        // Di dalam ui.renderGallery(), setelah baris:
+// elements.galleryContainer.appendChild(fragment);
+// this.setupGalleryEventListeners();
 
-        const afterGallery = document.getElementById('ad-after-gallery');
-        if (afterGallery && state.filteredPhotos.length > 0) {
-            afterGallery.classList.remove('hidden');
-            const ins = afterGallery.querySelector('ins:not([data-adsbygoogle-status])');
-            if (ins) ads.push(ins);
-        }
+// ✅ Inject in-feed ads setelah galeri selesai di-render
+ads.injectInFeedAds(elements.galleryContainer);
 
+// ✅ Tampilkan slot after-gallery jika ada konten
+const afterGallery = document.getElementById('ad-after-gallery');
+if (afterGallery && state.filteredPhotos.length > 0) {
+    afterGallery.classList.remove('hidden');
+    // Push hanya jika belum pernah di-push
+    const ins = afterGallery.querySelector('ins:not([data-adsbygoogle-status])');
+    if (ins) ads.push(ins);
+}
         this.updatePagination();
     },
-
+    
+    // ✅ NEW METHOD: Setup gallery event listeners dengan delegation
     setupGalleryEventListeners() {
+        // Remove old listener jika ada
         if (this.galleryClickHandler) {
             elements.galleryContainer.removeEventListener('click', this.galleryClickHandler);
         }
-
+        
         const handleGalleryClick = (e) => {
+            // Handle download button
             const downloadBtn = e.target.closest('.download-btn');
             if (downloadBtn) {
                 e.stopPropagation();
@@ -870,7 +891,8 @@ const ui = {
                 }
                 return;
             }
-
+            
+            // Handle image click
             const item = e.target.closest('.masonry-item');
             if (item && !e.target.closest('.download-btn')) {
                 const photoId = item.dataset.photoId;
@@ -880,177 +902,195 @@ const ui = {
                 }
             }
         };
-
+        
         this.galleryClickHandler = handleGalleryClick;
         elements.galleryContainer.addEventListener('click', handleGalleryClick);
     },
 
     async loadStatsForItem(photoId, item) {
-        try {
-            const stats = await api.fetchImageStats(photoId);
-            const viewSpan = item.querySelector('.view-count');
-            const downloadSpan = item.querySelector('.download-count');
-            if (viewSpan) viewSpan.textContent = utils.formatNumber(stats.views);
-            if (downloadSpan) downloadSpan.textContent = utils.formatNumber(stats.downloads);
-        } catch (error) {
-            console.warn('Failed to load stats for photo:', photoId, error);
-        }
-    },
+    try {
+        const stats = await api.fetchImageStats(photoId);
+        const viewSpan = item.querySelector('.view-count');
+        const downloadSpan = item.querySelector('.download-count');
+        if (viewSpan) viewSpan.textContent = utils.formatNumber(stats.views);
+        if (downloadSpan) downloadSpan.textContent = utils.formatNumber(stats.downloads);
+    } catch (error) {
+        console.warn('Failed to load stats for photo:', photoId, error);
+        // Set default values on error
+        const viewSpan = item.querySelector('.view-count');
+        const downloadSpan = item.querySelector('.download-count');
+        if (viewSpan) viewSpan.textContent = '0';
+        if (downloadSpan) downloadSpan.textContent = '0';
+    }
+},
 
     async handleDownload(photo) {
-        if (!photo) return;
+    if (!photo) return;
 
-        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+    const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
 
-        if (isDtreasure) {
-            if (state.lifetime) {
-                this.triggerDownload(photo);
-                return;
-            }
-
-            if (state.purchasedImages.has(photo.id)) {
-                this.triggerDownload(photo);
-                return;
-            }
-
-            if (state.credits < 10) {
-                alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
-                document.getElementById('buy-credits-btn')?.click();
-                return;
-            }
-
-            const result = await api.spendCredit(photo.id);
-            if (result.success) {
-                state.credits = result.newBalance;
-                state.purchasedImages.add(photo.id);
-                ui.updateCreditDisplay();
-
-                if (state.currentImageId === photo.id) {
-                    this.applyModalShield(false);
-
-                    const token       = getOrCreateUserToken();
-                    const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-                    const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-                    const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
-
-                    elements.downloadBtn.href = downloadUrl;
-                    elements.downloadBtn.setAttribute('download', filename);
-                    elements.downloadBtn.onclick = () => { api.recordDownload(photo.id); };
-                    elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-                }
-
-                this.unlockDtreasureThumbnail(photo.id);
-                this.triggerDownload(photo);
-                ui.renderDtreasureGallery();
-            } else {
-                alert('❌ ' + (result.error || 'Download failed. Please try again.'));
-            }
-        } else {
+    if (isDtreasure) {
+        if (state.lifetime) {
             this.triggerDownload(photo);
+            return;
         }
-    },
+
+        if (state.purchasedImages.has(photo.id)) {
+            this.triggerDownload(photo);
+            return;
+        }
+
+        if (state.credits < 10) {
+            alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
+            document.getElementById('buy-credits-btn')?.click();
+            return;
+        }
+
+        const result = await api.spendCredit(photo.id);
+        if (result.success) {
+            state.credits = result.newBalance;
+            state.purchasedImages.add(photo.id);
+            ui.updateCreditDisplay();
+
+            // ── Update modal download button ke direct link setelah purchase ──
+            if (state.currentImageId === photo.id) {
+                this.applyModalShield(false);
+
+                // ✅ Ganti ke direct anchor download — fix untuk iOS Safari
+                const token       = getOrCreateUserToken();
+                const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+                const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
+                const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
+
+                elements.downloadBtn.href = downloadUrl;
+                elements.downloadBtn.setAttribute('download', filename);
+                elements.downloadBtn.onclick = () => { api.recordDownload(photo.id); };
+                elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+            }
+
+            // ── Nonaktifkan shield thumbnail di gallery secara real-time ──
+            this.unlockDtreasureThumbnail(photo.id);
+
+            // ✅ Trigger download langsung setelah purchase berhasil
+            this.triggerDownload(photo);
+
+            // Re-render gallery untuk sync state tombol seluruh grid
+            ui.renderDtreasureGallery();
+        } else {
+            alert('❌ ' + (result.error || 'Download failed. Please try again.'));
+        }
+    } else {
+        this.triggerDownload(photo);
+    }
+},
 
     async triggerDownload(photo) {
-        if (!photo || !photo.url) return;
+    if (!photo || !photo.url) return;
 
-        api.recordDownload(photo.id);
+    api.recordDownload(photo.id);
 
-        const parseFormattedCount = (text) => {
-            if (!text) return 0;
-            const str = text.trim();
-            if (str.endsWith('M')) return Math.round(parseFloat(str) * 1_000_000);
-            if (str.endsWith('K')) return Math.round(parseFloat(str) * 1_000);
-            return parseInt(str) || 0;
-        };
+    // ✅ FIX: Optimistic counter — parse format K/M dengan benar
+    const parseFormattedCount = (text) => {
+        if (!text) return 0;
+        const str = text.trim();
+        if (str.endsWith('M')) return Math.round(parseFloat(str) * 1_000_000);
+        if (str.endsWith('K')) return Math.round(parseFloat(str) * 1_000);
+        return parseInt(str) || 0;
+    };
 
-        const downloadCounts = document.querySelectorAll(`.download-count[data-id="${photo.id}"]`);
-        downloadCounts.forEach(el => {
-            const count = parseFormattedCount(el.textContent);
-            el.textContent = utils.formatNumber(count + 1);
-        });
+    const downloadCounts = document.querySelectorAll(`.download-count[data-id="${photo.id}"]`);
+    downloadCounts.forEach(el => {
+        const count = parseFormattedCount(el.textContent);
+        el.textContent = utils.formatNumber(count + 1);
+    });
 
-        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-        const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-        const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
-        const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
+    const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+    const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+    const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
+    const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
 
-        if (isDtreasure) {
-            const token = getOrCreateUserToken();
+    if (isDtreasure) {
+        const token = getOrCreateUserToken();
 
-            const loadingToast = document.createElement('div');
-            loadingToast.id = 'dl-toast';
-            loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
-            loadingToast.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing download...';
-            document.body.appendChild(loadingToast);
+        const loadingToast = document.createElement('div');
+        loadingToast.id = 'dl-toast';
+        loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
+        loadingToast.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing download...';
+        document.body.appendChild(loadingToast);
 
-            try {
-                const res = await fetch(downloadUrl, {
-                    method: 'GET',
-                    headers: { 'X-User-Token': token },
-                });
+        try {
+            const res = await fetch(downloadUrl, {
+                method: 'GET',
+                headers: { 'X-User-Token': token },
+            });
 
-                if (!res.ok) {
-                    let errMsg = `Download failed (HTTP ${res.status})`;
-                    try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
-                    throw new Error(errMsg);
-                }
-
-                const blob = await res.blob();
-                const objectUrl = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = objectUrl;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-
-                loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
-                loadingToast.classList.add('bg-green-800');
-
-            } catch (error) {
-                console.error('DTREASURE download error:', error);
-                loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${error.message}`;
-                loadingToast.classList.add('bg-red-800');
-                if (error.message.includes('403') || error.message.toLowerCase().includes('purchase required')) {
-                    setTimeout(() => {
-                        alert('❌ Download blocked: Purchase required.\n\nBuy credits to download DTREASURE images.');
-                        document.getElementById('buy-credits-btn')?.click();
-                    }, 500);
-                }
-            } finally {
-                setTimeout(() => {
-                    const toast = document.getElementById('dl-toast');
-                    if (toast) toast.remove();
-                }, 3500);
+            if (!res.ok) {
+                let errMsg = `Download failed (HTTP ${res.status})`;
+                try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
+                throw new Error(errMsg);
             }
-        } else {
+
+            const blob = await res.blob();
+            const objectUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = downloadUrl;
+            a.href = objectUrl;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+
+            loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
+            loadingToast.classList.add('bg-green-800');
+
+        } catch (error) {
+            console.error('DTREASURE download error:', error);
+            loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${error.message}`;
+            loadingToast.classList.add('bg-red-800');
+            if (error.message.includes('403') || error.message.toLowerCase().includes('purchase required')) {
+                setTimeout(() => {
+                    alert('❌ Download blocked: Purchase required.\n\nBuy credits to download DTREASURE images.');
+                    document.getElementById('buy-credits-btn')?.click();
+                }, 500);
+            }
+        } finally {
             setTimeout(() => {
-                if (document.body.contains(a)) document.body.removeChild(a);
-            }, 300);
+                const toast = document.getElementById('dl-toast');
+                if (toast) toast.remove();
+            }, 3500);
         }
+    } else {
+        // ✅ FIX S-2: Hapus target='_blank' — attribute 'download' diabaikan browser
+        // untuk cross-origin URL dengan target='_blank'. Worker sudah set
+        // Content-Disposition: attachment, sehingga server-side header yang mengontrol download.
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = filename;
+        // TIDAK ada a.target = '_blank' ← ini yang menyebabkan bug
+        document.body.appendChild(a);
+        a.click();
+// ✅ 300ms memberi cukup waktu untuk browser trigger download di device lambat
+setTimeout(() => {
+    if (document.body.contains(a)) document.body.removeChild(a);
+}, 300);
+    }
     },
 
     updatePagination() {
         if (!elements.paginationContainer) return;
-
+        
         const totalPages = Math.ceil(state.filteredPhotos.length / ITEMS_PER_PAGE);
-
+        
         if (totalPages > 1) {
             elements.paginationContainer.classList.remove('hidden');
             const pageInfo = document.getElementById('page-info');
             if (pageInfo) {
                 pageInfo.textContent = `Page ${state.currentPage} of ${totalPages}`;
             }
-
+            
             const prevBtn = document.getElementById('prev-page');
             const nextBtn = document.getElementById('next-page');
-
+            
             if (prevBtn) prevBtn.disabled = state.currentPage === 1;
             if (nextBtn) nextBtn.disabled = state.currentPage === totalPages;
         } else {
@@ -1060,19 +1100,19 @@ const ui = {
 
     renderAnimeCollections() {
         if (!elements.animeGrid) return;
-
+        
         elements.animeGrid.innerHTML = '';
         const albumTitles = ANIME_SUB_ALBUMS.filter(title => title !== 'ORIGINAL');
-
+        
         albumTitles.forEach((title, index) => {
             const album = state.animeAlbums[title];
             const card = document.createElement('div');
             card.className = "anime-collection-card aspect-square relative cursor-pointer group fade-in";
             card.style.animationDelay = `${index * 30}ms`;
-
+            
             const thumbnailSrc = window.animeAlbumThumbnails?.[title] || (album?.photos[0]?.url) || 'https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg';
             const count = album ? album.photos.length : 0;
-
+            
             card.innerHTML = `
                 <div class="w-full h-full relative overflow-hidden rounded-2xl">
                     <img src="${thumbnailSrc}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-all duration-500 group-hover:scale-110" loading="lazy" alt="${title}">
@@ -1082,58 +1122,61 @@ const ui = {
                     </div>
                 </div>
             `;
-
+            
             card.addEventListener('click', () => this.openAnimeAlbum(title));
             elements.animeGrid.appendChild(card);
         });
     },
 
     openAnimeAlbum(albumTitle) {
-        state.currentAnimeAlbum = albumTitle;
-        const album = state.animeAlbums[albumTitle];
-
-        if (album) {
-            state.filteredPhotos = state.allPhotos.filter(photo =>
-                photo.category && photo.category.toLowerCase() === 'anime' &&
-                photo.subCategory &&
-                photo.subCategory.toLowerCase() === album.folderName.toLowerCase()
-            );
-        } else {
-            state.filteredPhotos = [];
-        }
-
-        if (elements.animeCollections) {
-            elements.animeCollections.classList.add('hidden');
-        }
-        if (elements.galleryContainer) {
-            elements.galleryContainer.classList.remove('hidden');
-        }
-
-        const heroTitle = document.getElementById('hero-title');
-        const heroDesc = document.getElementById('hero-desc');
-
-        if (heroTitle) heroTitle.textContent = albumTitle;
-        if (heroDesc) heroDesc.textContent = `${state.filteredPhotos.length} high quality wallpapers`;
-
-        const actions = document.getElementById('hero-actions');
-        if (actions) {
-            actions.innerHTML = '';
-            const backBtn = document.createElement('button');
-            backBtn.className = "border-2 border-white/50 text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-white/20 transition-all duration-300 backdrop-blur-sm";
-            backBtn.innerHTML = '<i class="fas fa-arrow-left mr-2"></i> BACK TO ANIME';
-            backBtn.onclick = () => this.changeCategory('Anime');
-            actions.appendChild(backBtn);
-        }
-
-        state.currentPage = 1;
-        this.renderGallery();
-
-        elements.galleryContainer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    },
+    state.currentAnimeAlbum = albumTitle;
+    const album = state.animeAlbums[albumTitle];
+    
+    if (album) {
+        // ✅ Case-insensitive filter
+        state.filteredPhotos = state.allPhotos.filter(photo =>
+            photo.category && photo.category.toLowerCase() === 'anime' &&
+            photo.subCategory &&
+            photo.subCategory.toLowerCase() === album.folderName.toLowerCase()
+        );
+    } else {
+        state.filteredPhotos = [];
+    }
+    
+    if (elements.animeCollections) {
+        elements.animeCollections.classList.add('hidden');
+    }
+    if (elements.galleryContainer) {
+        elements.galleryContainer.classList.remove('hidden');
+    }
+    
+    const heroTitle = document.getElementById('hero-title');
+    const heroDesc = document.getElementById('hero-desc');
+    
+    if (heroTitle) heroTitle.textContent = albumTitle;
+    if (heroDesc) heroDesc.textContent = `${state.filteredPhotos.length} high quality wallpapers`;
+    
+    const actions = document.getElementById('hero-actions');
+    if (actions) {
+        actions.innerHTML = '';
+        const backBtn = document.createElement('button');
+        backBtn.className = "border-2 border-white/50 text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-white/20 transition-all duration-300 backdrop-blur-sm";
+        backBtn.innerHTML = '<i class="fas fa-arrow-left mr-2"></i> BACK TO ANIME';
+        backBtn.onclick = () => this.changeCategory('Anime');
+        actions.appendChild(backBtn);
+    }
+    
+    // ✅ Reset to page 1
+    state.currentPage = 1;
+    this.renderGallery();
+    
+    // Scroll to gallery
+    elements.galleryContainer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+},
 
     renderComitbaseGallery() {
         if (!elements.comitbaseGallery) return;
-
+        
         if (state.comitbasePhotos.length === 0) {
             elements.comitbaseGallery.innerHTML = `
             <div class="col-span-full text-center py-20">
@@ -1148,14 +1191,14 @@ const ui = {
             }
             return;
         }
-
+        
         const start = (state.currentComitbasePage - 1) * ITEMS_PER_PAGE;
         const end = start + ITEMS_PER_PAGE;
         const photosToShow = state.comitbasePhotos.slice(start, end);
-
+        
         elements.comitbaseGallery.innerHTML = '';
 
-        if (this._comitbaseObserver) {
+if (this._comitbaseObserver) {
             this._comitbaseObserver.disconnect();
         }
         const imageObserver = new IntersectionObserver((entries, observer) => {
@@ -1170,17 +1213,18 @@ const ui = {
                 }
             });
         }, { rootMargin: '50px' });
-        this._comitbaseObserver = imageObserver;
+        this._comitbaseObserver = imageObserver; // ✅ simpan reference
 
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = "masonry-item fade-in";
             item.style.animationDelay = `${index * 50}ms`;
             item.dataset.photoId = photo.id;
-
+            
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-
+            
+            // ✅ Stats pre-loaded dari /api/comitbase/list
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
 
@@ -1213,16 +1257,18 @@ const ui = {
 
             elements.comitbaseGallery.appendChild(item);
         });
-
+        
+        // ✅ Event delegation
         this.setupComitbaseEventListeners();
         this.updateComitbasePagination();
     },
-
+    
+    // ✅ NEW METHOD: Setup comitbase event listeners
     setupComitbaseEventListeners() {
         if (this.comitbaseClickHandler) {
             elements.comitbaseGallery.removeEventListener('click', this.comitbaseClickHandler);
         }
-
+        
         const handleClick = (e) => {
             const downloadBtn = e.target.closest('.download-btn');
             if (downloadBtn) {
@@ -1233,7 +1279,7 @@ const ui = {
                 if (photo) ui.handleDownload(photo);
                 return;
             }
-
+            
             const item = e.target.closest('.masonry-item');
             if (item && !e.target.closest('.download-btn')) {
                 const photoId = item.dataset.photoId;
@@ -1241,26 +1287,26 @@ const ui = {
                 if (photo) ui.openImageModal(photo);
             }
         };
-
+        
         this.comitbaseClickHandler = handleClick;
         elements.comitbaseGallery.addEventListener('click', handleClick);
     },
 
     updateComitbasePagination() {
         if (!elements.comitbasePagination) return;
-
+        
         const totalPages = Math.ceil(state.comitbasePhotos.length / ITEMS_PER_PAGE);
-
+        
         if (totalPages > 1) {
             elements.comitbasePagination.classList.remove('hidden');
             const pageInfo = document.getElementById('comitbase-page-info');
             if (pageInfo) {
                 pageInfo.textContent = `Page ${state.currentComitbasePage} of ${totalPages}`;
             }
-
+            
             const prevBtn = document.getElementById('comitbase-prev');
             const nextBtn = document.getElementById('comitbase-next');
-
+            
             if (prevBtn) prevBtn.disabled = state.currentComitbasePage === 1;
             if (nextBtn) nextBtn.disabled = state.currentComitbasePage === totalPages;
         } else {
@@ -1270,7 +1316,7 @@ const ui = {
 
     renderDtreasureGallery() {
         if (!elements.dtreasureGallery) return;
-
+        
         if (state.dtreasurePhotos.length === 0) {
             elements.dtreasureGallery.innerHTML = `
             <div class="col-span-full text-center py-20">
@@ -1283,13 +1329,14 @@ const ui = {
             this.updateDtreasurePagination();
             return;
         }
-
+        
         const start = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
         const end = start + ITEMS_PER_PAGE;
         const photosToShow = state.dtreasurePhotos.slice(start, end);
-
+        
         elements.dtreasureGallery.innerHTML = '';
 
+// ✅ Disconnect observer lama sebelum buat baru — cegah memory leak
         if (this._dtreasureObserver) {
             this._dtreasureObserver.disconnect();
         }
@@ -1305,24 +1352,27 @@ const ui = {
                 }
             });
         }, { rootMargin: '50px' });
-        this._dtreasureObserver = imageObserver;
+        this._dtreasureObserver = imageObserver; // ✅ simpan reference
 
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = "masonry-item fade-in";
             item.style.animationDelay = `${index * 50}ms`;
             item.dataset.photoId = photo.id;
-
+            
             const fullUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
-
+            
+            // ✅ Cek status purchase per item
             const isFree       = state.lifetime || state.purchasedImages.has(photo.id);
             const buttonText   = isFree ? 'Download' : '10 Credits';
             const buttonIcon   = isFree ? 'fa-download' : 'fa-lock';
 
+            // ✅ Stats pre-loaded dari /api/dtreasure/list
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
 
+            // Shield thumbnail: hanya tampil kalau belum dibeli
             const thumbShield = isFree ? '' : `
     <div
         class="dtreasure-thumb-shield absolute inset-0 z-[1]"
@@ -1365,16 +1415,18 @@ const ui = {
 
             elements.dtreasureGallery.appendChild(item);
         });
-
+        
+        // ✅ Event delegation
         this.setupDtreasureEventListeners();
         this.updateDtreasurePagination();
     },
-
+    
+    // ✅ NEW METHOD: Setup dtreasure event listeners
     setupDtreasureEventListeners() {
         if (this.dtreasureClickHandler) {
             elements.dtreasureGallery.removeEventListener('click', this.dtreasureClickHandler);
         }
-
+        
         const handleClick = (e) => {
             const downloadBtn = e.target.closest('.download-btn');
             if (downloadBtn) {
@@ -1385,7 +1437,7 @@ const ui = {
                 if (photo) ui.handleDownload(photo);
                 return;
             }
-
+            
             const item = e.target.closest('.masonry-item');
             if (item && !e.target.closest('.download-btn')) {
                 const photoId = item.dataset.photoId;
@@ -1393,7 +1445,7 @@ const ui = {
                 if (photo) ui.openImageModal(photo);
             }
         };
-
+        
         this.dtreasureClickHandler = handleClick;
         elements.dtreasureGallery.addEventListener('click', handleClick);
     },
@@ -1403,6 +1455,7 @@ const ui = {
 
         const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
 
+        // ✅ FIX S-4: Sembunyikan pagination jika tidak ada data atau hanya 1 halaman
         if (totalPages <= 1) {
             elements.dtreasurePagination.classList.add('hidden');
             return;
@@ -1426,35 +1479,43 @@ const ui = {
         if (!category) return;
 
         state.currentCategory  = category;
-        ads.handleCategoryChange(category);
+        // Tambahkan di ui.changeCategory(), setelah state.currentCategory = category;
+ads.handleCategoryChange(category);
         state.currentAnimeAlbum = null;
         state.resetPagination();
         state.searchQuery = '';
 
+        // Clear search inputs
         if (elements.searchInput) elements.searchInput.value = '';
         if (elements.searchInputMobile) elements.searchInputMobile.value = '';
         if (elements.searchClear) elements.searchClear.classList.add('hidden');
 
+        // Update active category button
         document.querySelectorAll('.cat-btn').forEach(btn => btn.classList.remove('active'));
         const activeId  = category === 'All' ? 'cat-all' : `cat-${category.toLowerCase()}`;
         const activeBtn = document.getElementById(activeId);
         if (activeBtn) activeBtn.classList.add('active');
 
+        // Hide all sections
         if (elements.animeCollections)  elements.animeCollections.classList.add('hidden');
         if (elements.comitbaseSection)  elements.comitbaseSection.classList.add('hidden');
         if (elements.dtreasureSection)  elements.dtreasureSection.classList.add('hidden');
         if (elements.galleryContainer)  elements.galleryContainer.classList.add('hidden');
         if (elements.paginationContainer) elements.paginationContainer.classList.add('hidden');
 
+        // ✅ Ranking carousel hanya tampil di Home (All)
         const rankingSection = document.getElementById('ranking-carousel-section');
         if (rankingSection) rankingSection.classList.toggle('hidden', category !== 'All');
 
+        // Show appropriate section
         if (category === 'All') {
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
+            // ✅ Home page hanya menampilkan gambar kategori Anime
             state.filteredPhotos = utils.shuffleArray(
                 state.allPhotos.filter(p => p.category && p.category.toLowerCase() === 'anime')
             );
             this.renderGallery();
+            // ✅ Render ranking carousel (async, non-blocking)
             this.renderTopRankingCarousel().catch(e =>
                 console.error('renderTopRankingCarousel error:', e)
             );
@@ -1481,6 +1542,7 @@ const ui = {
 
         this.updateHeroSection(category);
 
+        // Scroll to top of content
         const hero = document.getElementById('page-hero');
         if (hero) hero.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
@@ -1497,27 +1559,34 @@ const ui = {
             'ZMEME': { title: "ZMEME", desc: "Memes and fun images" },
             'OVERLAY': { title: "OVERLAY", desc: "Overlay graphics and templates" }
         };
-
+        
         const detail = pageDetails[category] || pageDetails['All'];
         const heroTitle = document.getElementById('hero-title');
         const heroDesc = document.getElementById('hero-desc');
-
+        
         if (heroTitle) heroTitle.textContent = detail.title;
         if (heroDesc) heroDesc.textContent = detail.desc;
-
+        
         const hero = document.getElementById('page-hero');
         if (hero && window.headerBackgrounds && window.headerBackgrounds[category]) {
             hero.style.backgroundImage = `url('${window.headerBackgrounds[category]}')`;
         }
-
+        
         const actions = document.getElementById('hero-actions');
         if (actions) actions.innerHTML = '';
     },
 
+
+    /**
+     * Render carousel Top-20 trending images.
+     * Fetch dari /api/trending (server-side sorted) dengan fallback ke client-side.
+     * Auto-refresh setiap kali changeCategory('All') dipanggil.
+     */
     async renderTopRankingCarousel() {
         const carousel = document.getElementById('ranking-carousel');
         if (!carousel) return;
 
+        // Skeleton loading saat fetch
         carousel.innerHTML = Array.from({ length: 6 }, () =>
             '<div class="flex-none rounded-2xl overflow-hidden bg-gray-800 ranking-card-skeleton" style="min-width:144px;width:144px;aspect-ratio:9/16;"></div>'
         ).join('');
@@ -1582,6 +1651,7 @@ const ui = {
                     '</div>' +
                 '</div>';
 
+            // ✅ Lazy load gambar via IntersectionObserver scoped ke carousel container
             const img = card.querySelector('img.ranking-lazy-img');
             if (img) {
                 if ('IntersectionObserver' in window) {
@@ -1610,54 +1680,63 @@ const ui = {
     },
 
     handleSearch(query) {
-        const searchTerm = (query || '').toLowerCase().trim();
-        state.searchQuery = searchTerm;
-
-        if (searchTerm.length > 0) {
-            if (elements.searchClear) elements.searchClear.classList.remove('hidden');
-
-            if (elements.animeCollections) elements.animeCollections.classList.add('hidden');
-            if (elements.comitbaseSection) elements.comitbaseSection.classList.add('hidden');
-            if (elements.dtreasureSection) elements.dtreasureSection.classList.add('hidden');
-            if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
-
-            state.filteredPhotos = state.allPhotos.filter(photo => {
-                const titleMatch = photo.title && photo.title.toLowerCase().includes(searchTerm);
-                const categoryMatch = photo.category && photo.category.toLowerCase().includes(searchTerm);
-                const subCategoryMatch = photo.subCategory && photo.subCategory.toLowerCase().includes(searchTerm);
-                const pathMatch = photo.path && photo.path.toLowerCase().includes(searchTerm);
-                return titleMatch || categoryMatch || subCategoryMatch || pathMatch;
-            });
-
-            const comitbaseMatches = state.comitbasePhotos.filter(photo => {
-                const titleMatch = photo.title && photo.title.toLowerCase().includes(searchTerm);
-                const uploaderMatch = photo.uploader && photo.uploader.toLowerCase().includes(searchTerm);
-                return titleMatch || uploaderMatch;
-            });
-
-            const dtreasureMatches = state.dtreasurePhotos.filter(photo => {
-                return photo.title && photo.title.toLowerCase().includes(searchTerm);
-            });
-
-            const taggedComitbase = comitbaseMatches.map(p => ({...p, searchCategory: 'COMITBASE'}));
-            const taggedDtreasure = dtreasureMatches.map(p => ({...p, searchCategory: 'DTREASURE'}));
-
-            state.filteredPhotos = [...state.filteredPhotos, ...taggedComitbase, ...taggedDtreasure];
-
-            state.currentPage = 1;
-            this.renderGallery();
-
-            const heroTitle = document.getElementById('hero-title');
-            const heroDesc = document.getElementById('hero-desc');
-
-            if (heroTitle) heroTitle.textContent = `Search: "${query}"`;
-            if (heroDesc) heroDesc.textContent = `${state.filteredPhotos.length} results found`;
-        } else {
-            if (elements.searchClear) elements.searchClear.classList.add('hidden');
-            state.currentAnimeAlbum = null;
-            this.changeCategory(state.currentCategory);
-        }
-    },
+    const searchTerm = (query || '').toLowerCase().trim();
+    state.searchQuery = searchTerm;
+    
+    if (searchTerm.length > 0) {
+        // Show clear button
+        if (elements.searchClear) elements.searchClear.classList.remove('hidden');
+        
+        // Hide all category sections
+        if (elements.animeCollections) elements.animeCollections.classList.add('hidden');
+        if (elements.comitbaseSection) elements.comitbaseSection.classList.add('hidden');
+        if (elements.dtreasureSection) elements.dtreasureSection.classList.add('hidden');
+        if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
+        
+        // Search across all photos
+        state.filteredPhotos = state.allPhotos.filter(photo => {
+            const titleMatch = photo.title && photo.title.toLowerCase().includes(searchTerm);
+            const categoryMatch = photo.category && photo.category.toLowerCase().includes(searchTerm);
+            const subCategoryMatch = photo.subCategory && photo.subCategory.toLowerCase().includes(searchTerm);
+            const pathMatch = photo.path && photo.path.toLowerCase().includes(searchTerm);
+            return titleMatch || categoryMatch || subCategoryMatch || pathMatch;
+        });
+        
+        // Also search in COMITBASE and DTREASURE
+        const comitbaseMatches = state.comitbasePhotos.filter(photo => {
+            const titleMatch = photo.title && photo.title.toLowerCase().includes(searchTerm);
+            const uploaderMatch = photo.uploader && photo.uploader.toLowerCase().includes(searchTerm);
+            return titleMatch || uploaderMatch;
+        });
+        
+        const dtreasureMatches = state.dtreasurePhotos.filter(photo => {
+            const titleMatch = photo.title && photo.title.toLowerCase().includes(searchTerm);
+            return titleMatch;
+        });
+        
+        // Combine results with category tags
+        const taggedComitbase = comitbaseMatches.map(p => ({...p, searchCategory: 'COMITBASE'}));
+        const taggedDtreasure = dtreasureMatches.map(p => ({...p, searchCategory: 'DTREASURE'}));
+        
+        state.filteredPhotos = [...state.filteredPhotos, ...taggedComitbase, ...taggedDtreasure];
+        
+        // ✅ CRITICAL: Reset to page 1
+        state.currentPage = 1;
+        this.renderGallery();
+        
+        const heroTitle = document.getElementById('hero-title');
+        const heroDesc = document.getElementById('hero-desc');
+        
+        if (heroTitle) heroTitle.textContent = `Search: "${query}"`;
+        if (heroDesc) heroDesc.textContent = `${state.filteredPhotos.length} results found`;
+    } else {
+        // Clear search
+        if (elements.searchClear) elements.searchClear.classList.add('hidden');
+        // ✅ Reset anime album juga
+        state.currentAnimeAlbum = null;
+        this.changeCategory(state.currentCategory);
+    }
+},
 
     updateCreditDisplay() {
         if (elements.creditBalance) {
@@ -1666,101 +1745,109 @@ const ui = {
     },
 
     async loadQuicklinks() {
-        const list = document.getElementById('quicklinks-list');
-        if (!list) return;
+    const list = document.getElementById('quicklinks-list');
+    if (!list) return;
 
-        try {
-            const res = await fetch('/quicklink.json');
+    try {
+        const res = await fetch('/quicklink.json');
 
-            if (!res.ok) {
-                throw new Error(`Failed to load quicklinks: HTTP ${res.status}`);
-            }
-
-            const data = await res.json();
-
-            list.innerHTML = '';
-
-            Object.keys(data).forEach(key => {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'w-full text-left bg-gray-50 hover:bg-gray-100 p-4 rounded-xl transition-all duration-300 flex items-center justify-between group dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white';
-                btn.innerHTML = `
-                    <span class="font-semibold">${utils.escapeHtml(data[key].title)}</span>
-                    <i class="fas fa-chevron-right text-gray-400 group-hover:text-gray-600 group-hover:translate-x-1 transition-all duration-300 dark:group-hover:text-gray-300"></i>
-                `;
-                btn.addEventListener('click', () => {
-                    const titleEl   = document.getElementById('quicklink-title');
-                    const contentEl = document.getElementById('quicklink-content');
-                    const modalEl   = document.getElementById('quicklink-content-modal');
-                    const menuModalEl = document.getElementById('menu-modal');
-
-                    if (titleEl) titleEl.textContent = data[key].title;
-                    if (contentEl) {
-                        const sanitized = (data[key].content || '')
-                            .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-                            .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
-                            .replace(/javascript\s*:/gi, '');
-                        contentEl.innerHTML = sanitized;
-                    }
-                    if (modalEl) {
-                        modalEl.classList.remove('hidden');
-                        modalEl.classList.add('flex');
-                    }
-                    if (menuModalEl) {
-                        menuModalEl.classList.add('hidden');
-                        menuModalEl.classList.remove('flex');
-                    }
-                });
-                list.appendChild(btn);
-            });
-
-        } catch (e) {
-            console.error('Failed to load quicklinks:', e);
-            list.innerHTML = '<p class="text-center text-gray-500 py-4 dark:text-gray-400">Failed to load links</p>';
+        // FIX: Cek res.ok sebelum parse — tanpa ini, 404 akan coba parse HTML sebagai JSON
+        if (!res.ok) {
+            throw new Error(`Failed to load quicklinks: HTTP ${res.status}`);
         }
-    },
+
+        const data = await res.json();
+
+        list.innerHTML = '';
+
+        Object.keys(data).forEach(key => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'w-full text-left bg-gray-50 hover:bg-gray-100 p-4 rounded-xl transition-all duration-300 flex items-center justify-between group dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white';
+            btn.innerHTML = `
+                <span class="font-semibold">${utils.escapeHtml(data[key].title)}</span>
+                <i class="fas fa-chevron-right text-gray-400 group-hover:text-gray-600 group-hover:translate-x-1 transition-all duration-300 dark:group-hover:text-gray-300"></i>
+            `;
+            btn.addEventListener('click', () => {
+                const titleEl   = document.getElementById('quicklink-title');
+                const contentEl = document.getElementById('quicklink-content');
+                const modalEl   = document.getElementById('quicklink-content-modal');
+                const menuModalEl = document.getElementById('menu-modal');
+
+                if (titleEl) titleEl.textContent = data[key].title;
+                if (contentEl) {
+                    // Sanitasi dasar: hapus script tags, inline handlers, javascript: URI
+                    const sanitized = (data[key].content || '')
+                        .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+                        .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
+                        .replace(/javascript\s*:/gi, '');
+                    contentEl.innerHTML = sanitized;
+                }
+                if (modalEl) {
+                    modalEl.classList.remove('hidden');
+                    modalEl.classList.add('flex');
+                }
+                // FIX: Tutup menu modal ketika membuka content modal
+                if (menuModalEl) {
+                    menuModalEl.classList.add('hidden');
+                    menuModalEl.classList.remove('flex');
+                }
+            });
+            list.appendChild(btn);
+        });
+
+    } catch (e) {
+        console.error('Failed to load quicklinks:', e);
+        list.innerHTML = '<p class="text-center text-gray-500 py-4 dark:text-gray-400">Failed to load links</p>';
+    }
+},
 
     initLogo() {
-        if (!window.customLogo?.enabled || !window.customLogo?.url) return;
+    if (!window.customLogo?.enabled || !window.customLogo?.url) return;
 
-        const logoText      = document.getElementById('logo-text');
-        const logoImage     = document.getElementById('logo-image');
-        const footerLogoText  = document.getElementById('footer-logo-text');
-        const footerLogoImage = document.getElementById('footer-logo-image');
+    const logoText      = document.getElementById('logo-text');
+    const logoImage     = document.getElementById('logo-image');
+    const footerLogoText  = document.getElementById('footer-logo-text');
+    const footerLogoImage = document.getElementById('footer-logo-image');
 
-        const setupLogoImage = (imgEl, textEl, url, alt) => {
-            if (!imgEl) return;
+    // Helper: Setup logo image dengan onerror fallback ke teks
+    const setupLogoImage = (imgEl, textEl, url, alt) => {
+        if (!imgEl) return;
 
-            imgEl.onerror = function() {
-                this.onerror = null;
-                this.classList.add('hidden');
-                if (textEl) textEl.classList.remove('hidden');
-                console.warn('Logo image failed to load, using text fallback');
-            };
-            imgEl.onload = function() {
-                this.onload = null;
-                if (textEl) textEl.classList.add('hidden');
-            };
-
-            imgEl.src = url;
-            imgEl.alt = alt || 'Logo';
-            imgEl.classList.remove('hidden');
+        // FIX S2-#4: Siapkan onerror SEBELUM set src — jika src di-set dulu
+        // dan gagal secara synchronous, onerror mungkin tidak terpanggil.
+        imgEl.onerror = function() {
+            this.onerror = null;
+            this.classList.add('hidden');
+            // Fallback ke teks 'ZX' jika gambar gagal
+            if (textEl) textEl.classList.remove('hidden');
+            console.warn('Logo image failed to load, using text fallback');
+        };
+        imgEl.onload = function() {
+            this.onload = null;
+            if (textEl) textEl.classList.add('hidden');
         };
 
-        setupLogoImage(logoImage,      logoText,      window.customLogo.url, window.customLogo.alt);
-        setupLogoImage(footerLogoImage, footerLogoText, window.customLogo.url, window.customLogo.alt);
-    },
+        imgEl.src = url;
+        imgEl.alt = alt || 'Logo';
+        // Tampilkan dulu — onerror akan sembunyikan jika gagal
+        imgEl.classList.remove('hidden');
+    };
+
+    setupLogoImage(logoImage,      logoText,      window.customLogo.url, window.customLogo.alt);
+    setupLogoImage(footerLogoImage, footerLogoText, window.customLogo.url, window.customLogo.alt);
+},
 
     renderCreditPacks() {
         const packsDiv = document.getElementById('credit-packs');
         if (!packsDiv) return;
-
+        
         packsDiv.innerHTML = '';
-
+        
         Object.entries(CREDIT_PACKS).forEach(([key, pack]) => {
-            const isLifetime = pack.credits === 'lifetime';
-            const btn = document.createElement('button');
-            btn.type = 'button';
+    const isLifetime = pack.credits === 'lifetime';
+    const btn = document.createElement('button');
+    btn.type = 'button'; 
             btn.className = `credit-pack-card w-full bg-gradient-to-r ${pack.color} p-0.5 rounded-2xl transition-all duration-300`;
             btn.innerHTML = `
                 <div class="bg-white dark:bg-gray-800 rounded-[14px] p-4 flex items-center justify-between">
@@ -1782,15 +1869,16 @@ const ui = {
                     </div>
                 </div>
             `;
-
+            
             btn.addEventListener('click', () => {
+                // Remove selected class from all packs
                 document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
                 btn.classList.add('selected');
-
+                
                 state.selectedCreditPack = { key, ...pack };
                 initPayPalPurchase(key, pack.price);
             });
-
+            
             packsDiv.appendChild(btn);
         });
     }
@@ -1798,6 +1886,7 @@ const ui = {
 
 // --- Event Handlers ---
 function initEvents() {
+    // Home link
     const homeLink = document.getElementById('home-link');
     if (homeLink) {
         homeLink.addEventListener('click', (e) => {
@@ -1806,6 +1895,7 @@ function initEvents() {
         });
     }
 
+    // Category buttons
     const categoryMap = {
         'cat-all': 'All',
         'cat-anime': 'Anime',
@@ -1825,8 +1915,12 @@ function initEvents() {
         }
     });
 
+// ✅ FIX S-1: Separate debounce instances — shared instance caused timer conflict
+    // Each input has its own debounce timer. Typing in one won't reset the other.
+    // Bonus: inputs are kept in sync so UX is seamless across breakpoints.
     const debouncedSearchDesktop = utils.debounce((e) => {
         const query = e.target.value.trim();
+        // Sync ke mobile input agar nilainya sama
         if (elements.searchInputMobile) elements.searchInputMobile.value = e.target.value;
         if (query.length > 0 || state.searchQuery !== '') {
             ui.handleSearch(query);
@@ -1835,6 +1929,7 @@ function initEvents() {
 
     const debouncedSearchMobile = utils.debounce((e) => {
         const query = e.target.value.trim();
+        // Sync ke desktop input agar nilainya sama
         if (elements.searchInput) elements.searchInput.value = e.target.value;
         if (query.length > 0 || state.searchQuery !== '') {
             ui.handleSearch(query);
@@ -1849,6 +1944,7 @@ function initEvents() {
         elements.searchInputMobile.addEventListener('input', debouncedSearchMobile);
     }
 
+    // Search clear button
     if (elements.searchClear) {
         elements.searchClear.addEventListener('click', () => {
             if (elements.searchInput) elements.searchInput.value = '';
@@ -1858,17 +1954,18 @@ function initEvents() {
         });
     }
 
+    // Donation modal
     const donationBtn = document.getElementById('donation-btn');
     const donationModal = document.getElementById('donation-modal');
     const closeDonation = document.getElementById('close-donation');
-
+    
     if (donationBtn && donationModal) {
         donationBtn.addEventListener('click', () => {
             donationModal.classList.remove('hidden');
             donationModal.classList.add('flex');
         });
     }
-
+    
     if (closeDonation && donationModal) {
         closeDonation.addEventListener('click', () => {
             donationModal.classList.add('hidden');
@@ -1876,6 +1973,7 @@ function initEvents() {
         });
     }
 
+    // Crypto buttons
     document.querySelectorAll('.crypto-btn, .crypto-btn-usdt').forEach(btn => {
         btn.addEventListener('click', function() {
             const address = this.dataset.address;
@@ -1884,10 +1982,11 @@ function initEvents() {
             const cryptoType = document.getElementById('crypto-type');
             const cryptoAddress = document.getElementById('crypto-address');
             const cryptoIcon = document.getElementById('crypto-icon');
-
+            
             if (cryptoType) cryptoType.textContent = name;
             if (cryptoAddress) cryptoAddress.textContent = address;
             if (cryptoIcon) {
+                // Set appropriate icon based on crypto type
                 if (name?.includes('Bitcoin')) cryptoIcon.className = 'fab fa-bitcoin text-3xl text-orange-500';
                 else if (name?.includes('Ethereum')) cryptoIcon.className = 'fab fa-ethereum text-3xl text-blue-500';
                 else if (name?.includes('Solana')) cryptoIcon.className = 'fas fa-sun text-3xl text-purple-500';
@@ -1896,7 +1995,7 @@ function initEvents() {
                 else if (name?.includes('XRP')) cryptoIcon.className = 'fas fa-chart-line text-3xl text-cyan-500';
                 else cryptoIcon.className = 'fas fa-coins text-3xl text-gray-600 dark:text-gray-400';
             }
-
+            
             if (cryptoModal) {
                 cryptoModal.classList.remove('hidden');
                 cryptoModal.classList.add('flex');
@@ -1904,6 +2003,7 @@ function initEvents() {
         });
     });
 
+    // Copy crypto address
     const copyCryptoBtn = document.getElementById('copy-crypto-address');
     if (copyCryptoBtn) {
         copyCryptoBtn.addEventListener('click', function() {
@@ -1924,6 +2024,7 @@ function initEvents() {
         });
     }
 
+    // Close crypto modal
     const closeCryptoModal = document.getElementById('close-crypto-modal');
     const cryptoModal = document.getElementById('crypto-modal');
     if (closeCryptoModal && cryptoModal) {
@@ -1933,17 +2034,18 @@ function initEvents() {
         });
     }
 
+    // ZVERSE modal
     const zverseBtn = document.getElementById('zverse-btn');
     const zverseModal = document.getElementById('zverse-modal');
     const closeZverse = document.getElementById('close-zverse');
-
+    
     if (zverseBtn && zverseModal) {
         zverseBtn.addEventListener('click', () => {
             zverseModal.classList.remove('hidden');
             zverseModal.classList.add('flex');
         });
     }
-
+    
     if (closeZverse && zverseModal) {
         closeZverse.addEventListener('click', () => {
             zverseModal.classList.add('hidden');
@@ -1951,10 +2053,11 @@ function initEvents() {
         });
     }
 
+    // MENU modal
     const menuBtn = document.getElementById('menu-btn');
     const menuModal = document.getElementById('menu-modal');
     const closeMenu = document.getElementById('close-menu');
-
+    
     if (menuBtn && menuModal) {
         menuBtn.addEventListener('click', () => {
             ui.loadQuicklinks();
@@ -1962,7 +2065,7 @@ function initEvents() {
             menuModal.classList.add('flex');
         });
     }
-
+    
     if (closeMenu && menuModal) {
         closeMenu.addEventListener('click', () => {
             menuModal.classList.add('hidden');
@@ -1970,9 +2073,10 @@ function initEvents() {
         });
     }
 
+    // Quicklink content modal
     const closeQuicklinkContent = document.getElementById('close-quicklink-content');
     const quicklinkContentModal = document.getElementById('quicklink-content-modal');
-
+    
     if (closeQuicklinkContent && quicklinkContentModal) {
         closeQuicklinkContent.addEventListener('click', () => {
             quicklinkContentModal.classList.add('hidden');
@@ -1980,28 +2084,30 @@ function initEvents() {
         });
     }
 
+    // Image modal close
     const closeImageModal = document.getElementById('close-image-modal');
     if (closeImageModal && elements.imageModal) {
         closeImageModal.addEventListener('click', () => {
             elements.imageModal.classList.add('hidden');
             elements.imageModal.classList.remove('flex');
-            document.body.style.overflow = '';
+            document.body.style.overflow = ''; // ✅ FIX #9: Reset ke default, bukan paksa 'auto'
         });
     }
-
+    
     if (elements.imageModal) {
         elements.imageModal.addEventListener('click', (e) => {
             if (e.target === elements.imageModal) {
                 elements.imageModal.classList.add('hidden');
                 elements.imageModal.classList.remove('flex');
-                document.body.style.overflow = '';
+                document.body.style.overflow = ''; // ✅ FIX #9
             }
         });
     }
 
+    // Pagination
     const prevPage = document.getElementById('prev-page');
     const nextPage = document.getElementById('next-page');
-
+    
     if (prevPage) {
         prevPage.addEventListener('click', () => {
             if (state.currentPage > 1) {
@@ -2011,7 +2117,7 @@ function initEvents() {
             }
         });
     }
-
+    
     if (nextPage) {
         nextPage.addEventListener('click', () => {
             const totalPages = Math.ceil(state.filteredPhotos.length / ITEMS_PER_PAGE);
@@ -2023,9 +2129,10 @@ function initEvents() {
         });
     }
 
+    // COMITBASE pagination
     const comitbasePrev = document.getElementById('comitbase-prev');
     const comitbaseNext = document.getElementById('comitbase-next');
-
+    
     if (comitbasePrev) {
         comitbasePrev.addEventListener('click', () => {
             if (state.currentComitbasePage > 1) {
@@ -2035,7 +2142,7 @@ function initEvents() {
             }
         });
     }
-
+    
     if (comitbaseNext) {
         comitbaseNext.addEventListener('click', () => {
             const totalPages = Math.ceil(state.comitbasePhotos.length / ITEMS_PER_PAGE);
@@ -2047,9 +2154,10 @@ function initEvents() {
         });
     }
 
+    // DTREASURE pagination
     const dtreasurePrev = document.getElementById('dtreasure-prev');
     const dtreasureNext = document.getElementById('dtreasure-next');
-
+    
     if (dtreasurePrev) {
         dtreasurePrev.addEventListener('click', () => {
             if (state.currentDtreasurePage > 1) {
@@ -2059,7 +2167,7 @@ function initEvents() {
             }
         });
     }
-
+    
     if (dtreasureNext) {
         dtreasureNext.addEventListener('click', () => {
             const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
@@ -2071,6 +2179,7 @@ function initEvents() {
         });
     }
 
+    // COMIT HERE button
     const comitHereBtn = document.getElementById('comit-here-btn');
     if (comitHereBtn) {
         comitHereBtn.addEventListener('click', () => {
@@ -2087,57 +2196,52 @@ Submitted via ZXAION VERSE COMITBASE`;
         });
     }
 
-    // ================================================================
-    // PATCH: Buy Credits btn — load PayPal SDK on-demand (lazy)
-    //        Tidak load di page load, hanya saat modal dibuka
-    // ================================================================
+    // Buy Credits modal
     const buyCreditsBtn = document.getElementById('buy-credits-btn');
     const buyCreditsModal = document.getElementById('buy-credits-modal');
     const closeBuyCredits = document.getElementById('close-buy-credits');
-
+    
     if (buyCreditsBtn && buyCreditsModal) {
-        buyCreditsBtn.addEventListener('click', async () => {
+        buyCreditsBtn.addEventListener('click', () => {
             ui.renderCreditPacks();
             buyCreditsModal.classList.remove('hidden');
             buyCreditsModal.classList.add('flex');
-
-            // Load PayPal SDK saat modal dibuka, bukan saat page load
-            // Hemat ~200ms dari initial load untuk user yang tidak beli apapun
-            try {
-                await loadPayPalSDK();
-            } catch (e) {
-                console.error('PayPal SDK load failed:', e);
-            }
         });
     }
-
+    
     if (closeBuyCredits && buyCreditsModal) {
-        closeBuyCredits.addEventListener('click', () => {
-            if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
-                try {
-                    paypalButtonsInstance.close();
-                } catch (e) {
-                    console.warn('PayPal instance close error on modal dismiss:', e);
-                }
-                paypalButtonsInstance = null;
+    closeBuyCredits.addEventListener('click', () => {
+        // FIX: Destroy PayPal instance sebelum close modal
+        // Tanpa ini: paypalButtonsInstance tetap hidup, DOM-nya sudah di-clear,
+        // menyebabkan error saat initPayPalPurchase dipanggil lagi.
+        if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
+            try {
+                paypalButtonsInstance.close();
+            } catch (e) {
+                console.warn('PayPal instance close error on modal dismiss:', e);
             }
+            paypalButtonsInstance = null;
+        }
 
-            buyCreditsModal.classList.add('hidden');
-            buyCreditsModal.classList.remove('flex');
-            document.body.style.overflow = '';
+        buyCreditsModal.classList.add('hidden');
+        buyCreditsModal.classList.remove('flex');
+        document.body.style.overflow = '';
 
-            if (elements.paypalButtonContainer) {
-                elements.paypalButtonContainer.classList.add('hidden');
-            }
-            if (elements.paypalButtons) {
-                elements.paypalButtons.innerHTML = '';
-            }
+        // Reset PayPal container UI
+        if (elements.paypalButtonContainer) {
+            elements.paypalButtonContainer.classList.add('hidden');
+        }
+        if (elements.paypalButtons) {
+            elements.paypalButtons.innerHTML = '';
+        }
 
-            document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
-            state.selectedCreditPack = null;
-        });
-    }
+        // Reset selected pack state
+        document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
+        state.selectedCreditPack = null;
+    });
+}
 
+    // Dark mode toggle
     const darkModeToggle = document.getElementById('darkmode-toggle');
     if (darkModeToggle) {
         darkModeToggle.addEventListener('click', () => {
@@ -2147,87 +2251,67 @@ Submitted via ZXAION VERSE COMITBASE`;
         });
     }
 
+    // Initialize dark mode from localStorage
     const savedDarkMode = localStorage.getItem('darkMode');
     if (savedDarkMode === 'true') {
         document.documentElement.classList.add('dark');
     }
 
+    // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            const modals = [
-                elements.imageModal,
-                document.getElementById('donation-modal'),
-                document.getElementById('zverse-modal'),
-                document.getElementById('menu-modal'),
-                document.getElementById('quicklink-content-modal'),
-                document.getElementById('buy-credits-modal'),
-                document.getElementById('crypto-modal')
-            ];
+    if (e.key === 'Escape') {
+        const modals = [
+            elements.imageModal,
+            document.getElementById('donation-modal'),
+            document.getElementById('zverse-modal'),
+            document.getElementById('menu-modal'),
+            document.getElementById('quicklink-content-modal'),
+            document.getElementById('buy-credits-modal'),
+            document.getElementById('crypto-modal')
+        ];
 
-            let anyModalWasOpen = false;
-            modals.forEach(modal => {
-                if (modal && !modal.classList.contains('hidden')) {
-                    modal.classList.add('hidden');
-                    modal.classList.remove('flex');
-                    anyModalWasOpen = true;
+        let anyModalWasOpen = false;
+        modals.forEach(modal => {
+            if (modal && !modal.classList.contains('hidden')) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                anyModalWasOpen = true;
 
-                    if (modal.id === 'buy-credits-modal') {
-                        if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
-                            try { paypalButtonsInstance.close(); } catch (_) {}
-                            paypalButtonsInstance = null;
-                        }
-                        if (elements.paypalButtonContainer) {
-                            elements.paypalButtonContainer.classList.add('hidden');
-                        }
-                        if (elements.paypalButtons) {
-                            elements.paypalButtons.innerHTML = '';
-                        }
-                        document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
-                        state.selectedCreditPack = null;
+                // FIX S2-#2: Cleanup PayPal instance saat buy-credits-modal ditutup via ESC
+                // Tanpa ini: ESC menutup modal tapi paypalButtonsInstance tetap hidup,
+                // menyebabkan error saat user membuka modal lagi dan pilih pack berbeda.
+                if (modal.id === 'buy-credits-modal') {
+                    if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
+                        try { paypalButtonsInstance.close(); } catch (_) {}
+                        paypalButtonsInstance = null;
                     }
+                    if (elements.paypalButtonContainer) {
+                        elements.paypalButtonContainer.classList.add('hidden');
+                    }
+                    if (elements.paypalButtons) {
+                        elements.paypalButtons.innerHTML = '';
+                    }
+                    document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
+                    state.selectedCreditPack = null;
                 }
-            });
-
-            if (anyModalWasOpen) {
-                document.body.style.overflow = '';
             }
-        }
-    });
+        });
 
+        if (anyModalWasOpen) {
+            document.body.style.overflow = '';
+        }
+    }
+});
+
+    // Close modals on backdrop click
     document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
         backdrop.addEventListener('click', (e) => {
             if (e.target === backdrop) {
                 backdrop.classList.add('hidden');
                 backdrop.classList.remove('flex');
-                document.body.style.overflow = '';
+                document.body.style.overflow = ''; // ✅ FIX #9
             }
         });
-    });
-}
-
-// ================================================================
-// PATCH NEW: loadPayPalSDK — lazy load PayPal SDK on demand
-// Dipanggil saat user klik "Buy Credits", bukan di page load.
-// Idempotent: jika sudah loaded, resolve immediately.
-// ================================================================
-function loadPayPalSDK() {
-    if (window.paypal) return Promise.resolve();
-
-    return new Promise((resolve, reject) => {
-        // Cek apakah script sudah ada di DOM (loading in progress)
-        const existingScript = document.querySelector('script[src*="paypal.com/sdk"]');
-        if (existingScript) {
-            // Script sudah ada tapi belum selesai load — tunggu event-nya
-            existingScript.addEventListener('load', resolve);
-            existingScript.addEventListener('error', () => reject(new Error('PayPal SDK load failed')));
-            return;
-        }
-
-        const script = document.createElement('script');
-        script.src = 'https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture';
-        script.onload  = resolve;
-        script.onerror = () => reject(new Error('PayPal SDK failed to load'));
-        document.head.appendChild(script);
     });
 }
 
@@ -2235,31 +2319,12 @@ function loadPayPalSDK() {
 let paypalButtonsInstance = null;
 
 function initPayPalPurchase(packKey, price) {
-    // ================================================================
-    // PATCH: Guard window.paypal — SDK mungkin masih loading
-    //        jika user sangat cepat klik pack sebelum SDK selesai load
-    // ================================================================
     if (!window.paypal) {
-        // Tampilkan loading state di container
-        if (elements.paypalButtonContainer) {
-            elements.paypalButtonContainer.classList.remove('hidden');
-        }
-        if (elements.paypalButtons) {
-            elements.paypalButtons.innerHTML = '<div class="text-center py-4 text-gray-500 text-sm"><i class="fas fa-spinner fa-spin mr-2"></i>Loading PayPal...</div>';
-        }
-
-        // Retry setelah SDK selesai load
-        loadPayPalSDK().then(() => {
-            if (elements.paypalButtons) elements.paypalButtons.innerHTML = '';
-            initPayPalPurchase(packKey, price);
-        }).catch(e => {
-            if (elements.paypalButtons) {
-                elements.paypalButtons.innerHTML = '<div class="text-center py-4 text-red-500 text-sm">PayPal unavailable. Please refresh.</div>';
-            }
-        });
+        alert('❌ PayPal SDK not loaded. Please try again later.');
         return;
     }
 
+    // ✅ Destroy previous instance properly
     if (paypalButtonsInstance) {
         try {
             paypalButtonsInstance.close();
@@ -2269,10 +2334,12 @@ function initPayPalPurchase(packKey, price) {
         paypalButtonsInstance = null;
     }
 
+    // Show PayPal container
     if (elements.paypalButtonContainer) {
         elements.paypalButtonContainer.classList.remove('hidden');
     }
 
+    // Clear previous buttons
     if (elements.paypalButtons) {
         elements.paypalButtons.innerHTML = '';
     }
@@ -2286,122 +2353,132 @@ function initPayPalPurchase(packKey, price) {
                 label: 'paypal'
             },
             createOrder: (data, actions) => {
-                const token = getOrCreateUserToken();
-                return actions.order.create({
-                    purchase_units: [{
-                        description: `ZXAION Credits: ${packKey}`,
-                        custom_id: token,
-                        amount: {
-                            currency_code: 'USD',
-                            value: price.toString()
-                        }
-                    }]
-                });
-            },
+    const token = getOrCreateUserToken();
+    return actions.order.create({
+        purchase_units: [{
+            description: `ZXAION Credits: ${packKey}`,
+            custom_id: token, // ✅ Dikirim ke webhook untuk identifikasi user
+            amount: {
+                currency_code: 'USD',
+                value: price.toString()
+            }
+        }]
+    });
+},
+            // ✅ PERBAIKAN - Replace bagian `onApprove` dalam PayPal Buttons
 
             onApprove: async (data, actions) => {
-                let capturedOrderId = null;
+    let capturedOrderId = null;
+    
+    try {
+        console.log('📦 Payment approved, capturing order...');
+        
+        // Step 1: Capture payment
+        const order = await actions.order.capture();
+        capturedOrderId = order.id;
+        console.log('✅ Payment captured:', capturedOrderId);
+        
+        // Step 2: Verify + credit di server (dengan retry logic)
+        let result = null;
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        while (retryCount < maxRetries) {
+          try {
+            result = await api.purchaseCredits(packKey, capturedOrderId);
+            if (result.success) break; // ✅ Sukses, hentikan retry
 
-                try {
-                    console.log('📦 Payment approved, capturing order...');
-
-                    const order = await actions.order.capture();
-                    capturedOrderId = order.id;
-                    console.log('✅ Payment captured:', capturedOrderId);
-
-                    let result = null;
-                    let retryCount = 0;
-                    const maxRetries = 3;
-
-                    while (retryCount < maxRetries) {
-                        try {
-                            result = await api.purchaseCredits(packKey, capturedOrderId);
-                            if (result.success) break;
-
-                            retryCount++;
-                            if (retryCount < maxRetries) {
-                                console.log(`⏳ Retry ${retryCount}/${maxRetries}... Error: ${result.error}`);
-                                await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
-                            }
-                        } catch (e) {
-                            retryCount++;
-                            console.error(`Attempt ${retryCount} network error:`, e);
-                            if (retryCount < maxRetries) {
-                                await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
-                            }
-                        }
-                    }
-
-                    if (result && result.success) {
-                        state.credits = result.newBalance;
-                        state.lifetime = result.lifetime || false;
-                        ui.updateCreditDisplay();
-
-                        await api.fetchCreditBalance();
-                        api.invalidateCache();
-
-                        const successMsg = state.lifetime ?
-                            '✅ Lifetime Access Activated!\n\nEnjoy unlimited downloads on DTREASURE collection.' :
-                            `✅ Purchase Successful!\n\nYou now have ${result.newBalance} credits.`;
-
-                        alert(successMsg);
-
-                        const buyCreditsModal = document.getElementById('buy-credits-modal');
-                        if (buyCreditsModal) {
-                            buyCreditsModal.classList.add('hidden');
-                            buyCreditsModal.classList.remove('flex');
-                        }
-                        document.body.style.overflow = '';
-
-                        if (elements.paypalButtonContainer) {
-                            elements.paypalButtonContainer.classList.add('hidden');
-                        }
-                        if (elements.paypalButtons) {
-                            elements.paypalButtons.innerHTML = '';
-                        }
-                        paypalButtonsInstance = null;
-
-                        if (state.currentCategory === 'DTREASURE') {
-                            ui.renderDtreasureGallery();
-                        }
-
-                    } else {
-                        const errorMsg = result?.error || 'Credits could not be applied automatically';
-                        const orderId = result?.orderId || capturedOrderId;
-
-                        console.error('❌ Verification failed:', errorMsg);
-
-                        alert(
-                            `⚠️ Payment Received But Auto-Credit Failed\n\n` +
-                            `Payment was successfully processed. However, credits could not be applied automatically.\n\n` +
-                            `Order ID: ${orderId}\n\n` +
-                            `What to do:\n` +
-                            `1. Screenshot this message\n` +
-                            `2. Email: zxaionxl@gmail.com\n` +
-                            `3. Include Order ID above\n` +
-                            `4. We'll add credits within 24 hours\n\n` +
-                            `Sorry for the inconvenience!`
-                        );
-                    }
-
-                } catch (error) {
-                    console.error('❌ PayPal onApprove error:', error);
-
-                    const orderIdMsg = capturedOrderId ? `\n\nOrder ID: ${capturedOrderId}` : '';
-
-                    alert(
-                        `❌ Payment Processing Error${orderIdMsg}\n\n` +
-                        `${error.message || 'An unexpected error occurred.'}\n\n` +
-                        `If you were charged, please contact support with the Order ID above.`
-                    );
-                }
-            },
-
+            // Gagal tapi bukan exception — tunggu lalu retry
+            retryCount++;
+            if (retryCount < maxRetries) {
+              console.log(`⏳ Retry ${retryCount}/${maxRetries}... Error: ${result.error}`);
+              await new Promise(resolve => setTimeout(resolve, 2000 * retryCount)); // backoff
+            }
+          } catch (e) {
+            retryCount++;
+            console.error(`Attempt ${retryCount} network error:`, e);
+            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+            }
+          }
+        }
+        
+        if (result && result.success) {
+          // ✅ Update state lokal
+          state.credits = result.newBalance;
+          state.lifetime = result.lifetime || false;
+          ui.updateCreditDisplay();
+          
+          // ✅ Re-fetch dari server untuk memastikan sinkronisasi
+          await api.fetchCreditBalance();
+          // TAMBAH baris ini tepat setelah: await api.fetchCreditBalance();
+api.invalidateCache(); // ✅ Force re-fetch list di next page load
+          
+          // ✅ Tampilkan notifikasi sukses
+          const successMsg = state.lifetime ?
+            '✅ Lifetime Access Activated!\n\nEnjoy unlimited downloads on DTREASURE collection.' :
+            `✅ Purchase Successful!\n\nYou now have ${result.newBalance} credits.`;
+          
+          alert(successMsg);
+          
+          // Close modal
+          const buyCreditsModal = document.getElementById('buy-credits-modal');
+          if (buyCreditsModal) {
+            buyCreditsModal.classList.add('hidden');
+            buyCreditsModal.classList.remove('flex');
+          }
+          document.body.style.overflow = '';
+          
+          // Reset PayPal UI
+          if (elements.paypalButtonContainer) {
+            elements.paypalButtonContainer.classList.add('hidden');
+          }
+          if (elements.paypalButtons) {
+            elements.paypalButtons.innerHTML = '';
+          }
+          paypalButtonsInstance = null;
+          
+          // Refresh DTREASURE gallery
+          if (state.currentCategory === 'DTREASURE') {
+            ui.renderDtreasureGallery();
+          }
+          
+        } else {
+          // ✅ Server verification failed tapi payment sudah di-capture
+          const errorMsg = result?.error || 'Credits could not be applied automatically';
+          const orderId = result?.orderId || capturedOrderId;
+          
+          console.error('❌ Verification failed:', errorMsg);
+          
+          alert(
+            `⚠️ Payment Received But Auto-Credit Failed\n\n` +
+            `Payment was successfully processed. However, credits could not be applied automatically.\n\n` +
+            `Order ID: ${orderId}\n\n` +
+            `What to do:\n` +
+            `1. Screenshot this message\n` +
+            `2. Email: zxaionxl@gmail.com\n` +
+            `3. Include Order ID above\n` +
+            `4. We'll add credits within 24 hours\n\n` +
+            `Sorry for the inconvenience!`
+          );
+        }
+        
+    } catch (error) {
+        console.error('❌ PayPal onApprove error:', error);
+        
+        const orderIdMsg = capturedOrderId ? `\n\nOrder ID: ${capturedOrderId}` : '';
+        
+        alert(
+          `❌ Payment Processing Error${orderIdMsg}\n\n` +
+          `${error.message || 'An unexpected error occurred.'}\n\n` +
+          `If you were charged, please contact support with the Order ID above.`
+        );
+    }
+},
             onError: (err) => {
                 console.error('PayPal error:', err);
                 alert('❌ PayPal error. Please try again.');
             },
-
             onCancel: () => {
                 console.log('User cancelled payment');
             }
@@ -2440,12 +2517,11 @@ window.openAnimeCollection = (albumTitle) => {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
+    // ✅ Init logo & events lebih dulu — sinkron, tidak perlu tunggu network
     ui.initLogo();
     initEvents();
 
-    // Fetch semua data secara paralel
-    // fetchImages() sekarang hanya fetch 30 item pertama — cepat
-    // sisa halaman di-fetch background oleh _fetchRemainingPages()
+    // ✅ Fetch semua data secara paralel — maksimalkan performa
     await Promise.all([
         api.fetchCreditBalance(),
         api.fetchImages(),
@@ -2453,17 +2529,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         api.fetchDtreasureImages(),
     ]);
 
+    // ✅ Render initial view setelah semua data siap
     ui.changeCategory('All');
-    ads.initStaticSlots();
+    // Setelah: ui.changeCategory('All');
+// Tambahkan:
+ads.initStaticSlots();
 
-    // Sticky nav shadow on scroll
+    // ✅ Sticky nav shadow on scroll
     const nav = document.querySelector('nav');
     window.addEventListener('scroll', () => {
         if (!nav) return;
         nav.classList.toggle('scrolled', window.scrollY > 10);
     }, { passive: true });
 
-    // Carousel scroll
+    // ✅ Carousel scroll & drag-to-scroll (mouse)
     const carouselScrollLeft  = document.getElementById('carousel-scroll-left');
     const carouselScrollRight = document.getElementById('carousel-scroll-right');
     const rankingCarousel     = document.getElementById('ranking-carousel');
@@ -2479,7 +2558,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Mouse drag-to-scroll
+    // ✅ Mouse drag-to-scroll untuk desktop UX
     if (rankingCarousel) {
         let isDragging   = false;
         let startX       = 0;

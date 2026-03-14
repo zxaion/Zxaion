@@ -3,8 +3,12 @@ function parseImageMeta(key, bucket) {
   const allowedExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
   const lower = key.toLowerCase();
 
+  // Filter ekstensi yang tidak diizinkan
   if (!allowedExt.some(ext => lower.endsWith(ext))) return null;
 
+  // ✅ FIX W-1: Filter file tersembunyi (prefixed '_') DAN semua path yang mengandung
+  // folder HEADER — baik di root ('header/logo.png') MAUPUN di subfolder ('anime/header/x.jpg').
+  // Sebelumnya: lower.includes('/header/') tidak match 'header/logo.png' (tanpa leading slash).
   if (lower.startsWith('_')) return null;
   if (lower.startsWith('header/') || lower.includes('/header/')) return null;
 
@@ -39,6 +43,11 @@ function parseImageMeta(key, bucket) {
   };
 }
 
+// ============================================================
+// Scheduled Handler: Auto-scan R2 → D1 (Cron Trigger)
+// Tambahkan di wrangler.toml: [triggers] crons = ["0 * * * *"]
+// Artinya: scan + sync otomatis setiap jam
+// ============================================================
 async function handleScheduled(env) {
   const DB = env.DB;
   const buckets = [
@@ -53,6 +62,7 @@ async function handleScheduled(env) {
       let cursor    = undefined;
       let totalSynced = 0;
 
+      // Pagination cursor — handle bucket > 1000 objek
       do {
         const listResult = await bucket.list({ cursor, limit: 1000 });
         const stmts = [];
@@ -87,6 +97,7 @@ async function handleScheduled(env) {
           totalSynced++;
         }
 
+        // Batch insert ke D1 — satu transaksi per 1000 baris
         if (stmts.length > 0) {
           await DB.batch(stmts);
         }
@@ -101,30 +112,41 @@ async function handleScheduled(env) {
   }
 }
 
+// ============================================================
+// Export default — fetch + scheduled
+// ============================================================
 export default {
 
+  // Dipanggil oleh Cloudflare Cron Trigger setiap jam
   async scheduled(event, env, ctx) {
     ctx.waitUntil(handleScheduled(env));
   },
 
-  // ✅ PATCH: Add ctx (ExecutionContext) — required for ctx.waitUntil(cache.put())
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url    = new URL(request.url);
     const path   = url.pathname;
     const method = request.method;
 
+    // Bucket bindings
     const mainBucket      = env.Zxaion_B;
     const comitbaseBucket = env.ZX_BUCKET;
     const treasureBucket  = env.TREASURE;
+
+    // Database binding
     const DB = env.DB;
 
+    // PayPal credentials
     const PAYPAL_CLIENT_ID        = env.PAYPAL_CLIENT_ID;
     const PAYPAL_CLIENT_SECRET_ID = env.PAYPAL_CLIENT_SECRET_ID;
     const PAYPAL_WEBHOOK_ID       = env.PAYPAL_WEBHOOK_ID;
-    const PAYPAL_BASE = 'https://api-m.paypal.com';
+    const PAYPAL_BASE = 'https://api-m.paypal.com'; // ✅ LIVE endpoint
 
+    // ----------------------------------------------------------------
+    // CORS — multi-origin support
+    // ----------------------------------------------------------------
     const ALLOWED_ORIGINS = [
       'https://zxaion-verse.pages.dev',
+      'https://zxaionverse.com',
     ];
     const origin = request.headers.get('Origin') || '';
     const corsHeaders = {
@@ -139,31 +161,39 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // ----------------------------------------------------------------
+    // Helpers
+    // ----------------------------------------------------------------
     function getUserToken(req) {
       return req.headers.get('X-User-Token') || 'anonymous';
     }
 
     async function checkRateLimit(endpoint, identifier, limit = 50, windowSec = 3600) {
-      const key = `rate:${endpoint}:${identifier}`;
-      const now = Math.floor(Date.now() / 1000);
-      try {
-        await DB.prepare(`
-          INSERT INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            count      = CASE WHEN reset_time < ? THEN 1         ELSE count + 1 END,
-            reset_time = CASE WHEN reset_time < ? THEN ?         ELSE reset_time END
-        `).bind(key, now + windowSec, now, now, now + windowSec).run();
-
-        const record = await DB.prepare(
-          'SELECT count FROM rate_limits WHERE id = ?'
-        ).bind(key).first();
-
-        return !record || record.count <= limit;
-      } catch (e) {
-        console.error('[RateLimit] DB error:', e.message);
-        return true;
-      }
-    }
+  const key = `rate:${endpoint}:${identifier}`;
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    // FIX: Satu operasi atomic INSERT+UPDATE — eliminasi TOCTOU race condition.
+    // Logika: jika tidak ada record / sudah expired → buat baru (count=1).
+    //         jika ada dan masih aktif → increment count secara atomic.
+    await DB.prepare(`
+      INSERT INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        count      = CASE WHEN reset_time < ? THEN 1         ELSE count + 1 END,
+        reset_time = CASE WHEN reset_time < ? THEN ?         ELSE reset_time END
+    `).bind(key, now + windowSec, now, now, now + windowSec).run();
+    
+    // Baca hasil akhir setelah atomic upsert
+    const record = await DB.prepare(
+      'SELECT count FROM rate_limits WHERE id = ?'
+    ).bind(key).first();
+    
+    return !record || record.count <= limit;
+  } catch (e) {
+    // Fail open: jangan blok request jika DB error
+    console.error('[RateLimit] DB error:', e.message);
+    return true;
+  }
+}
 
     async function getPayPalAccessToken() {
       if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET_ID) {
@@ -187,19 +217,20 @@ export default {
     }
 
     async function verifyPayPalOrder(orderId, accessToken) {
-      const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type':  'application/json',
-        },
-      });
-      if (!res.ok) {
-        console.error(`verifyPayPalOrder failed: HTTP ${res.status} for order ${orderId}`);
-        return null;
-      }
-      return await res.json();
-    }
+  const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type':  'application/json',
+    },
+  });
+  if (!res.ok) {
+    console.error(`verifyPayPalOrder failed: HTTP ${res.status} for order ${orderId}`);
+    return null;
+  }
+  // FIX: Tambah await — fungsi kini benar-benar async dan exception ter-catch oleh caller
+  return await res.json();
+}
 
     // ================================================================
     // ENDPOINT: Health check
@@ -219,7 +250,9 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: Manual sync trigger
+    // ENDPOINT: Manual sync trigger (GET /api/admin/sync)
+    // Panggil sekali setelah deploy untuk populate D1 pertama kali
+    // Proteksi dengan secret header X-Admin-Token
     // ================================================================
     if (path === '/api/admin/sync' && method === 'POST') {
       const adminToken = request.headers.get('X-Admin-Token');
@@ -253,27 +286,32 @@ export default {
           return new Response('Invalid JSON', { status: 400 });
         }
 
-        const transmissionId   = request.headers.get('paypal-transmission-id');
-        const transmissionTime = request.headers.get('paypal-transmission-time');
-        const certUrl          = request.headers.get('paypal-cert-url');
-        const transmissionSig  = request.headers.get('paypal-transmission-sig');
-        const authAlgo         = request.headers.get('paypal-auth-algo');
+// ================================================================
+// Validasi header webhook PayPal — REPLACE blok ini
+// ================================================================
+const transmissionId   = request.headers.get('paypal-transmission-id');
+const transmissionTime = request.headers.get('paypal-transmission-time');
+const certUrl          = request.headers.get('paypal-cert-url');
+const transmissionSig  = request.headers.get('paypal-transmission-sig');
+const authAlgo         = request.headers.get('paypal-auth-algo');
 
-        if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
-          console.error('Missing required PayPal webhook headers');
-          return new Response('Unauthorized', { status: 401 });
-        }
+// FIX #2: Tambah authAlgo ke validasi wajib
+if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
+  console.error('Missing required PayPal webhook headers');
+  return new Response('Unauthorized', { status: 401 });
+}
 
-        const PAYPAL_CERT_DOMAINS = [
-          'https://api.paypal.com',
-          'https://api-m.paypal.com',
-          'https://api.sandbox.paypal.com',
-        ];
-        const isCertUrlTrusted = PAYPAL_CERT_DOMAINS.some(domain => certUrl.startsWith(domain));
-        if (!isCertUrlTrusted) {
-          console.error('Webhook certUrl domain not trusted:', certUrl);
-          return new Response('Unauthorized', { status: 401 });
-        }
+// FIX #1: SSRF guard — pastikan certUrl hanya dari domain resmi PayPal
+const PAYPAL_CERT_DOMAINS = [
+  'https://api.paypal.com',
+  'https://api-m.paypal.com',
+  'https://api.sandbox.paypal.com',
+];
+const isCertUrlTrusted = PAYPAL_CERT_DOMAINS.some(domain => certUrl.startsWith(domain));
+if (!isCertUrlTrusted) {
+  console.error('Webhook certUrl domain not trusted:', certUrl);
+  return new Response('Unauthorized', { status: 401 });
+}
 
         try {
           const accessToken = await getPayPalAccessToken();
@@ -303,18 +341,20 @@ export default {
           return new Response('Verification failed', { status: 500 });
         }
 
+        // Hanya handle PAYMENT.CAPTURE.COMPLETED
         if (webhookEvent.event_type !== 'PAYMENT.CAPTURE.COMPLETED') {
           return new Response('OK', { status: 200 });
         }
 
-        const orderId        = webhookEvent.resource?.supplementary_data?.related_ids?.order_id;
+        const orderId       = webhookEvent.resource?.supplementary_data?.related_ids?.order_id;
         const capturedAmount = parseFloat(webhookEvent.resource?.amount?.value || '0');
-        const currencyCode   = webhookEvent.resource?.amount?.currency_code;
+        const currencyCode  = webhookEvent.resource?.amount?.currency_code;
 
         if (!orderId || !capturedAmount || currencyCode !== 'USD') {
           return new Response('OK', { status: 200 });
         }
 
+        // FIX: Cek idempotency di payment_orders, bukan rate_limits
         const existingOrder = await DB.prepare(
           'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
         ).bind(orderId).first();
@@ -324,6 +364,7 @@ export default {
           return new Response('OK', { status: 200 });
         }
 
+        // Tentukan pack dari amount
         const PACK_BY_PRICE = {
           5:   { credits: 200,  bonus: 0,    lifetime: false },
           25:  { credits: 1300, bonus: 450,  lifetime: false },
@@ -341,6 +382,7 @@ export default {
           return new Response('OK', { status: 200 });
         }
 
+        // Cari userId dari custom_id
         let userId = webhookEvent.resource?.custom_id || null;
 
         if (!userId && orderId) {
@@ -360,6 +402,7 @@ export default {
           return new Response('OK', { status: 200 });
         }
 
+        // Credit user
         if (packData.lifetime) {
           await DB.prepare(
             'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET lifetime = 1'
@@ -371,6 +414,7 @@ export default {
           ).bind(userId, totalCredits, totalCredits).run();
         }
 
+        // FIX: Simpan ke payment_orders, bukan rate_limits
         await DB.prepare(`
           INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
           VALUES (?, ?, ?, ?, ?, 'completed', ?)
@@ -393,16 +437,14 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: List main gallery
-    // ✅ PATCH: Default limit turun dari 500 → 30, max dari 500 → 100
-    //          Tambah field `path` (r2_key) di setiap item
+    // ENDPOINT: List main gallery — baca dari D1, bukan langsung R2
     // ================================================================
     if (path === '/api/list' && method === 'GET') {
       try {
         const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',  10);
-        const rawLimit = parseInt(url.searchParams.get('limit') ?? '30', 10);  // ✅ default 30
+        const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
         const page     = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
-        const limit    = Math.min(100, Number.isFinite(rawLimit) ? rawLimit : 30); // ✅ max 100
+        const limit    = Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 500);
         const offset   = (page - 1) * limit;
         const category = url.searchParams.get('category') || null;
 
@@ -423,9 +465,10 @@ export default {
           category:      row.category,
           subCategory:   row.sub_category,
           url:           `/api/img/${encodeURIComponent(row.r2_key)}`,
-          path:          row.r2_key,  // ✅ expose r2_key untuk thumb URL di frontend
           size:          row.size,
           uploaded:      row.uploaded,
+          path:          row.r2_key,
+          // ✅ Pre-load stats — eliminasi N+1 API calls di frontend
           viewCount:     row.view_count     || 0,
           downloadCount: row.download_count || 0,
         }));
@@ -438,16 +481,16 @@ export default {
           },
         });
       } catch (e) {
-        console.error('/api/list error:', e.message);
-        return new Response(JSON.stringify({ error: 'Internal server error' }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+  console.error('/api/list error:', e.message);
+  return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    // FIX: Tambah Content-Type — tanpa ini fetch().json() di client gagal parse
+    status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
     }
 
     // ================================================================
-    // ENDPOINT: COMITBASE list
-    // ✅ PATCH: Tambah field `path` di setiap item
+    // ENDPOINT: COMITBASE list — baca dari D1
     // ================================================================
     if (path === '/api/comitbase/list' && method === 'GET') {
       if (!comitbaseBucket) return new Response('[]', {
@@ -465,8 +508,8 @@ export default {
           title:         row.title,
           uploader:      'Community',
           url:           `/api/comitbase/img/${encodeURIComponent(row.r2_key)}`,
-          path:          row.r2_key,  // ✅ expose r2_key
           uploaded:      row.uploaded,
+          // ✅ Pre-load stats — konsisten dengan /api/list
           viewCount:     row.view_count     || 0,
           downloadCount: row.download_count || 0,
         }));
@@ -487,8 +530,7 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: DTREASURE list
-    // ✅ PATCH: Tambah field `path` di setiap item
+    // ENDPOINT: DTREASURE list — baca dari D1
     // ================================================================
     if (path === '/api/dtreasure/list' && method === 'GET') {
       if (!treasureBucket) return new Response('[]', {
@@ -506,8 +548,8 @@ export default {
           title:         row.title,
           category:      'DTREASURE',
           url:           `/api/dtreasure/img/${encodeURIComponent(row.r2_key)}`,
-          path:          row.r2_key,  // ✅ expose r2_key
           uploaded:      row.uploaded,
+          // ✅ Pre-load stats
           viewCount:     row.view_count     || 0,
           downloadCount: row.download_count || 0,
         }));
@@ -528,7 +570,7 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: Top trending images
+    // ENDPOINT: Top trending images — untuk ranking carousel
     // ================================================================
     if (path === '/api/trending' && method === 'GET') {
       const rawLimit = parseInt(url.searchParams.get('limit') ?? '20', 10);
@@ -552,7 +594,6 @@ export default {
           category:      row.category,
           subCategory:   row.sub_category,
           url:           `/api/img/${encodeURIComponent(row.r2_key)}`,
-          path:          row.r2_key,
           viewCount:     row.view_count     || 0,
           downloadCount: row.download_count || 0,
           score:         row.score          || 0,
@@ -574,7 +615,7 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: Image stats
+    // ENDPOINT: Image stats — O(1) lookup via images table columns
     // ================================================================
     if (path.startsWith('/api/stats/') && method === 'GET') {
       const rawSegment = path.split('/').filter(Boolean).pop() || '';
@@ -585,6 +626,7 @@ export default {
         });
       }
       try {
+        // ✅ O(1) lookup — baca langsung dari kolom counter di images table
         const row = await DB.prepare(
           'SELECT view_count, download_count FROM images WHERE id = ?'
         ).bind(photoId).first();
@@ -602,7 +644,7 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: Record view
+    // ENDPOINT: Record view — global counter + per-user history
     // ================================================================
     if (path.startsWith('/api/view/') && method === 'POST') {
       const rawSegment = path.split('/').filter(Boolean).pop() || '';
@@ -615,10 +657,12 @@ export default {
         return new Response(null, { status: 429, headers: corsHeaders });
       }
       try {
+        // ✅ Atomic global counter increment — tidak terpengaruh UNIQUE constraint per-user
         await DB.prepare(
           'UPDATE images SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?'
         ).bind(photoId).run();
 
+        // Simpan riwayat per-user secara non-blocking (fire-and-forget)
         DB.prepare(
           'INSERT OR IGNORE INTO views (photo_id, user_id) VALUES (?, ?)'
         ).bind(photoId, userId).run().catch(() => {});
@@ -630,8 +674,8 @@ export default {
       }
     }
 
-    // ================================================================
-    // ENDPOINT: Record download
+        // ================================================================
+    // ENDPOINT: Record download — global counter + per-user history
     // ================================================================
     if (path.startsWith('/api/download/') && method === 'POST') {
       const rawSegment = path.split('/').filter(Boolean).pop() || '';
@@ -644,10 +688,12 @@ export default {
         return new Response(null, { status: 429, headers: corsHeaders });
       }
       try {
+        // ✅ Atomic global counter increment
         await DB.prepare(
           'UPDATE images SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?'
         ).bind(photoId).run();
 
+        // Simpan riwayat per-user secara non-blocking (fire-and-forget)
         DB.prepare(
           'INSERT OR IGNORE INTO downloads (photo_id, user_id) VALUES (?, ?)'
         ).bind(photoId, userId).run().catch(() => {});
@@ -659,51 +705,58 @@ export default {
       }
     }
 
-    // ================================================================
-    // ENDPOINT: Credit balance
-    // ================================================================
-    if (path === '/api/credits/balance' && method === 'GET') {
-      const userId = getUserToken(request);
+// ================================================================
+// ENDPOINT: Credit balance — REPLACE seluruh blok ini
+// ================================================================
+if (path === '/api/credits/balance' && method === 'GET') {
+  const userId = getUserToken(request);
 
-      if (!userId || userId === 'anonymous') {
-        return new Response(
-          JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+  // FIX W2-#1: Tolak anonymous sebelum menyentuh DB.
+  // Versi lama: setiap request tanpa token membuat row baru 'anonymous'
+  // di user_credits → DB bloat tanpa batas.
+  if (!userId || userId === 'anonymous') {
+    return new Response(
+      JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
-      try {
-        let user = await DB.prepare(
-          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-        ).bind(userId).first();
+  try {
+    let user = await DB.prepare(
+      'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+    ).bind(userId).first();
 
-        if (!user) {
-          user = { credits: 0, lifetime: 0 };
-          await DB.prepare(
-            'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
-          ).bind(userId).run();
-        }
-
-        const purchasedRows = await DB.prepare(
-          'SELECT photo_id FROM purchased_images WHERE user_id = ? LIMIT 1000'
-        ).bind(userId).all();
-        const purchased = purchasedRows.results.map(r => r.photo_id);
-
-        return new Response(
-          JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } catch (e) {
-        console.error('/api/credits/balance error:', e.message);
-        return new Response(
-          JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+    if (!user) {
+      user = { credits: 0, lifetime: 0 };
+      // Safe: userId sudah dipastikan bukan 'anonymous'
+      await DB.prepare(
+        'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
+      ).bind(userId).run();
     }
 
+    // FIX W2-#2: Tambah LIMIT 1000 — cegah response raksasa jika
+    // user memiliki ribuan purchased items atau data korup.
+    const purchasedRows = await DB.prepare(
+      'SELECT photo_id FROM purchased_images WHERE user_id = ? LIMIT 1000'
+    ).bind(userId).all();
+    const purchased = purchasedRows.results.map(r => r.photo_id);
+
+    return new Response(
+      JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (e) {
+    console.error('/api/credits/balance error:', e.message);
+    return new Response(
+      JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+      // FIX W2-#4: Tambah Content-Type pada error response
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
+
     // ================================================================
-    // ENDPOINT: Purchase credits
+    // ENDPOINT: Purchase credits (verifikasi PayPal order)
     // ================================================================
     if (path === '/api/credits/purchase' && method === 'POST') {
       const userId = getUserToken(request);
@@ -757,6 +810,7 @@ export default {
       }
 
       try {
+        // STEP 1: Cek idempotency di payment_orders
         const existingPayment = await DB.prepare(
           'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
         ).bind(orderId).first();
@@ -773,8 +827,10 @@ export default {
               lifetime:   !!user?.lifetime,
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
           }
+          // Jika pending/failed, lanjutkan proses ulang
         }
 
+        // STEP 2: Verifikasi dengan PayPal API
         const accessToken  = await getPayPalAccessToken();
         const orderDetails = await verifyPayPalOrder(orderId, accessToken);
 
@@ -789,6 +845,7 @@ export default {
           });
         }
 
+        // STEP 3: Validasi payment status
         if (orderDetails.status !== 'COMPLETED') {
           await DB.prepare(`
             INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
@@ -804,6 +861,7 @@ export default {
           }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        // STEP 4: Extract verifiedUserId + amount dari PayPal response
         let verifiedUserId = userId;
         let verifiedAmount = null;
 
@@ -815,6 +873,7 @@ export default {
           }
         }
 
+        // STEP 5: Validasi amount
         if (verifiedAmount !== null) {
           const roundedAmount  = Math.round(verifiedAmount * 100) / 100;
           const expectedAmount = PACK_PRICES[pack];
@@ -834,6 +893,7 @@ export default {
           }
         }
 
+        // STEP 6: Credit user (atomic)
         try {
           if (packData.lifetime) {
             await DB.prepare(
@@ -846,6 +906,7 @@ export default {
             ).bind(verifiedUserId, totalCredits, totalCredits).run();
           }
 
+          // STEP 7: Mark order completed di payment_orders
           await DB.prepare(`
             INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
             VALUES (?, ?, ?, ?, ?, 'completed', ?)
@@ -853,6 +914,7 @@ export default {
             `order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack], new Date().toISOString()
           ).run();
 
+          // STEP 8: Fetch updated balance
           const user = await DB.prepare(
             'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
           ).bind(verifiedUserId).first();
@@ -888,7 +950,7 @@ export default {
     }
 
     // ================================================================
-    // ENDPOINT: Spend credits
+    // ENDPOINT: Spend credits (download DTREASURE)
     // ================================================================
     if (path === '/api/credits/spend' && method === 'POST') {
       const userId = getUserToken(request);
@@ -916,6 +978,7 @@ export default {
       }
 
       try {
+        // Step 1: Cek apakah sudah pernah dibeli (free re-download)
         const alreadyPurchased = await DB.prepare(
           'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
         ).bind(userId, photoId).first();
@@ -932,6 +995,7 @@ export default {
           }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        // Step 2: Cek lifetime access
         const userRecord = await DB.prepare(
           'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
         ).bind(userId).first();
@@ -953,6 +1017,7 @@ export default {
           }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        // Step 3: Cek saldo cukup
         if (userRecord.credits < 10) {
           return new Response(JSON.stringify({
             success:        false,
@@ -962,10 +1027,12 @@ export default {
           }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        // Step 4: Deduct credits (atomic, race condition safe)
         const deductResult = await DB.prepare(
           'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'
         ).bind(userId).run();
 
+        // Step 5: Verifikasi deduction berhasil
         if (deductResult.changes === 0) {
           return new Response(JSON.stringify({
             success: false,
@@ -973,6 +1040,7 @@ export default {
           }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        // Step 6: Setelah deduction confirmed, record purchase
         await DB.prepare(
           'INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)'
         ).bind(userId, photoId).run();
@@ -997,8 +1065,9 @@ export default {
 
     // ================================================================
     // ENDPOINT: Serve images dari R2
-    // ✅ PATCH: Cache API untuk non-DTREASURE images
-    //          ctx.waitUntil(cache.put()) — edge cache setelah first fetch
+    // ================================================================
+    // ================================================================
+    // ENDPOINT: Serve images dari R2 (main, comitbase, dtreasure)
     // ================================================================
     if (
       path.startsWith('/api/img/') ||
@@ -1007,7 +1076,9 @@ export default {
     ) {
       const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
-      // Auth check untuk DTREASURE download
+      // ✅ Auth untuk DTREASURE download
+      // Mendukung dua metode: header X-User-Token ATAU query param userToken
+      // (query param diperlukan untuk direct anchor download di iOS Safari)
       if (isDtreasure && url.searchParams.get('download') === 'true') {
         const headerToken = getUserToken(request);
         const userId = (headerToken && headerToken !== 'anonymous')
@@ -1033,12 +1104,14 @@ export default {
 
             let purchasedRecord = null;
 
+            // Check by photoId (httpEtag) — primary method
             if (photoIdFromQuery) {
               purchasedRecord = await DB.prepare(
                 'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
               ).bind(userId, photoIdFromQuery).first();
             }
 
+            // Fallback: check by r2_key — backward compatibility
             if (!purchasedRecord) {
               purchasedRecord = await DB.prepare(
                 'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
@@ -1052,6 +1125,7 @@ export default {
             }
           }
         } catch (e) {
+          // ✅ W-4: Return proper 500 — bukan '[]' yang menyebabkan download corrupt
           console.error('[DTREASURE Download] Auth check DB error:', e.message);
           return new Response(JSON.stringify({ error: 'Server error during authorization check' }), {
             status: 500,
@@ -1073,44 +1147,7 @@ export default {
       }
 
       try {
-        const key            = decodeURIComponent(path.slice(prefix.length));
-        const isDownload     = url.searchParams.get('download') === 'true';
-        // ✅ Cache API hanya untuk public images (non-DTREASURE, non-download request)
-        // DTREASURE: private, jangan cache di edge
-        // download=true: mungkin ada Content-Disposition custom, jangan campur dengan preview cache
-        const useEdgeCache   = !isDtreasure && !isDownload;
-
-        if (useEdgeCache) {
-          const cache    = caches.default;
-          // Gunakan URL tanpa query string sebagai cache key agar konsisten
-          const cacheKey = new Request(`${url.origin}${url.pathname}`);
-          const cached   = await cache.match(cacheKey);
-          if (cached) {
-            // Cache hit — serve dari edge, nol R2 read
-            return cached;
-          }
-
-          // Cache miss — fetch dari R2
-          const object = await bucket.get(key);
-          if (!object) return new Response('Not found', { status: 404 });
-
-          const headers = new Headers();
-          object.writeHttpMetadata(headers);
-          headers.set('etag', object.httpEtag);
-          headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-          headers.set('Access-Control-Allow-Origin',
-            ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
-          headers.set('Vary', 'Origin');
-
-          const response = new Response(object.body, { headers });
-
-          // ✅ ctx.waitUntil: simpan ke edge cache tanpa block response ke client
-          ctx.waitUntil(cache.put(cacheKey, response.clone()));
-
-          return response;
-        }
-
-        // DTREASURE atau download request — langsung dari R2, no cache
+        const key    = decodeURIComponent(path.slice(prefix.length));
         const object = await bucket.get(key);
         if (!object) return new Response('Not found', { status: 404 });
 
@@ -1123,9 +1160,10 @@ export default {
         headers.set('Cache-Control',
           isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
 
-        if (isDownload) {
+        if (url.searchParams.get('download') === 'true') {
           const rawFilename     = key.split('/').pop();
           const asciiFilename   = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
+          // RFC 5987: encode UTF-8 untuk support nama file unicode
           const encodedFilename = encodeURIComponent(rawFilename);
           headers.set(
             'Content-Disposition',
@@ -1134,7 +1172,6 @@ export default {
         }
 
         return new Response(object.body, { headers });
-
       } catch (e) {
         console.error('Image serve error:', e.message);
         return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
@@ -1143,96 +1180,113 @@ export default {
       }
     }
 
-    // ================================================================
-    // Serve static files dari R2
-    // ================================================================
-    try {
-      let key = path === '/' ? 'index.html' : path.slice(1);
-      if (key.startsWith('api/')) return new Response('Not Found', { status: 404 });
+// ================================================================
+// Serve static files dari R2 — REPLACE seluruh blok ini
+// ================================================================
+try {
+  let key = path === '/' ? 'index.html' : path.slice(1);
+  if (key.startsWith('api/')) return new Response('Not Found', { status: 404 });
 
-      const ext = key.split('.').pop().toLowerCase();
-      const mimeTypes = {
-        html:  'text/html; charset=utf-8',
-        css:   'text/css; charset=utf-8',
-        js:    'application/javascript; charset=utf-8',
-        json:  'application/json',
-        png:   'image/png',
-        jpg:   'image/jpeg',
-        jpeg:  'image/jpeg',
-        webp:  'image/webp',
-        svg:   'image/svg+xml',
-        ico:   'image/x-icon',
-        woff2: 'font/woff2',
-        woff:  'font/woff',
-      };
+  const ext = key.split('.').pop().toLowerCase();
+  const mimeTypes = {
+    html:  'text/html; charset=utf-8',
+    css:   'text/css; charset=utf-8',
+    js:    'application/javascript; charset=utf-8',
+    json:  'application/json',
+    png:   'image/png',
+    jpg:   'image/jpeg',
+    jpeg:  'image/jpeg',
+    webp:  'image/webp',
+    svg:   'image/svg+xml',
+    ico:   'image/x-icon',
+    woff2: 'font/woff2',
+    woff:  'font/woff',
+  };
 
-      let object = await mainBucket.get(key);
-      const isFallback = !object;
+  // FIX W2-#3: Pisahkan fetch antara file asli dan fallback index.html.
+  // Versi lama: `await bucket.get(key) || await bucket.get('index.html')`
+  // menyebabkan style.css/script.js yang hilang diam-diam serve HTML,
+  // browser menerima HTML dengan Content-Type: text/css → render error.
+  let object = await mainBucket.get(key);
+  const isFallback = !object;
 
-      const isAsset = ext && ext !== 'html' && mimeTypes[ext];
-      if (!object) {
-        if (isAsset) {
-          return new Response('Not Found', { status: 404 });
-        }
-        object = await mainBucket.get('index.html');
-      }
-
-      if (!object) return new Response('Not found', { status: 404 });
-
-      const headers = new Headers();
-      object.writeHttpMetadata(headers);
-      headers.set('etag', object.httpEtag);
-      headers.set('Access-Control-Allow-Origin',
-        ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
-      headers.set('Vary', 'Origin');
-
-      const servedExt = isFallback ? 'html' : ext;
-      if (mimeTypes[servedExt]) headers.set('Content-Type', mimeTypes[servedExt]);
-
-      if (servedExt === 'html') {
-        headers.set('X-Frame-Options',         'DENY');
-        headers.set('X-Content-Type-Options',  'nosniff');
-        headers.set('X-XSS-Protection',        '1; mode=block');
-        headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
-        headers.set('Content-Security-Policy',
-          "default-src 'self'; " +
-          "img-src 'self' data: https: blob:; " +
-          "script-src 'self' 'unsafe-inline' " +
-            "https://cdn.tailwindcss.com " +
-            "https://cdnjs.cloudflare.com " +
-            "https://www.paypal.com " +
-            "https://pagead2.googlesyndication.com " +
-            "https://partner.googleadservices.com " +
-            "https://tpc.googlesyndication.com " +
-            "https://securepubads.g.doubleclick.net " +
-            "https://www.googletagservices.com " +
-            "https://www.gstatic.com " +
-            "https://adservice.google.com " +
-            "https://adservice.google.co.id; " +
-          "style-src 'self' 'unsafe-inline' " +
-            "https://cdnjs.cloudflare.com " +
-            "https://fonts.googleapis.com; " +
-          "font-src 'self' " +
-            "https://cdnjs.cloudflare.com " +
-            "https://fonts.gstatic.com; " +
-          "connect-src 'self' " +
-            "https://ai.zxaionverse.workers.dev " +
-            "https://www.paypal.com " +
-            "https://pagead2.googlesyndication.com " +
-            "https://googleads.g.doubleclick.net " +
-            "https://www.google.com; " +
-          "frame-src " +
-            "https://www.paypal.com " +
-            "https://googleads.g.doubleclick.net " +
-            "https://tpc.googlesyndication.com " +
-            "https://www.google.com;"
-        );
-      }
-
-      return new Response(object.body, { headers });
-    } catch (e) {
-      console.error('Static file error:', e.message);
-      return new Response('Internal error', { status: 500 });
+  // Hanya fallback ke index.html untuk route navigasi (HTML pages), 
+  // bukan untuk aset statis seperti .css, .js, .png, dsb.
+  const isAsset = ext && ext !== 'html' && mimeTypes[ext];
+  if (!object) {
+    if (isAsset) {
+      // Aset statis tidak ditemukan → 404 eksplisit, jangan sembunyikan dengan HTML
+      return new Response('Not Found', { status: 404 });
     }
+    // Untuk non-aset (navigasi SPA), fallback ke index.html
+    object = await mainBucket.get('index.html');
+  }
+
+  if (!object) return new Response('Not found', { status: 404 });
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('Access-Control-Allow-Origin',
+    ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
+  headers.set('Vary', 'Origin');
+
+  // Set MIME type — gunakan key asli (bukan fallback) untuk deteksi ext
+  const servedExt = isFallback ? 'html' : ext;
+  if (mimeTypes[servedExt]) headers.set('Content-Type', mimeTypes[servedExt]);
+
+  // REPLACE blok CSP lama di static file server
+if (servedExt === 'html') {
+    headers.set('X-Frame-Options',         'DENY');
+    headers.set('X-Content-Type-Options',  'nosniff');
+    headers.set('X-XSS-Protection',        '1; mode=block');
+    headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
+    headers.set('Content-Security-Policy',
+      // default
+      "default-src 'self'; " +
+      // images — tambah Google ad domains
+      "img-src 'self' data: https: blob:; " +
+      // scripts — tambah AdSense + GPT stack
+      "script-src 'self' 'unsafe-inline' " +
+        "https://cdn.tailwindcss.com " +
+        "https://cdnjs.cloudflare.com " +
+        "https://www.paypal.com " +
+        "https://pagead2.googlesyndication.com " +
+        "https://partner.googleadservices.com " +
+        "https://tpc.googlesyndication.com " +
+        "https://securepubads.g.doubleclick.net " +
+        "https://www.googletagservices.com " +
+        "https://www.gstatic.com " +
+        "https://adservice.google.com " +
+        "https://adservice.google.co.id; " +     // sesuaikan untuk ID
+      // styles
+      "style-src 'self' 'unsafe-inline' " +
+        "https://cdnjs.cloudflare.com " +
+        "https://fonts.googleapis.com; " +
+      // fonts
+      "font-src 'self' " +
+        "https://cdnjs.cloudflare.com " +
+        "https://fonts.gstatic.com; " +
+      // connect — tambah DoubleClick
+      "connect-src 'self' " +
+        "https://ai.zxaionverse.workers.dev " +
+        "https://www.paypal.com " +
+        "https://pagead2.googlesyndication.com " +
+        "https://googleads.g.doubleclick.net " +
+        "https://www.google.com; " +
+      // frames — PayPal + AdSense frames
+      "frame-src " +
+        "https://www.paypal.com " +
+        "https://googleads.g.doubleclick.net " +
+        "https://tpc.googlesyndication.com " +
+        "https://www.google.com;"
+    );
+}
+
+  return new Response(object.body, { headers });
+} catch (e) {
+  console.error('Static file error:', e.message);
+  return new Response('Internal error', { status: 500 });
+}
   },
 };
