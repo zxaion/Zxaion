@@ -98,15 +98,8 @@ async function handleScheduled(env) {
         }
 
         // Batch insert ke D1 — satu transaksi per 1000 baris
-        // ✅ PERBAIKAN C: Menghindari Crash D1 Batch Limit Exceeded
-        // D1 memiliki batasan keras maksimal 100 statement per eksekusi batch.
-        // Kita pecah array stmts menjadi potongan (chunk) berisi maksimal 100 data.
         if (stmts.length > 0) {
-          const chunkSize = 100;
-          for (let i = 0; i < stmts.length; i += chunkSize) {
-            const chunk = stmts.slice(i, i + chunkSize);
-            await DB.batch(chunk);
-          }
+          await DB.batch(stmts);
         }
 
         cursor = listResult.truncated ? listResult.cursor : undefined;
@@ -361,13 +354,13 @@ if (!isCertUrlTrusted) {
           return new Response('OK', { status: 200 });
         }
 
-// ✅ PERBAIKAN B: Mencegah Race Condition dengan Atomic Check Webhook
-        const claimResult = await DB.prepare(
-          "INSERT OR IGNORE INTO payment_orders (id, order_id, status) VALUES (?, ?, 'processing')"
-        ).bind(`order:${orderId}`, orderId).run();
+        // FIX: Cek idempotency di payment_orders, bukan rate_limits
+        const existingOrder = await DB.prepare(
+          'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
+        ).bind(orderId).first();
 
-        if (claimResult.changes === 0) {
-          console.log(`Webhook: order ${orderId} is already processed or being processed.`);
+        if (existingOrder) {
+          console.log(`Webhook: order ${orderId} already processed (status: ${existingOrder.status})`);
           return new Response('OK', { status: 200 });
         }
 
@@ -421,17 +414,17 @@ if (!isCertUrlTrusted) {
           ).bind(userId, totalCredits, totalCredits).run();
         }
 
-// ✅ PERBAIKAN B: Update state payment_orders ke success pada webhook
+        // FIX: Simpan ke payment_orders, bukan rate_limits
         await DB.prepare(`
-          UPDATE payment_orders 
-          SET user_id = ?, pack_key = ?, amount = ?, status = 'completed', completed_at = ?
-          WHERE id = ?
+          INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
+          VALUES (?, ?, ?, ?, ?, 'completed', ?)
         `).bind(
+          `order:${orderId}`,
           userId,
+          orderId,
           String(roundedAmount),
           capturedAmount,
-          new Date().toISOString(),
-          `order:${orderId}`
+          new Date().toISOString()
         ).run();
 
         console.log(`Webhook: credited user ${userId} for order ${orderId} ($${capturedAmount})`);
@@ -456,14 +449,11 @@ if (!isCertUrlTrusted) {
         const category = url.searchParams.get('category') || null;
 
         let query, bindings;
-        // ✅ PERBAIKAN A: Optimasi query SELECT
-        // Hanya mengambil kolom yang dibutuhkan untuk mengurangi ukuran response JSON dan memori.
-        const columns = "id, title, category, sub_category, r2_key, size, uploaded, view_count, download_count";
         if (category && category !== 'All') {
-          query    = `SELECT ${columns} FROM images WHERE bucket = 'main' AND category = ? ORDER BY uploaded DESC LIMIT ? OFFSET ?`;
+          query    = "SELECT * FROM images WHERE bucket = 'main' AND category = ? ORDER BY uploaded DESC LIMIT ? OFFSET ?";
           bindings = [category, limit, offset];
         } else {
-          query    = `SELECT ${columns} FROM images WHERE bucket = 'main' AND category != 'Header' ORDER BY uploaded DESC LIMIT ? OFFSET ?`;
+          query    = "SELECT * FROM images WHERE bucket = 'main' AND category != 'Header' ORDER BY uploaded DESC LIMIT ? OFFSET ?";
           bindings = [limit, offset];
         }
 
@@ -820,17 +810,13 @@ if (path === '/api/credits/balance' && method === 'GET') {
       }
 
       try {
-// ✅ PERBAIKAN B: Mencegah Race Condition dengan Atomic Check di API Purchase
-        const claimResult = await DB.prepare(
-          "INSERT OR IGNORE INTO payment_orders (id, order_id, status) VALUES (?, ?, 'processing')"
-        ).bind(`order:${orderId}`, orderId).run();
+        // STEP 1: Cek idempotency di payment_orders
+        const existingPayment = await DB.prepare(
+          'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
+        ).bind(orderId).first();
 
-        if (claimResult.changes === 0) {
-          const existingPayment = await DB.prepare(
-            'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
-          ).bind(orderId).first();
-
-          if (existingPayment && existingPayment.status === 'completed') {
+        if (existingPayment) {
+          if (existingPayment.status === 'completed') {
             const user = await DB.prepare(
               'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
             ).bind(userId).first();
@@ -841,11 +827,7 @@ if (path === '/api/credits/balance' && method === 'GET') {
               lifetime:   !!user?.lifetime,
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
           }
-          
-          return new Response(JSON.stringify({
-            success: false, 
-            error: 'Order is currently being processed by another system. Please wait.'
-          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          // Jika pending/failed, lanjutkan proses ulang
         }
 
         // STEP 2: Verifikasi dengan PayPal API
@@ -924,13 +906,12 @@ if (path === '/api/credits/balance' && method === 'GET') {
             ).bind(verifiedUserId, totalCredits, totalCredits).run();
           }
 
-// ✅ PERBAIKAN B: Update state payment_orders ke success pada DB API
+          // STEP 7: Mark order completed di payment_orders
           await DB.prepare(`
-            UPDATE payment_orders 
-            SET user_id = ?, pack_key = ?, amount = ?, status = 'completed', completed_at = ?
-            WHERE id = ?
+            INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
+            VALUES (?, ?, ?, ?, ?, 'completed', ?)
           `).bind(
-            verifiedUserId, pack, PACK_PRICES[pack], new Date().toISOString(), `order:${orderId}`
+            `order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack], new Date().toISOString()
           ).run();
 
           // STEP 8: Fetch updated balance
