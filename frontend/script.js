@@ -97,10 +97,6 @@ window.customLogo = {
 
 // ============================================================
 // CUSTOM ICONS — Ganti semua FontAwesome icon dengan gambar R2
-// Cara pakai:
-//   1. Upload file PNG ke R2 di folder /HEADER/icons/
-//   2. Isi URL di definitions di bawah (path relatif dari API_BASE/api/img/)
-//   3. Set enabled: true
 // ============================================================
 window.customIcons = {
     enabled: true, // ← set true setelah upload icon ke R2
@@ -110,9 +106,9 @@ window.customIcons = {
         { selector: '.crypto-btn[data-name="Bitcoin"] .w-12 i',   url: 'HEADER/icons/Btc.png'  },
         { selector: '.crypto-btn[data-name="Ethereum"] .w-12 i',  url: 'HEADER/icons/Eth.png' },
         { selector: '.crypto-btn[data-name="Solana"] .w-12 i',    url: 'HEADER/icons/Sol.png'   },
-        { selector: '.crypto-btn[data-name="BNB"] .w-12 i',       url: 'HEADER/icons/Bnb.png'      },
+        { selector: '.crypto-btn[data-name="BNB"] .w-12 i',       url: 'HEADER/icons/Bnb icon.png'      },
         { selector: '.crypto-btn[data-name="Polygon"] .w-12 i',   url: 'HEADER/icons/Pol.webp'  },
-        { selector: '.crypto-btn[data-name="XRP (BSC)"] .w-12 i', url: 'HEADER/icons/Xrp.png'      },
+        { selector: '.crypto-btn[data-name="XRP (BSC)"] .w-12 i', url: 'HEADER/icons/Xrpicon.png'      },
     ]
 };
 
