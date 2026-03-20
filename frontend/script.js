@@ -103,7 +103,7 @@ window.customIcons = {
     definitions: [
         // ── Crypto donation icons ─────────────────────────────────
         { selector: '.crypto-btn[data-name="Bitcoin"] .w-12 i',   url: 'HEADER/icons/Btc.png'  },
-        { selector: '.crypto-btn[data-name="Ethereum"] .w-12 i',  url: 'HEADER/icons/Eth.png' },
+        { selector: '.crypto-btn[data-name="Ethereum"] .w-12 i',  url: 'HEADER/icons/Ethicon.png' },
         { selector: '.crypto-btn[data-name="Solana"] .w-12 i',    url: 'HEADER/icons/Sol.png'   },
         { selector: '.crypto-btn[data-name="BNB"] .w-12 i',       url: 'HEADER/icons/Bnb icon.png'      },
         { selector: '.crypto-btn[data-name="Polygon"] .w-12 i',   url: 'HEADER/icons/Pol.webp'  },
