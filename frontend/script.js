@@ -1,4 +1,3 @@
-
 // --- Configuration ---
 const API_BASE = 'https://ai.zxaionverse.workers.dev';
 const ITEMS_PER_PAGE = 30;
