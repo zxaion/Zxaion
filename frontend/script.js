@@ -103,32 +103,16 @@ window.customLogo = {
 //   3. Set enabled: true
 // ============================================================
 window.customIcons = {
-    enabled: false, // ← set true setelah upload icon ke R2
+    enabled: true, // ← set true setelah upload icon ke R2
 
     definitions: [
-        // ── Tombol navigasi ───────────────────────────────────────
-        { selector: '#zverse-btn i.fa-cube',           url: 'HEADER/icons/zverse.png'    },
-        { selector: '#donation-btn i.fa-heart',        url: 'HEADER/icons/donation.png'  },
-        { selector: '#menu-btn i.fa-bars',             url: 'HEADER/icons/menu.png'      },
-
-        // ── Social media footer ───────────────────────────────────
-        { selector: 'a[href*="instagram"] i',          url: 'HEADER/icons/instagram.png' },
-        { selector: 'a[href*="tiktok"] i',             url: 'HEADER/icons/tiktok.png'    },
-        { selector: 'a[href*="discord.gg"] i',         url: 'HEADER/icons/discord.png'   },
-        { selector: 'a[href*="pinterest"] i',          url: 'HEADER/icons/pinterest.png' },
-        { selector: 'a[href*="ko-fi"] i',              url: 'HEADER/icons/kofi.png'      },
-        { selector: 'a[href*="youtube"] i',            url: 'HEADER/icons/youtube.png'   },
-        { selector: 'a[href*="facebook"] i',           url: 'HEADER/icons/facebook.png'  },
-        { selector: 'a[href*="soundcloud"] i',         url: 'HEADER/icons/soundcloud.png'},
-        { selector: 'a[href*="pixabay"] i',            url: 'HEADER/icons/pixabay.png'   },
-
         // ── Crypto donation icons ─────────────────────────────────
-        { selector: '.crypto-btn[data-name="Bitcoin"] .w-12 i',   url: 'HEADER/icons/bitcoin.png'  },
-        { selector: '.crypto-btn[data-name="Ethereum"] .w-12 i',  url: 'HEADER/icons/ethereum.png' },
-        { selector: '.crypto-btn[data-name="Solana"] .w-12 i',    url: 'HEADER/icons/solana.png'   },
-        { selector: '.crypto-btn[data-name="BNB"] .w-12 i',       url: 'HEADER/icons/bnb.png'      },
-        { selector: '.crypto-btn[data-name="Polygon"] .w-12 i',   url: 'HEADER/icons/polygon.png'  },
-        { selector: '.crypto-btn[data-name="XRP (BSC)"] .w-12 i', url: 'HEADER/icons/xrp.png'      },
+        { selector: '.crypto-btn[data-name="Bitcoin"] .w-12 i',   url: 'HEADER/icons/Btc--600.png'  },
+        { selector: '.crypto-btn[data-name="Ethereum"] .w-12 i',  url: 'HEADER/icons/Eth.png' },
+        { selector: '.crypto-btn[data-name="Solana"] .w-12 i',    url: 'HEADER/icons/Solana.jpg'   },
+        { selector: '.crypto-btn[data-name="BNB"] .w-12 i',       url: 'HEADER/icons/Bnb.png'      },
+        { selector: '.crypto-btn[data-name="Polygon"] .w-12 i',   url: 'HEADER/icons/Polygon.jpeg'  },
+        { selector: '.crypto-btn[data-name="XRP (BSC)"] .w-12 i', url: 'HEADER/icons/Xrp.png'      },
     ]
 };
 
