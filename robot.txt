@@ -1,1 +1,3 @@
-0 THINKING AI GENERATED WEBSITE
+User-agent: *
+Disallow: /api/
+Allow: /

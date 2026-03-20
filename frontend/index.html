@@ -15,13 +15,11 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
                     colors: {
-                        primary: '#000000',
+                        primary:   '#000000',
                         secondary: '#ffffff',
-                        accent: '#fbbf24',
+                        accent:    '#fbbf24',
                     }
                 }
             }
@@ -30,9 +28,12 @@
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased flex flex-col min-h-screen dark:bg-gray-950 dark:text-gray-100 transition-colors duration-300">
 
-    <!-- Navigation -->
+    <!-- ═══════════════════════════════════════════
+         NAVIGATION
+         ═══════════════════════════════════════════ -->
     <nav class="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-gray-200/50 py-3 px-4 md:px-6 shadow-sm dark:bg-gray-900/90 dark:border-gray-800/50">
         <div class="flex items-center justify-between gap-4 w-full max-w-7xl mx-auto">
+
             <!-- Logo -->
             <div class="flex items-center gap-3 min-w-fit">
                 <a href="#" id="home-link" class="flex items-center gap-3 cursor-pointer group">
@@ -46,12 +47,16 @@
                 </a>
             </div>
 
-            <!-- Search Bar -->
+            <!-- Search Bar (desktop) -->
             <div class="hidden md:flex flex-1 max-w-xl relative mx-4">
                 <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <i class="fas fa-search text-gray-400 dark:text-gray-500"></i>
                 </div>
-                <input type="text" id="searchInput" class="block w-full pl-11 pr-4 py-2.5 bg-gray-100 border-0 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-black/20 focus:bg-white transition-all duration-300 dark:bg-gray-800 dark:text-white dark:focus:ring-white/20 dark:focus:bg-gray-700" placeholder="Search wallpapers, categories...">
+                <input
+                    type="text"
+                    id="searchInput"
+                    class="block w-full pl-11 pr-4 py-2.5 bg-gray-100 border-0 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-black/20 focus:bg-white transition-all duration-300 dark:bg-gray-800 dark:text-white dark:focus:ring-white/20 dark:focus:bg-gray-700"
+                    placeholder="Search wallpapers, categories...">
                 <button id="search-clear" class="absolute inset-y-0 right-0 pr-3 flex items-center hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                     <i class="fas fa-times-circle"></i>
                 </button>
@@ -76,19 +81,36 @@
         </div>
     </nav>
 
-    <!-- Mobile Search -->
-    <div class="md:hidden bg-white/90 backdrop-blur-xl border-b border-gray-200/50 px-4 py-2 dark:bg-gray-900/90 dark:border-gray-800/50">
+    <!-- ═══════════════════════════════════════════
+         MOBILE SEARCH
+         FIX: id="mobile-search-bar" — dibutuhkan oleh ResizeObserver di script.js
+         untuk mengukur tinggi bar ini saat kalkulasi sticky top category-nav,
+         mencegah category-nav overlap mobile search di breakpoint < 768px.
+         ═══════════════════════════════════════════ -->
+    <div id="mobile-search-bar" class="md:hidden bg-white/90 backdrop-blur-xl border-b border-gray-200/50 px-4 py-2 dark:bg-gray-900/90 dark:border-gray-800/50">
         <div class="relative">
             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <i class="fas fa-search text-gray-400"></i>
             </div>
-            <input type="text" id="searchInputMobile" class="block w-full pl-10 pr-3 py-2 bg-gray-100 border-0 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-black/20 dark:bg-gray-800 dark:text-white" placeholder="Search...">
+            <input
+                type="text"
+                id="searchInputMobile"
+                class="block w-full pl-10 pr-3 py-2 bg-gray-100 border-0 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-black/20 dark:bg-gray-800 dark:text-white"
+                placeholder="Search...">
         </div>
     </div>
 
-    <!-- Category Navigation -->
-    <div class="sticky top-[57px] md:top-[65px] z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200/50 py-3 px-4 md:px-6 overflow-x-auto no-scrollbar dark:bg-gray-900/95 dark:border-gray-800/50">
+    <!-- ═══════════════════════════════════════════
+         CATEGORY NAVIGATION
+         FIX: id="category-nav" — dibutuhkan oleh updateCategoryNavTop() di script.js.
+         Sticky top dikalkulasi secara dinamis via ResizeObserver sehingga tidak
+         hardcode pixel dan tidak overlap dengan nav + mobile search di semua device.
+         FIX: Hapus top-[57px] md:top-[65px] hardcode — diganti oleh JS dinamis.
+         ═══════════════════════════════════════════ -->
+    <div id="category-nav" class="sticky z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200/50 py-3 px-4 md:px-6 overflow-x-auto no-scrollbar dark:bg-gray-900/95 dark:border-gray-800/50">
         <div class="max-w-7xl mx-auto flex items-start gap-3 md:gap-5 min-w-max">
+
+            <!-- Home -->
             <button type="button" id="cat-all" class="cat-btn active flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="home-icon-wrapper w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <div class="w-full h-full rounded-full bg-gradient-to-br from-gray-900 to-black flex items-center justify-center text-white shadow-lg">
@@ -97,58 +119,77 @@
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Home</span>
             </button>
+
+            <!-- Anime -->
             <button type="button" id="cat-anime" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-anime-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg" alt="Anime" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Anime</span>
             </button>
+
+            <!-- Fantasy -->
             <button type="button" id="cat-fantasy" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-fantasy-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg" alt="Fantasy" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Fantasy</span>
             </button>
+
+            <!-- Abstract -->
             <button type="button" id="cat-abstract" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-abstract-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Abstract.jpg" alt="Abstract" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Abstract</span>
             </button>
+
+            <!-- Photography -->
             <button type="button" id="cat-photography" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-photography-img" src="https://ai.zxaionverse.workers.dev/api/img/PHOTOGRAPHY/PSX_207.jpg" alt="Photo" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Photo</span>
             </button>
+
+            <!-- COMITBASE -->
             <button type="button" id="cat-comitbase" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-comitbase-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Combaseheader.jpg" alt="COMITBASE" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">COMITBASE</span>
             </button>
+
+            <!-- DTREASURE -->
             <button type="button" id="cat-dtreasure" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-dtreasure-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Dtreasure.jpg" alt="DTREASURE" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">DTREASURE</span>
             </button>
+
+            <!-- ZMEME -->
             <button type="button" id="cat-zmeme" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-zmeme-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Memenav.jpg" alt="ZMEME" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">ZMEME</span>
             </button>
+
+            <!-- OVERLAY -->
             <button type="button" id="cat-overlay" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
                     <img id="cat-overlay-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Overlaynav.jpg" alt="OVERLAY" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">OVERLAY</span>
             </button>
+
         </div>
     </div>
 
-    <!-- Hero Section -->
+    <!-- ═══════════════════════════════════════════
+         HERO SECTION
+         ═══════════════════════════════════════════ -->
     <header id="page-hero" class="relative bg-gray-900 border-b border-gray-200/50 py-12 md:py-20 px-6 mb-6 transition-all duration-700 bg-cover bg-center bg-no-repeat overflow-hidden dark:border-gray-800/50">
         <div class="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/80 transition-colors duration-500"></div>
         <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
@@ -158,20 +199,24 @@
             <div id="hero-actions" class="mt-8 flex flex-wrap justify-center gap-4 empty:hidden"></div>
         </div>
     </header>
-    
-    <!-- ✅ Ad Slot 1: Leaderboard/Responsive Banner — antara Hero dan Carousel -->
-<div id="ad-banner-top" class="w-full bg-white dark:bg-gray-900 py-2 px-4 border-b border-gray-100 dark:border-gray-800">
-    <div class="max-w-[1600px] mx-auto flex justify-center">
-        <ins class="adsbygoogle"
-             style="display:block"
-             data-ad-client="ca-pub-4913648248892788"
-             data-ad-slot="SLOT_ID_BANNER_TOP"
-             data-ad-format="auto"
-             data-full-width-responsive="true"></ins>
-    </div>
-</div>
 
-    <!-- ✅ Top 20 Ranking Carousel — tampil hanya di Home page -->
+    <!-- ═══════════════════════════════════════════
+         AD SLOT 1: Banner antara Hero dan Carousel
+         ═══════════════════════════════════════════ -->
+    <div id="ad-banner-top" class="w-full bg-white dark:bg-gray-900 py-2 px-4 border-b border-gray-100 dark:border-gray-800">
+        <div class="max-w-[1600px] mx-auto flex justify-center">
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-client="ca-pub-4913648248892788"
+                 data-ad-slot="SLOT_ID_BANNER_TOP"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         TOP 20 RANKING CAROUSEL (Home only)
+         ═══════════════════════════════════════════ -->
     <section id="ranking-carousel-section" class="hidden w-full bg-gradient-to-b from-gray-950 to-gray-900 py-5 px-4 border-b border-white/5">
         <div class="max-w-[1600px] mx-auto">
             <!-- Header -->
@@ -185,7 +230,6 @@
                         <p class="text-gray-500 text-[10px] uppercase tracking-wider">Auto-updated · Most Viewed &amp; Downloaded</p>
                     </div>
                 </div>
-                <!-- Scroll hint arrows -->
                 <div class="flex items-center gap-2">
                     <button id="carousel-scroll-left" type="button"
                         class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
@@ -207,8 +251,11 @@
         </div>
     </section>
 
-    <!-- Main Content -->
+    <!-- ═══════════════════════════════════════════
+         MAIN CONTENT
+         ═══════════════════════════════════════════ -->
     <main class="max-w-[1600px] mx-auto px-3 md:px-6 pb-10 flex-grow w-full min-h-[600px]">
+
         <!-- Gallery Container -->
         <div id="gallery-container" class="masonry-layout"></div>
 
@@ -224,17 +271,17 @@
                 </button>
             </div>
         </div>
-        
-        <!-- ✅ Ad Slot 3: In-Content setelah galeri -->
-<div id="ad-after-gallery" class="hidden mt-8 mb-4 text-center">
-    <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Advertisement</p>
-    <ins class="adsbygoogle"
-         style="display:block"
-         data-ad-client="ca-pub-4913648248892788"
-         data-ad-slot="SLOT_ID_CONTENT"
-         data-ad-format="auto"
-         data-full-width-responsive="true"></ins>
-</div>
+
+        <!-- Ad Slot: In-Content setelah galeri -->
+        <div id="ad-after-gallery" class="hidden mt-8 mb-4 text-center">
+            <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Advertisement</p>
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-client="ca-pub-4913648248892788"
+                 data-ad-slot="SLOT_ID_CONTENT"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+        </div>
 
         <!-- Anime Collections -->
         <div id="anime-collections" class="hidden w-full">
@@ -243,16 +290,14 @@
                 <div class="relative w-full h-full rounded-3xl overflow-hidden border border-gray-200/50 shadow-2xl group transition-all duration-500 hover:shadow-3xl dark:border-gray-800/50">
                     <img src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Original.jpg" alt="Original Album" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700">
                     <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
-                    
                     <div class="relative z-10 h-full flex flex-col justify-center items-center text-center px-8">
                         <h3 class="text-3xl md:text-5xl font-black text-white mb-4 tracking-tighter drop-shadow-2xl">ORIGINAL ALBUM</h3>
                         <p class="text-gray-200 text-base md:text-lg mb-8 max-w-2xl">Explore unique and original creations from independent artists worldwide</p>
                         <div class="bg-white/10 backdrop-blur-md text-white px-8 py-3 rounded-full font-bold text-base transition-all duration-300 hover:bg-white/20 flex items-center gap-2 border border-white/20">
-                            <i class="fas fa-eye group-hover:rotate-12 transition-transform"></i> 
+                            <i class="fas fa-eye group-hover:rotate-12 transition-transform"></i>
                             <span>Explore Collection</span>
                             <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
                         </div>
-                        
                         <div class="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md rounded-full px-4 py-2 border border-white/20">
                             <span class="text-white text-sm font-bold" id="original-count">0</span>
                             <span class="text-gray-300 text-xs ml-1">artworks</span>
@@ -260,11 +305,10 @@
                     </div>
                 </div>
             </div>
-            
             <!-- Anime Grid -->
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6" id="anime-grid"></div>
         </div>
-        
+
         <!-- COMITBASE Section -->
         <div id="comitbase-section" class="hidden w-full">
             <div class="mb-6 flex justify-end">
@@ -273,7 +317,6 @@
                 </button>
             </div>
             <div id="comitbase-gallery" class="masonry-layout"></div>
-            
             <div id="comitbase-pagination" class="hidden mt-10 text-center">
                 <div class="flex items-center justify-center gap-3">
                     <button id="comitbase-prev" class="px-5 py-2.5 bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 hover:bg-teal-50 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
@@ -286,7 +329,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- DTREASURE Section -->
         <div id="dtreasure-section" class="hidden w-full">
             <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -301,9 +344,7 @@
                     </button>
                 </div>
             </div>
-            
             <div id="dtreasure-gallery" class="masonry-layout relative pb-8"></div>
-            
             <div id="dtreasure-pagination" class="mt-2 mb-8 flex items-center justify-center gap-4">
                 <button id="dtreasure-prev" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
                     <i class="fas fa-chevron-left"></i>
@@ -326,7 +367,7 @@
                 <i class="fas fa-sync-alt mr-2"></i>Retry Connection
             </button>
         </div>
-        
+
         <!-- No Results -->
         <div id="no-results" class="hidden text-center py-20 bg-gray-100/50 rounded-2xl border border-gray-200 mt-10 dark:bg-gray-800/50 dark:border-gray-700">
             <div class="w-20 h-20 mx-auto mb-6 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
@@ -338,33 +379,38 @@
                 <i class="fas fa-th-large mr-2"></i>Browse All
             </button>
         </div>
+
     </main>
 
-    <!-- Image Modal -->
+    <!-- ═══════════════════════════════════════════
+         IMAGE MODAL
+         ═══════════════════════════════════════════ -->
     <div id="image-modal" class="fixed inset-0 z-[100] hidden bg-black/95 backdrop-blur-sm p-4">
         <button id="close-image-modal" class="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all duration-300 z-50 backdrop-blur-md">
             <i class="fas fa-times"></i>
         </button>
-        
+
         <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
-<div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden" id="modal-img-wrapper">
-    <img
-        id="modal-img"
-        class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain select-none"
-        alt="Wallpaper preview"
-        draggable="false"
-        style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;"
-    >
-    <div
-        id="modal-img-shield"
-        class="hidden absolute inset-0 z-10"
-        oncontextmenu="return false;"
-        ondragstart="return false;"
-        style="-webkit-tap-highlight-color:transparent;"
-    ></div>
-</div>
-            
-            <!-- Image Details -->
+
+            <!-- Image Wrapper -->
+            <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden" id="modal-img-wrapper">
+                <img
+                    id="modal-img"
+                    class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain select-none"
+                    alt="Wallpaper preview"
+                    draggable="false"
+                    style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;">
+                <!-- Shield overlay: aktif untuk DTREASURE yang belum dibeli -->
+                <div
+                    id="modal-img-shield"
+                    class="hidden absolute inset-0 z-10"
+                    oncontextmenu="return false;"
+                    ondragstart="return false;"
+                    style="-webkit-tap-highlight-color:transparent;">
+                </div>
+            </div>
+
+            <!-- Image Details Panel -->
             <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">
                 <div class="border-b pb-4 dark:border-gray-700">
                     <div class="flex items-center justify-between mb-3">
@@ -382,33 +428,35 @@
                         </div>
                     </div>
                 </div>
-                
-                <div class="flex-1 overflow-y-auto py-4">
-    <!-- Ad di dalam modal sidebar -->
-    <div id="ad-modal-sidebar" class="mb-4">
-        <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1 text-center">Advertisement</p>
-        <ins class="adsbygoogle"
-             style="display:block"
-             data-ad-client="ca-pub-4913648248892788"
-             data-ad-slot="SLOT_ID_MODAL"
-             data-ad-format="auto"
-             data-full-width-responsive="true"></ins>
-    </div>
-</div>
-                
+
+                <!-- Ad slot di modal sidebar -->
+                <div class="flex-1 overflow-y-auto py-4" style="min-height:0;">
+                    <div id="ad-modal-sidebar" class="mb-4">
+                        <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1 text-center">Advertisement</p>
+                        <ins class="adsbygoogle"
+                             style="display:block"
+                             data-ad-client="ca-pub-4913648248892788"
+                             data-ad-slot="SLOT_ID_MODAL"
+                             data-ad-format="auto"
+                             data-full-width-responsive="true"></ins>
+                    </div>
+                </div>
+
                 <div class="border-t pt-4 dark:border-gray-700">
                     <a id="download-btn" href="#" class="w-full px-4 py-3.5 bg-gradient-to-r from-gray-900 to-black text-white rounded-xl font-bold hover:from-gray-800 hover:to-gray-900 transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-[1.02] dark:from-white dark:to-gray-200 dark:text-black">
                         <i class="fas fa-download"></i> Download
                     </a>
                 </div>
             </div>
+
         </div>
     </div>
 
-    <!-- Modern Donation Modal -->
+    <!-- ═══════════════════════════════════════════
+         DONATION MODAL
+         ═══════════════════════════════════════════ -->
     <div id="donation-modal" class="fixed inset-0 z-[120] hidden items-center justify-center p-4 modal-backdrop">
         <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
-            <!-- Header -->
             <div class="relative bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 p-6 md:p-8">
                 <div class="absolute inset-0 bg-black/10"></div>
                 <button id="close-donation" class="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
@@ -422,10 +470,8 @@
                     <p class="text-white/90 text-sm md:text-base">Your support helps us create more amazing content</p>
                 </div>
             </div>
-            
-            <!-- Content -->
             <div class="p-6 md:p-8 overflow-y-auto max-h-[60vh]">
-                <!-- Primary Donation Methods -->
+                <!-- Primary Donation -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                     <a href="https://paypal.me/WANTO198" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-[#003087] text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 hover:scale-[1.02]">
                         <div class="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
@@ -438,86 +484,56 @@
                         <span class="relative z-10">Ko-fi</span>
                     </a>
                 </div>
-                
-                <!-- Crypto Donations -->
+                <!-- Crypto -->
                 <div class="relative">
                     <div class="flex items-center gap-4 mb-4">
                         <div class="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent dark:via-gray-700"></div>
                         <span class="text-sm font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">Crypto Donations</span>
                         <div class="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent dark:via-gray-700"></div>
                     </div>
-                    
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        <!-- BTC -->
                         <button class="crypto-btn group relative bg-gradient-to-br from-orange-50 to-orange-100 hover:from-orange-100 hover:to-orange-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-orange-900/20 dark:to-orange-900/30 dark:hover:from-orange-900/30 dark:hover:to-orange-900/40" data-address="bc1p6fg46q24e9t74j5t29krtv49jkka4tc2sk3ve7d34fq5hn4mk85s24ews2" data-name="Bitcoin">
-                            <div class="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-orange-500/30 transition-all duration-300">
-                                <i class="fab fa-bitcoin text-2xl text-white"></i>
-                            </div>
+                            <div class="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-orange-500/30 transition-all duration-300"><i class="fab fa-bitcoin text-2xl text-white"></i></div>
                             <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Bitcoin</span>
                             <span class="text-xs text-gray-400">Taproot</span>
                         </button>
-                        
-                        <!-- ETH -->
                         <button class="crypto-btn group relative bg-gradient-to-br from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-blue-900/20 dark:to-blue-900/30 dark:hover:from-blue-900/30 dark:hover:to-blue-900/40" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="Ethereum">
-                            <div class="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-blue-500/30 transition-all duration-300">
-                                <i class="fab fa-ethereum text-2xl text-white"></i>
-                            </div>
+                            <div class="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-blue-500/30 transition-all duration-300"><i class="fab fa-ethereum text-2xl text-white"></i></div>
                             <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Ethereum</span>
                         </button>
-                        
-                        <!-- SOL -->
                         <button class="crypto-btn group relative bg-gradient-to-br from-purple-50 to-purple-100 hover:from-purple-100 hover:to-purple-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-purple-900/20 dark:to-purple-900/30 dark:hover:from-purple-900/30 dark:hover:to-purple-900/40" data-address="H7Ts8tkL37di82SXzouQ1EMbrCuoy3pLDP2QKxog9yQ3" data-name="Solana">
-                            <div class="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-purple-500/30 transition-all duration-300">
-                                <i class="fas fa-sun text-2xl text-white"></i>
-                            </div>
+                            <div class="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-purple-500/30 transition-all duration-300"><i class="fas fa-sun text-2xl text-white"></i></div>
                             <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Solana</span>
                         </button>
-                        
-                        <!-- BNB -->
                         <button class="crypto-btn group relative bg-gradient-to-br from-yellow-50 to-yellow-100 hover:from-yellow-100 hover:to-yellow-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-yellow-900/20 dark:to-yellow-900/30 dark:hover:from-yellow-900/30 dark:hover:to-yellow-900/40" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="BNB">
-                            <div class="w-12 h-12 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-yellow-500/30 transition-all duration-300">
-                                <i class="fas fa-bolt text-2xl text-white"></i>
-                            </div>
+                            <div class="w-12 h-12 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-yellow-500/30 transition-all duration-300"><i class="fas fa-bolt text-2xl text-white"></i></div>
                             <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">BNB</span>
                         </button>
-                        
-                        <!-- Polygon -->
                         <button class="crypto-btn group relative bg-gradient-to-br from-indigo-50 to-indigo-100 hover:from-indigo-100 hover:to-indigo-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-indigo-900/20 dark:to-indigo-900/30 dark:hover:from-indigo-900/30 dark:hover:to-indigo-900/40" data-address="0x9c22f7867ab1790c338f42d040c152081f666722" data-name="Polygon">
-                            <div class="w-12 h-12 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-indigo-500/30 transition-all duration-300">
-                                <i class="fas fa-hexagon text-2xl text-white"></i>
-                            </div>
+                            <div class="w-12 h-12 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-indigo-500/30 transition-all duration-300"><i class="fas fa-hexagon text-2xl text-white"></i></div>
                             <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">Polygon</span>
                         </button>
-                        
-                        <!-- XRP -->
                         <button class="crypto-btn group relative bg-gradient-to-br from-cyan-50 to-cyan-100 hover:from-cyan-100 hover:to-cyan-200 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg dark:from-cyan-900/20 dark:to-cyan-900/30 dark:hover:from-cyan-900/30 dark:hover:to-cyan-900/40" data-address="0x9c22f7867ab1790c338f42d040c152081f666722" data-name="XRP (BSC)">
-                            <div class="w-12 h-12 bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-cyan-500/30 transition-all duration-300">
-                                <i class="fas fa-chart-line text-2xl text-white"></i>
-                            </div>
+                            <div class="w-12 h-12 bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-cyan-500/30 transition-all duration-300"><i class="fas fa-chart-line text-2xl text-white"></i></div>
                             <span class="font-semibold text-sm text-gray-700 dark:text-gray-300">XRP</span>
                             <span class="text-xs text-gray-400">BSC</span>
                         </button>
                     </div>
-                    
-                    <!-- USDT Section -->
+                    <!-- USDT -->
                     <div class="mt-4 p-4 bg-gray-50 rounded-2xl dark:bg-gray-800/50">
                         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 dark:text-gray-400">USDT Networks</p>
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
                             <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-green-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-green-900/30" data-address="TT7YAWnCHCbqm2od1nRCUhnMN7yyCDZGhh" data-name="USDT (TRON)">
-                                <i class="fas fa-circle text-green-500 text-xs"></i>
-                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">TRON</span>
+                                <i class="fas fa-circle text-green-500 text-xs"></i><span class="text-xs font-medium text-gray-700 dark:text-gray-300">TRON</span>
                             </button>
                             <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-blue-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-blue-900/30" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="USDT (ETH)">
-                                <i class="fas fa-circle text-blue-500 text-xs"></i>
-                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">ETH</span>
+                                <i class="fas fa-circle text-blue-500 text-xs"></i><span class="text-xs font-medium text-gray-700 dark:text-gray-300">ETH</span>
                             </button>
                             <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-purple-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-purple-900/30" data-address="H7Ts8tkL37di82SXzouQ1EMbrCuoy3pLDP2QKxog9yQ3" data-name="USDT (SOL)">
-                                <i class="fas fa-circle text-purple-500 text-xs"></i>
-                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">SOL</span>
+                                <i class="fas fa-circle text-purple-500 text-xs"></i><span class="text-xs font-medium text-gray-700 dark:text-gray-300">SOL</span>
                             </button>
                             <button class="crypto-btn-usdt group flex items-center gap-2 p-2.5 bg-white rounded-xl hover:bg-yellow-50 transition-all duration-300 dark:bg-gray-700 dark:hover:bg-yellow-900/30" data-address="0xbc0D76669F0ca118E7Aa4649238F3D927a00C17e" data-name="USDT (BNB)">
-                                <i class="fas fa-circle text-yellow-500 text-xs"></i>
-                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">BNB</span>
+                                <i class="fas fa-circle text-yellow-500 text-xs"></i><span class="text-xs font-medium text-gray-700 dark:text-gray-300">BNB</span>
                             </button>
                         </div>
                     </div>
@@ -526,7 +542,9 @@
         </div>
     </div>
 
-    <!-- Crypto Address Modal -->
+    <!-- ═══════════════════════════════════════════
+         CRYPTO ADDRESS MODAL
+         ═══════════════════════════════════════════ -->
     <div id="crypto-modal" class="fixed inset-0 z-[130] hidden items-center justify-center p-4 modal-backdrop">
         <div class="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md text-center shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
             <div class="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center dark:from-gray-800 dark:to-gray-700">
@@ -534,11 +552,9 @@
             </div>
             <h3 class="text-xl font-black mb-1 dark:text-white">Donate with <span id="crypto-type" class="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500"></span></h3>
             <p class="text-sm text-gray-500 mb-6 dark:text-gray-400">Send to this address:</p>
-            
             <div class="bg-gray-100 p-4 rounded-2xl mb-6 dark:bg-gray-800">
                 <p id="crypto-address" class="font-mono text-sm break-all text-gray-700 dark:text-gray-300 select-all"></p>
             </div>
-            
             <div class="flex gap-3">
                 <button type="button" id="copy-crypto-address" class="flex-1 bg-gradient-to-r from-gray-900 to-black text-white font-bold py-3.5 rounded-xl hover:from-gray-800 hover:to-gray-900 transition-all duration-300 shadow-lg hover:shadow-xl dark:from-white dark:to-gray-200 dark:text-black">
                     <i class="fas fa-copy mr-2"></i>Copy
@@ -550,10 +566,11 @@
         </div>
     </div>
 
-    <!-- Modern ZVERSE Modal -->
+    <!-- ═══════════════════════════════════════════
+         ZVERSE MODAL
+         ═══════════════════════════════════════════ -->
     <div id="zverse-modal" class="fixed inset-0 z-[140] hidden items-center justify-center p-4 modal-backdrop">
         <div class="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
-            <!-- Header -->
             <div class="relative bg-gradient-to-r from-violet-600 via-purple-600 to-pink-500 p-6 md:p-8">
                 <div class="absolute inset-0 bg-black/10"></div>
                 <button id="close-zverse" class="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
@@ -563,91 +580,42 @@
                     <div class="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
                         <i class="fas fa-cube text-3xl text-white"></i>
                     </div>
-                    <h3 class="text-2xl md:text-3xl font-black text-white mb-2">ZXAION VERSE </h3>
+                    <h3 class="text-2xl md:text-3xl font-black text-white mb-2">ZXAION VERSE</h3>
                     <p class="text-white/90 text-sm md:text-base">Explore the ZXAION ecosystem</p>
                 </div>
             </div>
-            
-            <!-- Links Grid -->
             <div class="p-6 md:p-8">
                 <div class="grid grid-cols-2 gap-4">
                     <a href="https://zstore.zxaion.com" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-violet-50 to-purple-50 hover:from-violet-100 hover:to-purple-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-violet-900/20 dark:to-purple-900/20 dark:hover:from-violet-900/30 dark:hover:to-purple-900/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-violet-500/30 transition-all duration-300">
-                                <i class="fas fa-store text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">zstore</span>
-                        </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Digital products & merch</p>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-violet-500/30 transition-all duration-300"><i class="fas fa-store text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">zstore</span></div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Digital products &amp; merch</p>
                     </a>
-                    
                     <a href="https://zxaudio.pages.dev/" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-pink-50 to-rose-50 hover:from-pink-100 hover:to-rose-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-pink-900/20 dark:to-rose-900/20 dark:hover:from-pink-900/30 dark:hover:to-rose-900/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-pink-500/30 transition-all duration-300">
-                                <i class="fas fa-music text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">zaudio</span>
-                        </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Music & audio content</p>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-pink-500/30 transition-all duration-300"><i class="fas fa-music text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">zaudio</span></div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Music &amp; audio content</p>
                     </a>
-                    
                     <a href="https://zvideos.zxaion.com" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-red-50 to-orange-50 hover:from-red-100 hover:to-orange-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-red-900/20 dark:to-orange-900/20 dark:hover:from-red-900/30 dark:hover:to-orange-900/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-red-500/30 transition-all duration-300">
-                                <i class="fas fa-video text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">zvideos</span>
-                        </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Video content & streams</p>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-red-500/30 transition-all duration-300"><i class="fas fa-video text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">zvideos</span></div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Video content &amp; streams</p>
                     </a>
-                    
                     <a href="https://zai.zxaion.com" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-cyan-50 to-blue-50 hover:from-cyan-100 hover:to-blue-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-cyan-900/20 dark:to-blue-900/20 dark:hover:from-cyan-900/30 dark:hover:to-blue-900/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-cyan-500/30 transition-all duration-300">
-                                <i class="fas fa-robot text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">zai</span>
-                        </div>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-cyan-500/30 transition-all duration-300"><i class="fas fa-robot text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">zai</span></div>
                         <p class="text-xs text-gray-500 dark:text-gray-400">AI-powered tools</p>
                     </a>
-                    
                     <a href="https://zchat.zxaion.com" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-green-900/20 dark:to-emerald-900/20 dark:hover:from-green-900/30 dark:hover:to-emerald-900/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-green-500/30 transition-all duration-300">
-                                <i class="fas fa-comments text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">zchat</span>
-                        </div>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-green-500/30 transition-all duration-300"><i class="fas fa-comments text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">zchat</span></div>
                         <p class="text-xs text-gray-500 dark:text-gray-400">Community chat</p>
                     </a>
-                    
                     <a href="https://zbook.zxaion.com" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-amber-50 to-yellow-50 hover:from-amber-100 hover:to-yellow-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-amber-900/20 dark:to-yellow-900/20 dark:hover:from-amber-900/30 dark:hover:to-yellow-900/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-amber-500 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-amber-500/30 transition-all duration-300">
-                                <i class="fas fa-book text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">zbook</span>
-                        </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Stories & publications</p>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-amber-500 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-amber-500/30 transition-all duration-300"><i class="fas fa-book text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">zbook</span></div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Stories &amp; publications</p>
                     </a>
-                    
                     <a href="https://znews.zxaion.com" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-indigo-50 to-violet-50 hover:from-indigo-100 hover:to-violet-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-indigo-900/20 dark:to-violet-900/20 dark:hover:from-indigo-900/30 dark:hover:to-violet-900/30">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-indigo-500/30 transition-all duration-300">
-                                <i class="fas fa-newspaper text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">znews</span>
-                        </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Latest updates & news</p>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-indigo-500/30 transition-all duration-300"><i class="fas fa-newspaper text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">znews</span></div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Latest updates &amp; news</p>
                     </a>
-                    
                     <a href="https://zapp.zxaion.com" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-gradient-to-br from-gray-50 to-slate-50 hover:from-gray-100 hover:to-slate-100 p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg dark:from-gray-800 dark:to-slate-800 dark:hover:from-gray-700 dark:hover:to-slate-700">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 bg-gradient-to-br from-gray-600 to-slate-700 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-gray-500/30 transition-all duration-300">
-                                <i class="fas fa-mobile-alt text-white"></i>
-                            </div>
-                            <span class="font-bold text-gray-800 dark:text-white">zapp</span>
-                        </div>
+                        <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 bg-gradient-to-br from-gray-600 to-slate-700 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-gray-500/30 transition-all duration-300"><i class="fas fa-mobile-alt text-white"></i></div><span class="font-bold text-gray-800 dark:text-white">zapp</span></div>
                         <p class="text-xs text-gray-500 dark:text-gray-400">Mobile applications</p>
                     </a>
                 </div>
@@ -655,10 +623,11 @@
         </div>
     </div>
 
-    <!-- Modern Menu Modal -->
+    <!-- ═══════════════════════════════════════════
+         MENU MODAL
+         ═══════════════════════════════════════════ -->
     <div id="menu-modal" class="fixed inset-0 z-[150] hidden items-center justify-center p-4 modal-backdrop">
         <div class="bg-white rounded-3xl w-full max-w-md max-h-[85vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
-            <!-- Header -->
             <div class="relative bg-gradient-to-r from-gray-900 to-black p-6">
                 <button id="close-menu" class="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
                     <i class="fas fa-times"></i>
@@ -670,15 +639,13 @@
                     <h3 class="text-xl font-black text-white">Quick Links</h3>
                 </div>
             </div>
-            
-            <!-- Links List -->
-            <div id="quicklinks-list" class="p-4 overflow-y-auto max-h-[50vh] space-y-2">
-                <!-- akan diisi via script -->
-            </div>
+            <div id="quicklinks-list" class="p-4 overflow-y-auto max-h-[50vh] space-y-2"></div>
         </div>
     </div>
 
-    <!-- Quicklink Content Modal -->
+    <!-- ═══════════════════════════════════════════
+         QUICKLINK CONTENT MODAL
+         ═══════════════════════════════════════════ -->
     <div id="quicklink-content-modal" class="fixed inset-0 z-[160] hidden items-center justify-center p-4 modal-backdrop">
         <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
             <div class="flex justify-between items-center p-6 border-b border-gray-100 dark:border-gray-800">
@@ -691,10 +658,11 @@
         </div>
     </div>
 
-    <!-- Modern Buy Credits Modal -->
+    <!-- ═══════════════════════════════════════════
+         BUY CREDITS MODAL
+         ═══════════════════════════════════════════ -->
     <div id="buy-credits-modal" class="fixed inset-0 z-[170] hidden items-center justify-center p-4 modal-backdrop">
         <div class="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
-            <!-- Header -->
             <div class="relative bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 p-6 md:p-8">
                 <div class="absolute inset-0 bg-black/10"></div>
                 <button id="close-buy-credits" class="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
@@ -708,14 +676,9 @@
                     <p class="text-white/90 text-sm">1 download = 10 credits</p>
                 </div>
             </div>
-            
-            <!-- Credit Packs -->
             <div class="p-6 overflow-y-auto max-h-[55vh]">
-                <div id="credit-packs" class="space-y-3">
-                    <!-- akan diisi via script -->
-                </div>
-                
-                <!-- PayPal Container (Inside Modal) -->
+                <div id="credit-packs" class="space-y-3"></div>
+                <!-- PayPal Container -->
                 <div id="paypal-button-container" class="mt-6 hidden">
                     <div class="relative">
                         <div class="absolute inset-0 flex items-center">
@@ -727,29 +690,27 @@
                     </div>
                     <div id="paypal-buttons" class="mt-4"></div>
                 </div>
-                
                 <p class="text-xs text-gray-400 mt-4 text-center dark:text-gray-500">
-                    <i class="fas fa-shield-alt mr-1"></i>
-                     Credits payment non-refundable.
+                    <i class="fas fa-shield-alt mr-1"></i> Credits payment non-refundable.
                 </p>
             </div>
         </div>
     </div>
 
-    <!-- Modern Footer -->
+    <!-- ═══════════════════════════════════════════
+         FOOTER
+         ═══════════════════════════════════════════ -->
     <footer class="relative bg-gradient-to-b from-gray-900 to-black text-white py-16 w-full mt-auto overflow-hidden">
-        <!-- Decorative Elements -->
         <div class="absolute inset-0 overflow-hidden">
             <div class="absolute top-0 left-1/4 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl"></div>
             <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl"></div>
         </div>
-        
         <div class="relative z-10 max-w-7xl mx-auto px-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-12 items-center">
                 <!-- Brand -->
                 <div class="text-center lg:text-left">
                     <div class="flex items-center justify-center lg:justify-start gap-3 mb-4">
-                        <div id="footer-logo" class="w-12 h-12 bg-gradient-to-br from-white to-gray-200 text-gray-900 flex items-center justify-center font-black text-xl rounded-xl shadow-lg">
+                        <div id="footer-logo" class="w-12 h-12 bg-gradient-to-br from-white to-gray-200 text-gray-900 flex items-center justify-center font-black text-xl rounded-xl shadow-lg overflow-hidden">
                             <span id="footer-logo-text">ZX</span>
                             <img id="footer-logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png" alt="Logo" class="hidden w-full h-full object-cover rounded-xl">
                         </div>
@@ -760,7 +721,6 @@
                     </div>
                     <p class="text-gray-400 text-sm max-w-xs mx-auto lg:mx-0">Empowering creators worldwide with high-quality visual content.</p>
                 </div>
-                
                 <!-- Social Links -->
                 <div class="flex flex-wrap justify-center gap-4">
                     <a href="https://www.instagram.com/zx_vizuals?igsh=ZG14c3Y4d3EyaWQw" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-gradient-to-br hover:from-[#833AB4] hover:via-[#E1306C] hover:to-[#F77737] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-pink-500/25">
@@ -791,7 +751,6 @@
                         <i class="fas fa-camera text-xl text-gray-400 group-hover:text-white transition-colors"></i>
                     </a>
                 </div>
-                
                 <!-- Copyright -->
                 <div class="text-center lg:text-right">
                     <p class="text-gray-500 text-sm mb-2">&copy; 2026 ZXAION VERSE</p>
@@ -801,8 +760,8 @@
         </div>
     </footer>
 
-<!-- ✅ PayPal LIVE SDK — defer mencegah script memblok parsing HTML -->
-<script src="https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture" defer></script>
+    <!-- PayPal LIVE SDK — defer agar tidak blok parsing HTML -->
+    <script src="https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture" defer></script>
 
     <script src="/script.js"></script>
 </body>

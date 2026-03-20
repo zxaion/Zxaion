@@ -1,25 +1,27 @@
-/* CSS Variables */
+/* ============================================
+   CSS VARIABLES
+   ============================================ */
 :root {
-    --primary-bg: #ffffff;
-    --secondary-bg: #f9fafb;
-    --border-color: #e5e7eb;
-    --text-primary: #111827;
-    --text-secondary: #6b7280;
-    --accent-color: #fbbf24;
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-    --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    --shadow-3xl: 0 35px 60px -15px rgba(0, 0, 0, 0.3);
+    --primary-bg:    #ffffff;
+    --secondary-bg:  #f9fafb;
+    --border-color:  #e5e7eb;
+    --text-primary:  #111827;
+    --text-secondary:#6b7280;
+    --accent-color:  #fbbf24;
+    --shadow-sm:     0 1px 2px 0 rgba(0,0,0,0.05);
+    --shadow-md:     0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+    --shadow-lg:     0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    --shadow-xl:     0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+    --shadow-2xl:    0 25px 50px -12px rgba(0,0,0,0.25);
+    --shadow-3xl:    0 35px 60px -15px rgba(0,0,0,0.3);
 }
 
 .dark {
-    --primary-bg: #111827;
-    --secondary-bg: #1f2937;
-    --border-color: #374151;
-    --text-primary: #f9fafb;
-    --text-secondary: #9ca3af;
+    --primary-bg:    #111827;
+    --secondary-bg:  #1f2937;
+    --border-color:  #374151;
+    --text-primary:  #f9fafb;
+    --text-secondary:#9ca3af;
 }
 
 /* ============================================
@@ -27,21 +29,21 @@
    ============================================ */
 .masonry-layout {
     column-count: 2;
-    column-gap: 1rem;
-    width: 100%;
+    column-gap:   1rem;
+    width:        100%;
 }
 
 @media (min-width: 640px) {
     .masonry-layout {
         column-count: 3;
-        column-gap: 1.25rem;
+        column-gap:   1.25rem;
     }
 }
 
 @media (min-width: 1024px) {
     .masonry-layout {
         column-count: 4;
-        column-gap: 1.5rem;
+        column-gap:   1.5rem;
     }
 }
 
@@ -51,17 +53,17 @@
     }
 }
 
-/* Masonry Item */
+/* ── Masonry Item ─────────────────────────────────────────── */
 .masonry-item {
-    break-inside: avoid;
-    margin-bottom: 1rem;
-    position: relative;
-    border-radius: 16px;
-    overflow: hidden;
-    background: #f3f4f6;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    cursor: pointer;
-    /* ✅ will-change hanya saat hover — tidak alokasi GPU layer untuk semua item */
+    break-inside:    avoid;
+    margin-bottom:   1rem;
+    position:        relative;
+    border-radius:   16px;
+    overflow:        hidden;
+    background:      #f3f4f6;
+    cursor:          pointer;
+    transition:      transform 0.3s ease, box-shadow 0.3s ease;
+    /* will-change alokasi hanya saat hover — hemat GPU layer */
 }
 
 .masonry-item:hover {
@@ -69,96 +71,95 @@
 }
 
 .masonry-item img {
-    width: 100%;
-    height: auto;
-    display: block;
+    width:      100%;
+    height:     auto;
+    display:    block;
     transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Masonry Overlay */
+/* ── Masonry Overlay ─────────────────────────────────────── */
 .masonry-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 40%, transparent 100%);
-    opacity: 0;
-    transition: opacity 0.4s ease;
-    display: flex;
-    flex-direction: column;
+    position:        absolute;
+    inset:           0;
+    background:      linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 40%, transparent 100%);
+    opacity:         0;
+    transition:      opacity 0.4s ease;
+    display:         flex;
+    flex-direction:  column;
     justify-content: flex-end;
-    padding: 1rem;
-    pointer-events: none;
+    padding:         1rem;
+    pointer-events:  none;
 }
 
 .masonry-overlay .stats {
-    display: flex;
-    gap: 0.75rem;
-    color: white;
-    font-size: 0.75rem;
-    font-weight: 600;
+    display:       flex;
+    gap:           0.75rem;
+    color:         white;
+    font-size:     0.75rem;
+    font-weight:   600;
     margin-bottom: 0.5rem;
     pointer-events: auto;
 }
 
 .masonry-overlay .stats span {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    background: rgba(0,0,0,0.5);
+    display:         flex;
+    align-items:     center;
+    gap:             0.375rem;
+    background:      rgba(0,0,0,0.5);
     backdrop-filter: blur(4px);
-    padding: 0.375rem 0.75rem;
-    border-radius: 999px;
+    padding:         0.375rem 0.75rem;
+    border-radius:   999px;
 }
 
 .masonry-overlay .download-btn {
-    background: white;
-    color: #111827;
-    border: none;
+    background:    white;
+    color:         #111827;
+    border:        none;
     border-radius: 999px;
-    padding: 0.5rem 1rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: fit-content;
-    cursor: pointer;
+    padding:       0.5rem 1rem;
+    font-size:     0.75rem;
+    font-weight:   700;
+    display:       flex;
+    align-items:   center;
+    gap:           0.5rem;
+    width:         fit-content;
+    cursor:        pointer;
     pointer-events: auto;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transition:    all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:    0 4px 6px -1px rgba(0,0,0,0.1);
 }
 
 .masonry-overlay .download-btn:hover {
-    background: #f3f4f6;
-    transform: scale(1.05);
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    background:  #f3f4f6;
+    transform:   scale(1.05);
+    box-shadow:  0 10px 15px -3px rgba(0,0,0,0.1);
 }
 
-/* Hover Effects */
+/* ── Hover — desktop only ─────────────────────────────────── */
 @media (hover: hover) {
     .masonry-item:hover {
-        transform: translateY(-6px);
+        transform:  translateY(-6px);
         box-shadow: var(--shadow-2xl);
-        z-index: 10;
+        z-index:    10;
     }
 
     .masonry-item:hover img {
-        /* ✅ REDUCE: Scale dari 1.08 ke 1.05 */
         transform: scale(1.05);
     }
 
-    /* ✅ FIX #3 CRITICAL: Rule ini hilang — overlay tidak pernah tampil saat hover desktop */
+    /* FIX C-2: Rule ini wajib ada — overlay tidak pernah tampil tanpa ini */
     .masonry-item:hover .masonry-overlay {
         opacity: 1;
     }
 }
 
-/* Touch Device - Always show overlay */
+/* ── Touch Device — overlay selalu tampil ─────────────────── */
 @media (hover: none) {
     .masonry-overlay {
-        opacity: 1;
+        opacity:    1;
         background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%);
     }
-    
+
     .masonry-overlay .stats {
         opacity: 0.8;
     }
@@ -171,14 +172,14 @@
     transition: all 0.3s ease;
 }
 
-.cat-btn.active img, 
+.cat-btn.active img,
 .cat-btn.active .home-icon-wrapper {
     box-shadow: 0 0 0 3px #fff, 0 0 0 5px #000;
-    transform: scale(1.08);
+    transform:  scale(1.08);
 }
 
 .cat-btn.active span {
-    color: #000;
+    color:       #000;
     font-weight: 700;
 }
 
@@ -186,27 +187,32 @@
     color: #fff;
 }
 
-.cat-btn img, 
-.home-icon-wrapper {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 2px solid transparent;
-    border-radius: 50%;
-    overflow: hidden;
+.dark .cat-btn.active img,
+.dark .cat-btn.active .home-icon-wrapper {
+    box-shadow: 0 0 0 3px #1f2937, 0 0 0 5px #fff;
 }
 
-.cat-btn:hover img, 
+.cat-btn img,
+.home-icon-wrapper {
+    transition:    all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border:        2px solid transparent;
+    border-radius: 50%;
+    overflow:      hidden;
+}
+
+.cat-btn:hover img,
 .cat-btn:hover .home-icon-wrapper {
-    transform: scale(1.05);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform:  scale(1.05);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
 /* ============================================
    LOADING SHIMMER
    ============================================ */
 .loading-shimmer {
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background:      linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+    animation:       shimmer 1.5s infinite;
 }
 
 @keyframes shimmer {
@@ -214,28 +220,19 @@
     100% { background-position:  200% 0; }
 }
 
-/* ============================================
-   LOADING SHIMMER - DARK MODE
-   ============================================ */
+/* FIX: Dark mode shimmer butuh animation — tanpa ini shimmer jadi static */
 .dark .loading-shimmer {
-    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+    background:      linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
     background-size: 200% 100%;
-    /* FIX: Tambah animation — tanpa ini shimmer jadi static di dark mode */
-    animation: shimmer 1.5s infinite;
+    animation:       shimmer 1.5s infinite;
 }
 
 /* ============================================
    ANIMATIONS
    ============================================ */
 @keyframes fadeIn {
-    from { 
-        opacity: 0; 
-        transform: translateY(20px); 
-    }
-    to { 
-        opacity: 1; 
-        transform: translateY(0); 
-    }
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
@@ -247,12 +244,8 @@
 }
 
 @keyframes pulse-glow {
-    0%, 100% {
-        box-shadow: 0 0 20px rgba(251, 191, 36, 0.4);
-    }
-    50% {
-        box-shadow: 0 0 40px rgba(251, 191, 36, 0.6);
-    }
+    0%, 100% { box-shadow: 0 0 20px rgba(251,191,36,0.4); }
+    50%       { box-shadow: 0 0 40px rgba(251,191,36,0.6); }
 }
 
 .pulse-glow {
@@ -262,81 +255,113 @@
 /* ============================================
    SCROLLBAR HIDE
    ============================================ */
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
-}
-
+.no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar {
     -ms-overflow-style: none;
-    scrollbar-width: none;
+    scrollbar-width:    none;
 }
 
 /* ============================================
    MODAL BACKDROP
    ============================================ */
 .modal-backdrop {
-    background-color: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(8px);
-    animation: fadeIn 0.3s ease;
+    background-color: rgba(0,0,0,0.7);
+    backdrop-filter:  blur(8px);
+    animation:        fadeIn 0.3s ease;
 }
 
 /* ============================================
    IMAGE MODAL
+   FIX: Layout mobile — tidak terpotong/overlap,
+   panel detail scroll internal, gambar max 55vh mobile.
    ============================================ */
 #image-modal {
     animation: fadeIn 0.3s ease;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch; /* smooth scrolling iOS */
 }
 
-#image-modal .bg-white {
-    border-radius: 16px;
-    max-height: 95vh;
-    overflow-y: auto;
+/* Inner flex container */
+#image-modal > div.h-full {
+    max-height: calc(100vh - 2rem); /* 2rem = p-4 × 2 */
+    overflow:   hidden;
 }
 
-@media (max-width: 768px) {
-    #image-modal {
-        padding: 8px; /* Add padding untuk mobile */
-    }
-    
-    #image-modal .bg-white {
-        max-height: 90vh;
-        border-radius: 12px;
-    }
-    
-    #image-modal .lg\:w-96 {
-        width: 100% !important;
-        max-height: 50vh;
-    }
-}
-
-/* ✅ Better image sizing in modal */
-#image-modal .flex-1 {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 300px;
+/* Image wrapper */
+#modal-img-wrapper {
+    flex-shrink: 0;
+    min-height:  200px;
+    max-height:  55vh; /* mobile: batasi agar panel detail tidak terdorong */
 }
 
 @media (min-width: 1024px) {
-    #image-modal .flex-1 {
-        min-height: 400px;
+    #modal-img-wrapper {
+        max-height: 85vh;
+        flex-shrink: 1;
     }
 }
 
+/* Detail panel: scroll internal */
+#image-modal .lg\:w-96 {
+    overflow:        hidden;
+    display:         flex;
+    flex-direction:  column;
+}
+
+/* Area dalam panel yang bisa di-scroll */
+#image-modal .lg\:w-96 .flex-1 {
+    overflow-y:               auto;
+    -webkit-overflow-scrolling: touch;
+    min-height: 0; /* CRITICAL: tanpa ini flexbox tidak scroll di Safari */
+}
+
+/* Modal image */
 #modal-img {
-    max-width: 100%;
-    max-height: 70vh;
-    width: auto;
-    height: auto;
-    object-fit: contain;
+    max-width:   100%;
+    max-height:  100%;
+    width:        auto;
+    height:       auto;
+    object-fit:  contain;
 }
 
-@media (min-width: 1024px) {
-    #modal-img {
-        max-height: 80vh;
+/* Mobile: stack vertikal dengan batasan yang jelas */
+@media (max-width: 1023px) {
+    #image-modal {
+        padding:                    0.5rem;
+        overflow-y:                 auto;
+        -webkit-overflow-scrolling: touch;
+        align-items:                flex-start; /* scroll dari atas, bukan center */
     }
+
+    #image-modal > div.h-full {
+        flex-direction: column;
+        height:         auto;
+        max-height:     none;
+        min-height:     100%;
+    }
+
+    #modal-img-wrapper {
+        width:         100%;
+        max-height:    50vh;
+        min-height:    180px;
+        border-radius: 12px;
+        flex-shrink:   0;
+    }
+
+    #image-modal .lg\:w-96 {
+        width:         100%;
+        max-height:    none;
+        border-radius: 12px;
+        flex-shrink:   0;
+    }
+
+    #image-modal .lg\:w-96 .flex-1 {
+        max-height: 40vh;
+    }
+}
+
+/* Dark mode — modal panel */
+.dark #image-modal .bg-white {
+    background:   #1f2937;
+    border-color: #374151;
 }
 
 /* ============================================
@@ -347,8 +372,8 @@
 }
 
 #comit-here-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 24px rgba(20, 184, 166, 0.3);
+    transform:  translateY(-2px);
+    box-shadow: 0 12px 24px rgba(20,184,166,0.3);
 }
 
 /* ============================================
@@ -356,63 +381,29 @@
    ============================================ */
 #credit-display {
     background: linear-gradient(135deg, #fbbf24, #f59e0b);
-    color: #000;
-    box-shadow: 0 4px 12px rgba(251, 191, 36, 0.3);
+    color:      #000;
+    box-shadow: 0 4px 12px rgba(251,191,36,0.3);
 }
 
 /* ============================================
-   DARK MODE ADJUSTMENTS
+   DARK MODE — MASONRY
    ============================================ */
 .dark .masonry-item {
     background: #1f2937;
 }
 
-.dark .cat-btn.active img,
-.dark .cat-btn.active .home-icon-wrapper {
-    box-shadow: 0 0 0 3px #1f2937, 0 0 0 5px #fff;
-}
-
-.dark #image-modal .bg-white {
-    background: #1f2937;
-    border-color: #374151;
-}
-
 /* ============================================
-   RESPONSIVE
+   RESPONSIVE — MASONRY
    ============================================ */
-
-/* ✅ FIX C-1: Single backslash '\:' adalah CSS escape yang benar untuk Tailwind class 'lg:w-96'
-   Double backslash '\\:' sebelumnya salah — selector tidak match apapun (dead CSS).
-   Semua rule responsive untuk image-modal panel tidak pernah berlaku karena bug ini. */
-@media (max-width: 1024px) {
-    #image-modal {
-        flex-direction: column;
-        padding: 1rem;
-    }
-
-    #image-modal .lg\:w-96 {
-        width: 100%;
-        max-height: 40vh;
-    }
-}
-
 @media (max-width: 768px) {
     .masonry-layout {
         column-count: 2;
-        column-gap: 0.75rem;
+        column-gap:   0.75rem;
     }
 
     .masonry-item {
         margin-bottom: 0.75rem;
         border-radius: 12px;
-    }
-
-    /* ✅ Hapus .flex-row selector — tidak ada elemen dengan class 'flex-row' di modal,
-       Tailwind pakai 'flex-col lg:flex-row' bukan class 'flex-row' standalone */
-
-    #image-modal .lg\:w-96 {
-        width: 100%;
-        max-height: 50vh; /* Konsisten: pakai max-height bukan height untuk konten dinamis */
     }
 }
 
@@ -437,7 +428,7 @@ html {
 }
 
 #original-album-card:hover {
-    transform: translateY(-8px);
+    transform:  translateY(-8px);
     box-shadow: var(--shadow-3xl);
 }
 
@@ -445,18 +436,18 @@ html {
    ANIME COLLECTION CARDS
    ============================================ */
 .anime-collection-card {
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    background: #1a1a1a;
+    transition:    all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    background:    #1a1a1a;
     border-radius: 20px;
-    overflow: hidden;
-    position: relative;
-    box-shadow: var(--shadow-md);
+    overflow:      hidden;
+    position:      relative;
+    box-shadow:    var(--shadow-md);
 }
 
 .anime-collection-card:hover {
-    transform: translateY(-8px) scale(1.02);
+    transform:  translateY(-8px) scale(1.02);
     box-shadow: var(--shadow-2xl);
-    z-index: 5;
+    z-index:    5;
 }
 
 .anime-collection-card img {
@@ -471,19 +462,19 @@ html {
    CREDIT PACK CARDS
    ============================================ */
 .credit-pack-card {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 2px solid transparent;
+    transition:   all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border:       2px solid transparent;
 }
 
 .credit-pack-card:hover {
-    transform: translateY(-2px);
+    transform:    translateY(-2px);
     border-color: #fbbf24;
-    box-shadow: 0 8px 24px rgba(251, 191, 36, 0.2);
+    box-shadow:   0 8px 24px rgba(251,191,36,0.2);
 }
 
 .credit-pack-card.selected {
     border-color: #fbbf24;
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(245, 158, 11, 0.1));
+    background:   linear-gradient(135deg, rgba(251,191,36,0.1), rgba(245,158,11,0.1));
 }
 
 /* ============================================
@@ -498,18 +489,18 @@ html {
 }
 
 /* ============================================
-   SEARCH INPUT STYLES
+   SEARCH INPUT
    ============================================ */
 #searchInput:focus {
-    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.1);
 }
 
 .dark #searchInput:focus {
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.1);
 }
 
 /* ============================================
-   NAVIGATION STYLES
+   NAVIGATION
    ============================================ */
 nav {
     transition: all 0.3s ease;
@@ -521,57 +512,40 @@ nav.scrolled {
 
 /* ============================================
    BUTTON & LINK TRANSITIONS
-   ✅ Scoped — tidak override Tailwind utility class transition
+   Scoped — tidak override Tailwind utility class
    ============================================ */
-
-/* Hanya apply ke button/link yang tidak punya Tailwind transition class */
 button:not([class*="transition"]),
 a:not([class*="transition"]) {
     transition:
-        color            0.2s ease,
-        background-color 0.2s ease,
-        border-color     0.2s ease,
-        opacity          0.2s ease;
+        color             0.2s ease,
+        background-color  0.2s ease,
+        border-color      0.2s ease,
+        opacity           0.2s ease;
 }
 
 /* ============================================
    LINE CLAMP UTILITY
    ============================================ */
 .line-clamp-2 {
-    display: -webkit-box;
+    display:            -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
-    overflow: hidden;
+    overflow:           hidden;
 }
 
 /* ============================================
    CUSTOM SCROLLBAR
    ============================================ */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
+::-webkit-scrollbar       { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-    background: #d1d5db;
+    background:    #d1d5db;
     border-radius: 4px;
 }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
-::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-    background: #4b5563;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-    background: #6b7280;
-}
+.dark ::-webkit-scrollbar-thumb       { background: #4b5563; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 
 /* ============================================
    PAYPAL BUTTON CONTAINER
@@ -581,7 +555,7 @@ a:not([class*="transition"]) {
 }
 
 /* ============================================
-   ZVERSE MODAL LINKS
+   ZVERSE MODAL — SHIMMER SWEEP ON HOVER
    ============================================ */
 #zverse-modal a {
     position: relative;
@@ -589,12 +563,12 @@ a:not([class*="transition"]) {
 }
 
 #zverse-modal a::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
+    content:    '';
+    position:   absolute;
+    top:        0;
+    left:       -100%;
+    width:      100%;
+    height:     100%;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
     transition: left 0.5s;
 }
@@ -604,28 +578,31 @@ a:not([class*="transition"]) {
 }
 
 /* ============================================
-   DONATION MODAL CRYPTO BUTTONS
+   CRYPTO BUTTONS — RIPPLE ON CLICK
    ============================================ */
-.crypto-btn, .crypto-btn-usdt {
+.crypto-btn,
+.crypto-btn-usdt {
     position: relative;
     overflow: hidden;
 }
 
-.crypto-btn::after, .crypto-btn-usdt::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    background: rgba(255,255,255,0.2);
+.crypto-btn::after,
+.crypto-btn-usdt::after {
+    content:       '';
+    position:      absolute;
+    top:           50%;
+    left:          50%;
+    width:         0;
+    height:        0;
+    background:    rgba(255,255,255,0.2);
     border-radius: 50%;
-    transform: translate(-50%, -50%);
-    transition: width 0.4s, height 0.4s;
+    transform:     translate(-50%, -50%);
+    transition:    width 0.4s, height 0.4s;
 }
 
-.crypto-btn:active::after, .crypto-btn-usdt:active::after {
-    width: 200%;
+.crypto-btn:active::after,
+.crypto-btn-usdt:active::after {
+    width:  200%;
     height: 200%;
 }
 
@@ -648,10 +625,10 @@ a:not([class*="transition"]) {
 }
 
 #page-hero::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(45deg, rgba(0,0,0,0.3), transparent);
+    content:        '';
+    position:       absolute;
+    inset:          0;
+    background:     linear-gradient(45deg, rgba(0,0,0,0.3), transparent);
     pointer-events: none;
 }
 
@@ -673,21 +650,22 @@ a:not([class*="transition"]) {
 /* ============================================
    EMPTY STATE & NO RESULTS
    ============================================ */
-#empty-state, #no-results {
+#empty-state,
+#no-results {
     animation: fadeIn 0.5s ease;
 }
 
 /* ============================================
-   MODAL CLOSE BUTTONS - REMOVE ROTATION
+   MODAL CLOSE BUTTONS
+   FIX: Hapus rotate(90deg) — diganti scale saja
    ============================================ */
 [id^="close-"] {
     transition: all 0.3s ease;
 }
 
 [id^="close-"]:hover {
-    /* ❌ HAPUS: transform: rotate(90deg); */
-    transform: scale(1.1); /* ✅ GANTI: Normal scale effect */
-    opacity: 0.8;
+    transform: scale(1.1);
+    opacity:   0.8;
 }
 
 /* ============================================
@@ -702,12 +680,12 @@ a:not([class*="transition"]) {
 }
 
 /* ============================================
-   FOCUS STYLES
+   FOCUS STYLES — ACCESSIBILITY
    ============================================ */
 button:focus-visible,
 a:focus-visible,
 input:focus-visible {
-    outline: 2px solid #fbbf24;
+    outline:        2px solid #fbbf24;
     outline-offset: 2px;
 }
 
@@ -715,101 +693,107 @@ input:focus-visible {
    RANKING CAROUSEL
    ============================================ */
 
-/* Hide scrollbar tapi tetap scrollable */
+/* Hide scrollbar, tetap scrollable */
 #ranking-carousel {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    -webkit-overflow-scrolling: touch;
+    scrollbar-width:              none;
+    -ms-overflow-style:           none;
+    -webkit-overflow-scrolling:   touch;
+    cursor: grab;
+}
+
+#ranking-carousel:active {
+    cursor: grabbing;
 }
 
 #ranking-carousel::-webkit-scrollbar {
     display: none;
 }
 
-/* Cursor drag untuk desktop */
-#ranking-carousel {
-    cursor: grab;
-}
-#ranking-carousel:active {
-    cursor: grabbing;
-}
-
-/* ✅ Card ranking — GPU hint on-demand */
+/* FIX: ring-color bukan CSS property — diganti box-shadow valid */
 .ranking-card {
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform   0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow  0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ranking-card:hover {
     will-change: transform;
-    transform: scale(1.05);
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-    ring-color: rgba(251, 191, 36, 0.6);
+    transform:   scale(1.05);
+    box-shadow:
+        0 20px 40px rgba(0,0,0,0.5),
+        0 0 0 2px rgba(251,191,36,0.6); /* border glow menggantikan ring-color */
 }
 
-/* Skeleton shimmer untuk loading state carousel */
+/* Skeleton shimmer saat loading */
 @keyframes carousel-pulse {
     0%, 100% { opacity: 0.35; }
     50%       { opacity: 0.65; }
 }
 
 .ranking-card-skeleton {
-    animation: carousel-pulse 1.5s ease-in-out infinite;
+    animation:  carousel-pulse 1.5s ease-in-out infinite;
     background: #1f2937;
 }
 
 /* Dark mode carousel section */
 .dark #ranking-carousel-section {
-    background: linear-gradient(to bottom, #030712, #111827);
-    border-color: rgba(255, 255, 255, 0.04);
+    background:   linear-gradient(to bottom, #030712, #111827);
+    border-color: rgba(255,255,255,0.04);
+}
+
+/* FIX: Isolate stacking context — cegah z-index ranking-card
+   menembus sticky nav atau masonry overlay saat hover scale */
+#ranking-carousel-section {
+    isolation: isolate;
+}
+
+.ranking-card {
+    isolation: isolate;
 }
 
 /* Responsive: lebih compact di mobile */
 @media (max-width: 480px) {
     #ranking-carousel-section {
-        padding-left: 0.75rem;
+        padding-left:  0.75rem;
         padding-right: 0.75rem;
     }
 }
 
 /* ============================================
-   SELECTION STYLES
+   SELECTION HIGHLIGHT
    ============================================ */
 ::selection {
-    background: rgba(251, 191, 36, 0.3);
-    color: inherit;
+    background: rgba(251,191,36,0.3);
+    color:      inherit;
 }
 
 /* ============================================
    GOOGLE ADSENSE AD UNITS
    ============================================ */
 
-/* Banner top — tidak ganggu layout */
+/* Banner top — min-height cegah layout shift (CLS) */
 #ad-banner-top {
     min-height: 90px;
     transition: opacity 0.3s ease;
 }
 
-/* In-feed ad — blend dengan masonry grid */
+.dark #ad-banner-top {
+    background:   #111827;
+    border-color: #1f2937;
+}
+
+/* In-feed ad — blend dengan masonry grid, tidak di-hover seperti image card */
 .ad-in-feed-item {
-    cursor: default;
+    cursor:         default;
     pointer-events: auto;
 }
 
-/* Pastikan in-feed tidak ter-hover seperti image card */
 .ad-in-feed-item:hover {
-    transform: none;
+    transform:  none;
     box-shadow: none;
-    z-index: auto;
+    z-index:    auto;
 }
 
-/* Label "Ad" badge */
-.ad-in-feed-item [aria-label="Advertisement"] span {
-    font-size: 9px;
-    letter-spacing: 0.1em;
-}
-
-/* After-gallery ad spacing */
+/* After-gallery spacing */
 #ad-after-gallery {
     padding: 1rem 0;
 }
@@ -817,15 +801,15 @@ input:focus-visible {
 /* Modal sidebar ad */
 #ad-modal-sidebar {
     border-radius: 12px;
-    overflow: hidden;
-    background: #f9fafb;
+    overflow:      hidden;
+    background:    #f9fafb;
 }
 
 .dark #ad-modal-sidebar {
     background: #1f2937;
 }
 
-/* Prevent layout shift — reserve minimum height */
+/* Reserve minimum height — cegah CLS saat iklan load */
 ins.adsbygoogle[data-ad-format="auto"] {
     min-height: 100px;
 }
@@ -834,13 +818,7 @@ ins.adsbygoogle[data-ad-format="fluid"] {
     min-height: 200px;
 }
 
-/* Hide empty ad containers gracefully */
+/* Sembunyikan container iklan yang tidak terisi — cegah whitespace */
 ins.adsbygoogle[data-ad-status="unfilled"] {
     display: none !important;
-}
-
-/* Dark mode — ad container background */
-.dark #ad-banner-top {
-    background: #111827;
-    border-color: #1f2937;
 }
