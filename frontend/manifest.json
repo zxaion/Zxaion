@@ -1,0 +1,78 @@
+{
+  "name": "ZXAION GALLERY - High Quality Wallpapers",
+  "short_name": "ZXAION",
+  "description": "Multi high quality wallpaper, anime, fantasy, photography and exclusive content",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "orientation": "portrait-primary",
+  "categories": ["entertainment", "lifestyle"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Home.jpg",
+      "sizes": "540x720",
+      "type": "image/jpeg",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg",
+      "sizes": "540x720",
+      "type": "image/jpeg",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg",
+      "sizes": "1280x720",
+      "type": "image/jpeg",
+      "form_factor": "wide"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Browse Anime",
+      "short_name": "Anime",
+      "description": "Browse anime wallpapers",
+      "url": "/?category=Anime",
+      "icons": [
+        {
+          "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Browse Fantasy",
+      "short_name": "Fantasy",
+      "description": "Browse fantasy wallpapers",
+      "url": "/?category=Fantasy",
+      "icons": [
+        {
+          "src": "https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ]
+}
