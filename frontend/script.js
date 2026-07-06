@@ -320,25 +320,37 @@ const api = {
                 return true;
             }
 
-            const res = await fetch(`${API_BASE}/api/list`);
-            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
-            const data = await res.json();
+            // FIX: /api/list dibatasi max 500 baris/request. Loop semua halaman
+            // supaya seluruh katalog ter-load (sebelumnya gambar di luar 500
+            // pertama hilang dari galeri, search, dan album anime).
+            const PAGE_SIZE = 500;
+            const MAX_PAGES = 50; // safety guard ~25.000 gambar
+            let page    = 1;
+            let allData = [];
 
-            if (Array.isArray(data)) {
-                const filtered = data.filter(photo => {
-                    if (!photo.path) return true;
-                    return !photo.path.toLowerCase().startsWith('header/');
-                });
+            while (page <= MAX_PAGES) {
+                const res = await fetch(`${API_BASE}/api/list?page=${page}&limit=${PAGE_SIZE}`);
+                if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+                const data = await res.json();
+                if (!Array.isArray(data)) break;
 
-                this.imageCache.main      = filtered;
-                this.imageCache.timestamp = now;
-
-                state.allPhotos = filtered;
-                this.organizeAnimeAlbums();
-                ui.updateOriginalAlbumCount();
-                return true;
+                allData = allData.concat(data);
+                if (data.length < PAGE_SIZE) break; // halaman terakhir
+                page++;
             }
-            return false;
+
+            const filtered = allData.filter(photo => {
+                if (!photo.path) return true;
+                return !photo.path.toLowerCase().startsWith('header/');
+            });
+
+            this.imageCache.main      = filtered;
+            this.imageCache.timestamp = now;
+
+            state.allPhotos = filtered;
+            this.organizeAnimeAlbums();
+            ui.updateOriginalAlbumCount();
+            return true;
         } catch (e) {
             console.error('Error fetching images:', e);
             ui.showEmptyState();
@@ -356,11 +368,24 @@ const api = {
 
     async fetchComitbaseImages() {
         try {
-            const res = await fetch(`${API_BASE}/api/comitbase/list`);
-            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
-            const data = await res.json();
-            if (Array.isArray(data)) { state.comitbasePhotos = data; return true; }
-            return false;
+            const PAGE_SIZE = 500;
+            const MAX_PAGES = 50;
+            let page    = 1;
+            let allData = [];
+
+            while (page <= MAX_PAGES) {
+                const res = await fetch(`${API_BASE}/api/comitbase/list?page=${page}&limit=${PAGE_SIZE}`);
+                if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+                const data = await res.json();
+                if (!Array.isArray(data)) break;
+
+                allData = allData.concat(data);
+                if (data.length < PAGE_SIZE) break;
+                page++;
+            }
+
+            state.comitbasePhotos = allData;
+            return true;
         } catch (e) {
             console.error('Error fetching COMITBASE:', e);
             return false;
@@ -369,11 +394,24 @@ const api = {
 
     async fetchDtreasureImages() {
         try {
-            const res = await fetch(`${API_BASE}/api/dtreasure/list`);
-            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
-            const data = await res.json();
-            if (Array.isArray(data)) { state.dtreasurePhotos = data; return true; }
-            return false;
+            const PAGE_SIZE = 500;
+            const MAX_PAGES = 50;
+            let page    = 1;
+            let allData = [];
+
+            while (page <= MAX_PAGES) {
+                const res = await fetch(`${API_BASE}/api/dtreasure/list?page=${page}&limit=${PAGE_SIZE}`);
+                if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+                const data = await res.json();
+                if (!Array.isArray(data)) break;
+
+                allData = allData.concat(data);
+                if (data.length < PAGE_SIZE) break;
+                page++;
+            }
+
+            state.dtreasurePhotos = allData;
+            return true;
         } catch (e) {
             console.error('Error fetching DTREASURE:', e);
             return false;
@@ -689,6 +727,10 @@ const ui = {
     renderGallery() {
         if (!elements.galleryContainer) return;
 
+        // FIX: selalu sembunyikan panel "Loading/Connecting" begitu proses
+        // render galeri jalan, agar tidak tampil bersamaan dengan "No Results".
+        this.hideEmptyState();
+
         if (state.filteredPhotos.length === 0) {
             elements.galleryContainer.innerHTML = '';
             this.showNoResults();
@@ -849,12 +891,15 @@ const ui = {
     async triggerDownload(photo) {
         if (!photo || !photo.url) return;
 
-        api.recordDownload(photo.id);
-
-        // Optimistic counter update untuk semua elemen dengan data-id yang sama
-        document.querySelectorAll(`.download-count[data-id="${photo.id}"]`).forEach(el => {
-            el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
-        });
+        // FIX: pencatatan stats dipisah jadi helper, dan untuk jalur DTREASURE
+        // hanya dipanggil SETELAH fetch() sukses — sebelumnya stats naik duluan
+        // walau download gagal/diblokir.
+        const markDownloaded = () => {
+            api.recordDownload(photo.id);
+            document.querySelectorAll(`.download-count[data-id="${photo.id}"]`).forEach(el => {
+                el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
+            });
+        };
 
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
         const fullUrl     = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
@@ -891,6 +936,8 @@ const ui = {
                 document.body.removeChild(a);
                 setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
 
+                markDownloaded(); // baru dicatat setelah blob berhasil didapat
+
                 loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
                 loadingToast.classList.add('bg-green-800');
 
@@ -908,6 +955,7 @@ const ui = {
                 setTimeout(() => { document.getElementById('dl-toast')?.remove(); }, 3500);
             }
         } else {
+            markDownloaded();
             const a    = document.createElement('a');
             a.href     = downloadUrl;
             a.download = filename;

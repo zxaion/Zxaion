@@ -30,6 +30,11 @@ function parseImageMeta(key, bucket) {
       : '/api/dtreasure/img/';
 
   return {
+    // FIX: id stabil berbasis path (bucket:key), BUKAN content-hash (httpEtag).
+    // ETag berubah setiap file di-replace di key yang sama → purchased_images/
+    // views/downloads kehilangan relasinya. id berbasis path tetap konsisten
+    // walau isi file diganti.
+    id:           `${bucket}:${key}`,
     r2_key:       key,
     bucket,
     title,
@@ -51,21 +56,31 @@ async function handleScheduled(env) {
     { bucket: env.TREASURE,  name: 'dtreasure' },
   ];
 
+  const BATCH_CHUNK_SIZE = 200; // FIX: kirim batch bertahap, cegah payload D1 kebesaran
+
   for (const { bucket, name } of buckets) {
     if (!bucket) continue;
+    const syncStartedAt = new Date().toISOString();
+
     try {
-      let cursor      = undefined;
+      let cursor  = undefined;
       let totalSynced = 0;
+      let pending = [];
+
+      const flush = async () => {
+        if (pending.length === 0) return;
+        await DB.batch(pending);
+        pending = [];
+      };
 
       do {
         const listResult = await bucket.list({ cursor, limit: 1000 });
-        const stmts = [];
 
         for (const obj of listResult.objects) {
           const meta = parseImageMeta(obj.key, name);
           if (!meta) continue;
 
-          stmts.push(
+          pending.push(
             DB.prepare(`
               INSERT INTO images (id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -77,7 +92,7 @@ async function handleScheduled(env) {
                 uploaded     = excluded.uploaded,
                 last_synced  = excluded.last_synced
             `).bind(
-              obj.httpEtag,
+              meta.id,
               obj.key,
               name,
               meta.title,
@@ -85,20 +100,28 @@ async function handleScheduled(env) {
               meta.sub_category,
               obj.size,
               obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-              new Date().toISOString()
+              syncStartedAt
             )
           );
           totalSynced++;
-        }
 
-        if (stmts.length > 0) {
-          await DB.batch(stmts);
+          if (pending.length >= BATCH_CHUNK_SIZE) await flush();
         }
 
         cursor = listResult.truncated ? listResult.cursor : undefined;
       } while (cursor);
 
-      console.log(`[Scheduled] Synced ${totalSynced} images from bucket: ${name}`);
+      await flush();
+
+      // FIX: hapus baris yang tidak lagi ditemukan di R2 pada sync ini
+      // (file sudah dihapus dari bucket). Tanpa ini, gambar yang dihapus
+      // tetap nyangkut di galeri (link mati / 404) selamanya.
+      const cleanup = await DB.prepare(
+        'DELETE FROM images WHERE bucket = ? AND (last_synced IS NULL OR last_synced < ?)'
+      ).bind(name, syncStartedAt).run();
+
+      const removed = cleanup?.meta?.changes || 0;
+      console.log(`[Scheduled] Synced ${totalSynced} images, removed ${removed} stale rows from bucket: ${name}`);
     } catch (e) {
       console.error(`[Scheduled] Error syncing bucket ${name}:`, e.message);
     }
@@ -377,30 +400,47 @@ export default {
           return new Response('OK', { status: 200 });
         }
 
-        if (packData.lifetime) {
-          await DB.prepare(
-            'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET lifetime = 1'
-          ).bind(userId).run();
-        } else {
-          const totalCredits = packData.credits + (packData.bonus || 0);
-          await DB.prepare(
-            'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?'
-          ).bind(userId, totalCredits, totalCredits).run();
+        // FIX: ATOMIC CLAIM — pasangan dari klaim yang sama di /api/credits/purchase.
+        // Siapa yang berhasil INSERT lebih dulu (id = order:<orderId> adalah PK),
+        // dialah yang boleh credit. Yang kedua dapat changes=0 dan langsung stop
+        // — mencegah double-credit untuk orderId yang sama.
+        const claim = await DB.prepare(`
+          INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status)
+          VALUES (?, ?, ?, ?, ?, 'processing')
+          ON CONFLICT(id) DO NOTHING
+        `).bind(`order:${orderId}`, userId, orderId, String(roundedAmount), capturedAmount).run();
+
+        if (!claim.meta || claim.meta.changes === 0) {
+          console.log(`Webhook: order ${orderId} sudah diklaim/diproses sebelumnya — skip duplikasi credit`);
+          return new Response('OK', { status: 200 });
         }
 
-        await DB.prepare(`
-          INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
-          VALUES (?, ?, ?, ?, ?, 'completed', ?)
-        `).bind(
-          `order:${orderId}`,
-          userId,
-          orderId,
-          String(roundedAmount),
-          capturedAmount,
-          new Date().toISOString()
-        ).run();
+        try {
+          if (packData.lifetime) {
+            await DB.prepare(
+              'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET lifetime = 1'
+            ).bind(userId).run();
+          } else {
+            const totalCredits = packData.credits + (packData.bonus || 0);
+            await DB.prepare(
+              'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?'
+            ).bind(userId, totalCredits, totalCredits).run();
+          }
 
-        console.log(`Webhook: credited user ${userId} for order ${orderId} ($${capturedAmount})`);
+          await DB.prepare(
+            `UPDATE payment_orders SET status = 'completed', completed_at = ? WHERE id = ?`
+          ).bind(new Date().toISOString(), `order:${orderId}`).run();
+
+          console.log(`Webhook: credited user ${userId} for order ${orderId} ($${capturedAmount})`);
+        } catch (creditError) {
+          // Klaim sudah terambil tapi crediting gagal — tandai 'failed', JANGAN
+          // biarkan 'processing' permanen (PayPal akan retry webhook ini).
+          console.error(`Webhook: gagal credit user ${userId} untuk order ${orderId}:`, creditError.message);
+          await DB.prepare(
+            `UPDATE payment_orders SET status = 'failed', error_message = ? WHERE id = ?`
+          ).bind(creditError.message, `order:${orderId}`).run();
+        }
+
         return new Response('OK', { status: 200 });
 
       } catch (e) {
@@ -468,11 +508,19 @@ export default {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
       try {
+        // FIX: dukungan pagination — sebelumnya hardcode LIMIT 500 tanpa OFFSET,
+        // gambar ke-501 dst tidak pernah bisa diambil.
+        const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',   10);
+        const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
+        const page     = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
+        const limit    = Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 500);
+        const offset   = (page - 1) * limit;
+
         const { results } = await DB.prepare(
           `SELECT id, title, r2_key, uploaded, view_count, download_count
            FROM images WHERE bucket = 'comitbase'
-           ORDER BY uploaded DESC LIMIT 500`
-        ).all();
+           ORDER BY uploaded DESC LIMIT ? OFFSET ?`
+        ).bind(limit, offset).all();
 
         const photos = results.map(row => ({
           id:            row.id,
@@ -507,11 +555,18 @@ export default {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
       try {
+        // FIX: dukungan pagination — sama seperti /api/comitbase/list.
+        const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',   10);
+        const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
+        const page     = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
+        const limit    = Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 500);
+        const offset   = (page - 1) * limit;
+
         const { results } = await DB.prepare(
           `SELECT id, title, r2_key, uploaded, view_count, download_count
            FROM images WHERE bucket = 'dtreasure'
-           ORDER BY uploaded DESC LIMIT 500`
-        ).all();
+           ORDER BY uploaded DESC LIMIT ? OFFSET ?`
+        ).bind(limit, offset).all();
 
         const photos = results.map(row => ({
           id:            row.id,
@@ -691,8 +746,10 @@ export default {
 
         if (!user) {
           user = { credits: 0, lifetime: 0 };
+          // FIX: INSERT OR IGNORE — idempotent, cegah error UNIQUE constraint
+          // kalau ada 2 request bersamaan dari user baru yang sama.
           await DB.prepare(
-            'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
+            'INSERT OR IGNORE INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
           ).bind(userId).run();
         }
 
@@ -846,6 +903,41 @@ export default {
           }
         }
 
+        // FIX: ATOMIC CLAIM — pasangan dari klaim yang sama di webhook handler.
+        const claim = await DB.prepare(`
+          INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status)
+          VALUES (?, ?, ?, ?, ?, 'processing')
+          ON CONFLICT(id) DO NOTHING
+        `).bind(`order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack]).run();
+
+        if (!claim.meta || claim.meta.changes === 0) {
+          // Sudah diklaim proses lain (kemungkinan besar webhook PayPal datang
+          // lebih dulu). Tunggu sebentar lalu laporkan status final — JANGAN
+          // credit dua kali untuk orderId yang sama.
+          await new Promise(r => setTimeout(r, 1500));
+
+          const settled = await DB.prepare(
+            'SELECT status FROM payment_orders WHERE id = ?'
+          ).bind(`order:${orderId}`).first();
+          const user = await DB.prepare(
+            'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
+          ).bind(verifiedUserId).first();
+
+          if (settled?.status === 'completed') {
+            return new Response(JSON.stringify({
+              success:    true,
+              message:    'Order already processed',
+              newBalance: user?.credits  || 0,
+              lifetime:   !!user?.lifetime,
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          }
+
+          return new Response(JSON.stringify({
+            success: false,
+            error:   'Order is being processed by another request. Please refresh in a few seconds.',
+          }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
         try {
           if (packData.lifetime) {
             await DB.prepare(
@@ -858,12 +950,9 @@ export default {
             ).bind(verifiedUserId, totalCredits, totalCredits).run();
           }
 
-          await DB.prepare(`
-            INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, completed_at)
-            VALUES (?, ?, ?, ?, ?, 'completed', ?)
-          `).bind(
-            `order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack], new Date().toISOString()
-          ).run();
+          await DB.prepare(
+            `UPDATE payment_orders SET status = 'completed', completed_at = ? WHERE id = ?`
+          ).bind(new Date().toISOString(), `order:${orderId}`).run();
 
           const user = await DB.prepare(
             'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
@@ -879,13 +968,9 @@ export default {
 
         } catch (dbError) {
           console.error('Database credit error:', dbError.message);
-          await DB.prepare(`
-            INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
-            VALUES (?, ?, ?, ?, ?, 'failed', ?)
-          `).bind(
-            `order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack],
-            `Database error: ${dbError.message}`
-          ).run();
+          await DB.prepare(
+            `UPDATE payment_orders SET status = 'failed', error_message = ? WHERE id = ?`
+          ).bind(dbError.message, `order:${orderId}`).run();
           throw dbError;
         }
 
@@ -974,12 +1059,13 @@ export default {
           }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        // Atomic deduct — race condition safe
+// Atomic deduct — race condition safe.
+        // FIX: jumlah baris berubah ada di `meta.changes`, bukan `changes`.
         const deductResult = await DB.prepare(
           'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'
         ).bind(userId).run();
 
-        if (deductResult.changes === 0) {
+        if (!deductResult.meta || deductResult.meta.changes === 0) {
           return new Response(JSON.stringify({
             success: false,
             error:   'Insufficient credits (concurrent request detected)',
