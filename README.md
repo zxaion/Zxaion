@@ -1,6 +1,6 @@
 ## Hi there 👋
 
 <!--
-**zxaion/Zxaion** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+**zxaion/Zxaion** is a ✨ _special_ ✨ repository because its `
  
 newbie ai dev🤠

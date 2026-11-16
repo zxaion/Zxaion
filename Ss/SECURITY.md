@@ -21,8 +21,3 @@ We will respond within 48 hours.
 
 ---
 
-### 8. Review `robot.txt`
-```
-# robot.txt — tambahkan ini
-User-agent: *
-Allow: /
