@@ -307,10 +307,35 @@ export default {
           'https://api-m.paypal.com',
           'https://api.sandbox.paypal.com',
         ];
-        if (!PAYPAL_CERT_DOMAINS.some(domain => certUrl.startsWith(domain))) {
-          console.error('Webhook certUrl domain not trusted:', certUrl);
-          return new Response('Unauthorized', { status: 401 });
-        }
+        
+const TRUSTED_PAYPAL_HOSTS = new Set([
+  'api.paypal.com',
+  'api-m.paypal.com',
+  'api.sandbox.paypal.com'
+]);
+
+let cert;
+
+try {
+  cert = new URL(certUrl);
+} catch {
+  return new Response('Invalid certificate URL', {
+    status: 401
+  });
+}
+
+if (
+  cert.protocol !== 'https:' ||
+  !TRUSTED_PAYPAL_HOSTS.has(cert.hostname) ||
+  cert.username ||
+  cert.password ||
+  cert.port
+) {
+  return new Response('Untrusted certificate URL', {
+    status: 401
+  });
+}
+
 
         // FIX: Satu kali getPayPalAccessToken — reuse untuk signature verify
         // dan order detail fetch. Cegah double OAuth round-trip.
@@ -364,17 +389,37 @@ export default {
           return new Response('OK', { status: 200 });
         }
 
-        const PACK_BY_PRICE = {
-          5:   { credits: 200,  bonus: 0,    lifetime: false },
-          25:  { credits: 1300, bonus: 450,  lifetime: false },
-          45:  { credits: 2700, bonus: 900,  lifetime: false },
-          75:  { credits: 4500, bonus: 1400, lifetime: false },
-          99:  { credits: 7000, bonus: 2300, lifetime: false },
-          125: { credits: 0,    bonus: 0,    lifetime: true  },
-        };
+        
+const PACK_BY_CENTS = {
+  500:   { credits: 200,  bonus: 0,    lifetime: false },
+  2500:  { credits: 1300, bonus: 450,  lifetime: false },
+  4500:  { credits: 2700, bonus: 900,  lifetime: false },
+  7500:  { credits: 4500, bonus: 1400, lifetime: false },
+  9900:  { credits: 7000, bonus: 2300, lifetime: false },
+  12500: { credits: 0,    bonus: 0,    lifetime: true  }
+};
 
-        const roundedAmount = Math.round(capturedAmount);
-        const packData      = PACK_BY_PRICE[roundedAmount];
+const amountText = String(
+  webhookEvent.resource?.amount?.value || ''
+).trim();
+
+if (!/^\d+(\.\d{1,2})?$/.test(amountText)) {
+  return new Response('Invalid payment amount', {
+    status: 400
+  });
+}
+
+const amountCents = Math.round(Number(amountText) * 100);
+const packData = PACK_BY_CENTS[amountCents];
+
+if (!packData) {
+  console.error('Unrecognized PayPal amount:', amountText);
+
+  return new Response('Unknown payment amount', {
+    status: 400
+  });
+}
+
 
         if (!packData) {
           console.error(`Unknown pack amount from webhook: $${capturedAmount}`);
@@ -408,7 +453,7 @@ export default {
           INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status)
           VALUES (?, ?, ?, ?, ?, 'processing')
           ON CONFLICT(id) DO NOTHING
-        `).bind(`order:${orderId}`, userId, orderId, String(roundedAmount), capturedAmount).run();
+        `).bind(`order:${orderId}`, userId, orderId, String(amountCents), amountCents / 100).run();
 
         if (!claim.meta || claim.meta.changes === 0) {
           console.log(`Webhook: order ${orderId} sudah diklaim/diproses sebelumnya — skip duplikasi credit`);
@@ -1011,6 +1056,32 @@ export default {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+      
+      
+const image = await DB.prepare(`
+  SELECT id
+  FROM images
+  WHERE id = ?
+    AND bucket = 'dtreasure'
+  LIMIT 1
+`).bind(photoId).first();
+
+if (!image) {
+  return new Response(
+    JSON.stringify({
+      success: false,
+      error: 'Invalid DTREASURE image'
+    }),
+    {
+      status: 404,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+}
+
 
       try {
         const alreadyPurchased = await DB.prepare(
@@ -1059,22 +1130,74 @@ export default {
           }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-// Atomic deduct — race condition safe.
-        // FIX: jumlah baris berubah ada di `meta.changes`, bukan `changes`.
-        const deductResult = await DB.prepare(
-          'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'
-        ).bind(userId).run();
 
-        if (!deductResult.meta || deductResult.meta.changes === 0) {
-          return new Response(JSON.stringify({
-            success: false,
-            error:   'Insufficient credits (concurrent request detected)',
-          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
+const results = await DB.batch([
+  DB.prepare(`
+    UPDATE user_credits
+    SET credits = credits - 10
+    WHERE user_id = ?
+      AND credits >= 10
+      AND NOT EXISTS (
+        SELECT 1
+        FROM purchased_images
+        WHERE user_id = ?
+          AND photo_id = ?
+      )
+  `).bind(userId, userId, photoId),
 
-        await DB.prepare(
-          'INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)'
-        ).bind(userId, photoId).run();
+  DB.prepare(`
+    INSERT INTO purchased_images (user_id, photo_id)
+    SELECT ?, ?
+    WHERE changes() = 1
+  `).bind(userId, photoId)
+]);
+
+const debitChanges = results[0]?.meta?.changes || 0;
+const purchaseChanges = results[1]?.meta?.changes || 0;
+
+if (debitChanges === 0 && purchaseChanges === 0) {
+  const existing = await DB.prepare(`
+    SELECT 1
+    FROM purchased_images
+    WHERE user_id = ?
+      AND photo_id = ?
+  `).bind(userId, photoId).first();
+
+  if (existing) {
+    const user = await DB.prepare(`
+      SELECT credits
+      FROM user_credits
+      WHERE user_id = ?
+    `).bind(userId).first();
+
+    return new Response(JSON.stringify({
+      success: true,
+      alreadyOwned: true,
+      newBalance: user?.credits || 0
+    }), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      }
+    });
+  }
+
+  return new Response(JSON.stringify({
+    success: false,
+    error: 'Insufficient credits'
+  }), {
+    status: 400,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json'
+    }
+  });
+}
+
+if (debitChanges !== 1 || purchaseChanges !== 1) {
+  throw new Error('Atomic purchase failed');
+}
+
 
         const newUser = await DB.prepare(
           'SELECT credits FROM user_credits WHERE user_id = ?'
@@ -1105,57 +1228,97 @@ export default {
       const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
       // Auth check untuk DTREASURE download
-      if (isDtreasure && url.searchParams.get('download') === 'true') {
-        const headerToken = getUserToken(request);
-        const userId = (headerToken && headerToken !== 'anonymous')
-          ? headerToken
-          : (url.searchParams.get('userToken') || 'anonymous');
+      
+// DTREASURE ACCESS PROTECTION
+if (isDtreasure) {
+  const userId = getUserToken(request);
 
-        if (!userId || userId === 'anonymous') {
-          return new Response(JSON.stringify({ error: 'Authentication required' }), {
-            status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        try {
-          const userRecord = await DB.prepare(
-            'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-          ).bind(userId).first();
-
-          const hasLifetime = userRecord && !!userRecord.lifetime;
-
-          if (!hasLifetime) {
-            const photoIdFromQuery = url.searchParams.get('photoId');
-            const rawKey           = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
-
-            let purchasedRecord = null;
-
-            if (photoIdFromQuery) {
-              purchasedRecord = await DB.prepare(
-                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-              ).bind(userId, photoIdFromQuery).first();
-            }
-
-            if (!purchasedRecord) {
-              purchasedRecord = await DB.prepare(
-                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-              ).bind(userId, rawKey).first();
-            }
-
-            if (!purchasedRecord) {
-              return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
-                status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              });
-            }
-          }
-        } catch (e) {
-          console.error('[DTREASURE Download] Auth check DB error:', e.message);
-          return new Response(JSON.stringify({ error: 'Server error during authorization check' }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
+  if (!userId || userId === 'anonymous') {
+    return new Response(
+      JSON.stringify({ error: 'Authentication required' }),
+      {
+        status: 401,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store'
         }
       }
+    );
+  }
+
+  let rawKey;
+
+  try {
+    rawKey = decodeURIComponent(
+      path.slice('/api/dtreasure/img/'.length)
+    );
+  } catch {
+    return new Response('Invalid image key', { status: 400 });
+  }
+
+  try {
+    const image = await DB.prepare(`
+      SELECT id
+      FROM images
+      WHERE bucket = 'dtreasure'
+        AND r2_key = ?
+      LIMIT 1
+    `).bind(rawKey).first();
+
+    if (!image) {
+      return new Response('Image not found', { status: 404 });
+    }
+
+    const user = await DB.prepare(`
+      SELECT lifetime
+      FROM user_credits
+      WHERE user_id = ?
+      LIMIT 1
+    `).bind(userId).first();
+
+    if (!user) {
+      return new Response('User not found', { status: 403 });
+    }
+
+    if (!user.lifetime) {
+      const ownership = await DB.prepare(`
+        SELECT 1
+        FROM purchased_images
+        WHERE user_id = ?
+          AND photo_id = ?
+        LIMIT 1
+      `).bind(userId, image.id).first();
+
+      if (!ownership) {
+        return new Response(
+          JSON.stringify({
+            error: 'Purchase required to access this image'
+          }),
+          {
+            status: 403,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store'
+            }
+          }
+        );
+      }
+    }
+  } catch (error) {
+    console.error('[DTREASURE AUTH]', error);
+
+    return new Response('Authorization service unavailable', {
+      status: 503,
+      headers: {
+        ...corsHeaders,
+        'Cache-Control': 'no-store'
+      }
+    });
+  }
+}
+
 
       let bucket, prefix;
       if (path.startsWith('/api/comitbase/img/')) {
