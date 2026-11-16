@@ -162,64 +162,7 @@ const state = new AppState();
 // Timer untuk auto-refresh ranking carousel — dibersihkan saat ganti kategori.
 let _carouselRefreshTimer = null;
 
-// ============================================================
-// ADS MODULE
-// ============================================================
-const ads = {
-    CLIENT_ID: 'ca-pub-4913648248892788',
-    SLOTS: {
-        BANNER_TOP: 'SLOT_ID_BANNER_TOP',
-        MODAL:      'SLOT_ID_MODAL',
-        CONTENT:    'SLOT_ID_CONTENT',
-        IN_FEED:    'SLOT_ID_IN_FEED',
-    },
-    IN_FEED_INTERVAL: 10,
 
-    push(el) {
-        if (!el || el.dataset.adsbygoogleStatus) return;
-        try {
-            (window.adsbygoogle = window.adsbygoogle || []).push({});
-        } catch (e) {
-            console.warn('[AdSense] Push error:', e.message);
-        }
-    },
-
-    initStaticSlots() {
-        document.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(ins => {
-            this.push(ins);
-        });
-    },
-
-    createInFeedAd() {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'masonry-item ad-in-feed-item';
-        wrapper.setAttribute('aria-label', 'Advertisement');
-        wrapper.innerHTML = `
-            <div class="relative rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-800 min-h-[200px] flex flex-col">
-                <span class="absolute top-2 left-2 z-10 text-[9px] text-gray-400 bg-white/80 dark:bg-gray-900/80 px-1.5 py-0.5 rounded uppercase tracking-wider">Ad</span>
-                <ins class="adsbygoogle flex-1"
-                     style="display:block;min-height:200px;"
-                     data-ad-client="${this.CLIENT_ID}"
-                     data-ad-slot="${this.SLOTS.IN_FEED}"
-                     data-ad-format="fluid"
-                     data-ad-layout-key="-fb+5w+4e-db+86"></ins>
-            </div>
-        `;
-        return wrapper;
-    },
-
-    injectInFeedAds(container) {
-        if (!container || !window.adsbygoogle) return;
-        const items    = container.querySelectorAll('.masonry-item:not(.ad-in-feed-item)');
-        const interval = this.IN_FEED_INTERVAL;
-        for (let i = interval - 1; i < items.length; i += interval) {
-            const adEl = this.createInFeedAd();
-            items[i].insertAdjacentElement('afterend', adEl);
-        }
-        container.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(ins => {
-            this.push(ins);
-        });
-    },
 
     handleCategoryChange(category) {
         const bannerTop    = document.getElementById('ad-banner-top');
@@ -266,6 +209,8 @@ const utils = {
         div.textContent = text;
         return div.innerHTML;
     },
+    
+    
 
     shuffleArray(array) {
         const shuffled = [...array];
@@ -415,18 +360,6 @@ const api = {
         } catch (e) {
             console.error('Error fetching DTREASURE:', e);
             return false;
-        }
-    },
-
-    async fetchImageStats(photoId) {
-        if (!photoId) return { views: 0, downloads: 0 };
-        try {
-            const res = await fetch(`${API_BASE}/api/stats/${encodeURIComponent(photoId)}`);
-            if (!res.ok) return { views: 0, downloads: 0 };
-            const data = await res.json();
-            return { views: data.views || 0, downloads: data.downloads || 0 };
-        } catch {
-            return { views: 0, downloads: 0 };
         }
     },
 
@@ -647,10 +580,12 @@ const ui = {
         state.currentImageId = photo.id;
 
         // Optimistic DOM update + fire-and-forget ke server
+                // Optimistic DOM update + fire-and-forget ke server
         api.recordView(photo.id);
 
-        // Pakai viewCount yang sudah di-increment oleh recordView DOM update
-        const displayViews     = (photo.viewCount     || 0);
+        // FIX: Tambah +1 ke displayViews karena recordView sudah melakukan
+        // optimistic increment di DOM gallery. Modal harus konsisten.
+        const displayViews     = (photo.viewCount     || 0) + 1;
         const displayDownloads = (photo.downloadCount || 0);
 
         const imageUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
@@ -688,17 +623,14 @@ const ui = {
         this.applyModalShield(isDtreasure && !isPurchased);
 
         if (isDtreasure) {
-            if (isPurchased) {
-                const token       = getOrCreateUserToken();
-                const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+                        if (isPurchased) {
+                // FIX: Hapus userToken dari URL — token di query string ter-expose
+                // di logs, history, referrer. Gunakan onclick → fetch dengan header.
                 const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-                const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
-                elements.downloadBtn.href = downloadUrl;
-                elements.downloadBtn.setAttribute('download', filename);
+                elements.downloadBtn.removeAttribute('href');
+                elements.downloadBtn.removeAttribute('download');
                 elements.downloadBtn.onclick = () => {
-                    api.recordDownload(photo.id);
-                    const el = elements.modalDownloadCount;
-                    if (el) el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
+                    ui.triggerDownload(photo);
                 };
                 elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
             } else {
@@ -717,9 +649,6 @@ const ui = {
         // Tampilkan modal SEGERA — gambar selesai load di background
         elements.imageModal.classList.remove('hidden');
         elements.imageModal.classList.add('flex');
-
-        const modalAdIns = document.querySelector('#ad-modal-sidebar ins:not([data-adsbygoogle-status])');
-        if (modalAdIns) ads.push(modalAdIns);
 
         document.body.style.overflow = 'hidden';
     },
@@ -805,14 +734,10 @@ const ui = {
 
         elements.galleryContainer.appendChild(fragment);
         this.setupGalleryEventListeners();
-        ads.injectInFeedAds(elements.galleryContainer);
 
         const afterGallery = document.getElementById('ad-after-gallery');
         if (afterGallery && state.filteredPhotos.length > 0) {
             afterGallery.classList.remove('hidden');
-            const ins = afterGallery.querySelector('ins:not([data-adsbygoogle-status])');
-            if (ins) ads.push(ins);
-        }
 
         this.updatePagination();
     },
@@ -955,13 +880,17 @@ const ui = {
                 setTimeout(() => { document.getElementById('dl-toast')?.remove(); }, 3500);
             }
         } else {
-            markDownloaded();
+            // FIX: Pindahkan markDownloaded() ke SETELAH click() — sebelumnya
+            // count di-increment walau download gagal/diblokir.
             const a    = document.createElement('a');
             a.href     = downloadUrl;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
-            setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 300);
+            setTimeout(() => {
+                if (document.body.contains(a)) document.body.removeChild(a);
+                markDownloaded();
+            }, 300);
         }
     },
 
@@ -1342,16 +1271,21 @@ const ui = {
             _carouselRefreshTimer = null;
         }
 
-        if (category === 'All') {
+                if (category === 'All') {
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
-            state.filteredPhotos = utils.shuffleArray(
-                state.allPhotos.filter(p => p.category && p.category.toLowerCase() === 'anime')
-            );
+            // FIX: Tampilkan SEMUA gambar, bukan hanya anime. Sebelumnya
+            // filter hardcoded 'anime' menyebabkan kategori "All" hanya
+            // menampilkan gambar anime.
+            state.filteredPhotos = utils.shuffleArray(state.allPhotos);
             this.renderGallery();
+
 
             // Render carousel, lalu auto-refresh setiap 2 menit
             this.renderTopRankingCarousel().catch(e => console.error('renderTopRankingCarousel error:', e));
-            _carouselRefreshTimer = setInterval(() => {
+                        _carouselRefreshTimer = setInterval(() => {
+                // FIX: Skip refresh jika tab tidak aktif — hemat bandwidth
+                // dan resource saat user di tab lain.
+                if (document.hidden) return;
                 if (state.currentCategory === 'All') {
                     ui.renderTopRankingCarousel().catch(() => {});
                 } else {
@@ -1359,6 +1293,7 @@ const ui = {
                     _carouselRefreshTimer = null;
                 }
             }, 120_000);
+
 
         } else if (category === 'Anime') {
             if (elements.animeCollections) elements.animeCollections.classList.remove('hidden');
@@ -1567,12 +1502,17 @@ const ui = {
                     const menuModalEl = document.getElementById('menu-modal');
 
                     if (titleEl)   titleEl.textContent = data[key].title;
-                    if (contentEl) {
-                        // Sanitasi dasar: hapus script, inline handlers, javascript: URI
-                        const sanitized = (data[key].content || '')
-                            .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-                            .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
-                            .replace(/javascript\s*:/gi, '');
+                                        if (contentEl) {
+                        // FIX: Gunakan DOMPurify untuk sanitasi HTML — regex bypass
+                        // dengan unquoted event handlers (onerror=alert(1)) tidak
+                        // menangkap semua varian. DOMPurify adalah library yang
+                        // battle-tested untuk XSS prevention.
+                        const sanitized = (typeof DOMPurify !== 'undefined')
+                            ? DOMPurify.sanitize(data[key].content || '', {
+                                ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h3', 'h4', 'span', 'div', 'img'],
+                                ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'src', 'alt'],
+                              })
+                            : utils.escapeHtml(data[key].content || '');
                         contentEl.innerHTML = sanitized;
                     }
                     if (modalEl)    { modalEl.classList.remove('hidden');    modalEl.classList.add('flex'); }
@@ -1706,6 +1646,12 @@ function initEvents() {
         e.preventDefault();
         ui.changeCategory('All');
     });
+        // Original album card click handler (mengganti inline onclick)
+    document.getElementById('original-album-card')?.addEventListener('click', () => {
+        const album = document.getElementById('original-album-card')?.dataset.animeAlbum;
+        if (album) ui.openAnimeAlbum(album);
+    });
+
 
     // Category buttons
     const categoryMap = {
@@ -2108,7 +2054,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ]);
 
     ui.changeCategory('All');
-    ads.initStaticSlots();
+    
 
     // Sticky nav shadow on scroll
     const nav = document.querySelector('nav');
