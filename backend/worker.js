@@ -313,7 +313,7 @@ export default {
         }
 
         // FIX: Satu kali getPayPalAccessToken — reuse untuk signature verify
-        // dan order detail fetch. Cegah double OAuth round-trip
+        // dan order detail fetch. Cegah double OAuth round-trip.
         let accessToken;
         try {
           accessToken = await getPayPalAccessToken();
@@ -1260,6 +1260,14 @@ export default {
             "https://cdn.tailwindcss.com " +
             "https://cdnjs.cloudflare.com " +
             "https://www.paypal.com " +
+            "https://pagead2.googlesyndication.com " +
+            "https://partner.googleadservices.com " +
+            "https://tpc.googlesyndication.com " +
+            "https://securepubads.g.doubleclick.net " +
+            "https://www.googletagservices.com " +
+            "https://www.gstatic.com " +
+            "https://adservice.google.com " +
+            "https://adservice.google.co.id; " +
           "style-src 'self' 'unsafe-inline' " +
             "https://cdnjs.cloudflare.com " +
             "https://fonts.googleapis.com; " +
