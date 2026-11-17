@@ -180,25 +180,16 @@ export default {
       return req.headers.get('X-User-Token') || 'anonymous';
     }
 
-        async function checkRateLimit(endpoint, identifier, limit = 50, windowSec = 3600) {
+    async function checkRateLimit(endpoint, identifier, limit = 50, windowSec = 3600) {
       const key = `rate:${endpoint}:${identifier}`;
       const now = Math.floor(Date.now() / 1000);
       try {
-        // FIX: UPDATE dulu — jika baris belum ada, INSERT OR IGNORE.
-        // Ini menutup race condition antara dua request konkuren.
-        const updateResult = await DB.prepare(`
-          UPDATE rate_limits
-          SET count      = CASE WHEN reset_time < ? THEN 1    ELSE count + 1 END,
-              reset_time = CASE WHEN reset_time < ? THEN ?    ELSE reset_time END
-          WHERE id = ?
-        `).bind(now, now, now + windowSec, key).run();
-
-        if (!updateResult.meta || updateResult.meta.changes === 0) {
-          // Baris belum ada — insert baru
-          await DB.prepare(
-            'INSERT OR IGNORE INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?)'
-          ).bind(key, now + windowSec).run();
-        }
+        await DB.prepare(`
+          INSERT INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            count      = CASE WHEN reset_time < ? THEN 1    ELSE count + 1 END,
+            reset_time = CASE WHEN reset_time < ? THEN ?    ELSE reset_time END
+        `).bind(key, now + windowSec, now, now, now + windowSec).run();
 
         const record = await DB.prepare(
           'SELECT count FROM rate_limits WHERE id = ?'
@@ -210,7 +201,6 @@ export default {
         return true; // fail open
       }
     }
-
 
     async function getPayPalAccessToken() {
       if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET_ID) {
@@ -306,16 +296,10 @@ export default {
         const transmissionSig  = request.headers.get('paypal-transmission-sig');
         const authAlgo         = request.headers.get('paypal-auth-algo');
 
-                if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
+        if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
           console.error('Missing required PayPal webhook headers');
           return new Response('Unauthorized', { status: 401 });
         }
-
-        if (!PAYPAL_WEBHOOK_ID) {
-          console.error('PAYPAL_WEBHOOK_ID not configured — cannot verify webhook');
-          return new Response('Webhook not configured', { status: 500 });
-        }
-
 
         // SSRF guard — only accept certs from official PayPal domains
         const PAYPAL_CERT_DOMAINS = [
@@ -367,10 +351,9 @@ export default {
         const capturedAmount = parseFloat(webhookEvent.resource?.amount?.value || '0');
         const currencyCode   = webhookEvent.resource?.amount?.currency_code;
 
-        if (!orderId || capturedAmount <= 0 || currencyCode !== 'USD') {
-  return new Response('OK', { status: 200 });
-}
-
+        if (!orderId || !capturedAmount || currencyCode !== 'USD') {
+          return new Response('OK', { status: 200 });
+        }
 
         const existingOrder = await DB.prepare(
           'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
@@ -658,10 +641,9 @@ export default {
     // ================================================================
     // ENDPOINT: Image stats
     // ================================================================
-        if (path.startsWith('/api/stats/') && method === 'GET') {
-      // FIX: Ambil seluruh sisa path setelah /api/stats/ sebagai ID,
-      // karena ID berformat "bucket:key" yang mengandung karakter "/".
-      const photoId = decodeURIComponent(path.slice('/api/stats/'.length));
+    if (path.startsWith('/api/stats/') && method === 'GET') {
+      const rawSegment = path.split('/').filter(Boolean).pop() || '';
+      const photoId    = decodeURIComponent(rawSegment);
       if (!photoId) {
         return new Response(JSON.stringify({ error: 'Invalid photo ID' }), {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -671,7 +653,6 @@ export default {
         const row = await DB.prepare(
           'SELECT view_count, download_count FROM images WHERE id = ?'
         ).bind(photoId).first();
-
 
         return new Response(JSON.stringify({
           views:     row?.view_count     || 0,
@@ -691,8 +672,9 @@ export default {
     // DB write terjadi di background, eliminasi ~50-200ms latensi dari
     // response time yang sebelumnya menunggu DB write selesai.
     // ================================================================
-        if (path.startsWith('/api/view/') && method === 'POST') {
-      const photoId = decodeURIComponent(path.slice('/api/view/'.length));
+    if (path.startsWith('/api/view/') && method === 'POST') {
+      const rawSegment = path.split('/').filter(Boolean).pop() || '';
+      const photoId    = decodeURIComponent(rawSegment);
       if (!photoId) {
         return new Response(null, { status: 400, headers: corsHeaders });
       }
@@ -700,7 +682,6 @@ export default {
       if (!await checkRateLimit('view', userId, 100, 3600)) {
         return new Response(null, { status: 429, headers: corsHeaders });
       }
-
 
       ctx.waitUntil(
         DB.batch([
@@ -720,8 +701,9 @@ export default {
     // ENDPOINT: Record download
     // FIX: ctx.waitUntil + DB.batch — return 204 IMMEDIATELY.
     // ================================================================
-        if (path.startsWith('/api/download/') && method === 'POST') {
-      const photoId = decodeURIComponent(path.slice('/api/download/'.length));
+    if (path.startsWith('/api/download/') && method === 'POST') {
+      const rawSegment = path.split('/').filter(Boolean).pop() || '';
+      const photoId    = decodeURIComponent(rawSegment);
       if (!photoId) {
         return new Response(null, { status: 400, headers: corsHeaders });
       }
@@ -729,7 +711,6 @@ export default {
       if (!await checkRateLimit('download', userId, 50, 3600)) {
         return new Response(null, { status: 429, headers: corsHeaders });
       }
-
 
       ctx.waitUntil(
         DB.batch([
@@ -1080,18 +1061,10 @@ export default {
 
 // Atomic deduct — race condition safe.
         // FIX: jumlah baris berubah ada di `meta.changes`, bukan `changes`.
-                // FIX: Atomic batch — deduct + insert dalam satu transaksi D1.
-        // Jika salah satu gagal, keduanya di-rollback.
-        const batchResult = await DB.batch([
-          DB.prepare(
-            'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'
-          ).bind(userId),
-          DB.prepare(
-            'INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)'
-          ).bind(userId, photoId),
-        ]);
+        const deductResult = await DB.prepare(
+          'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'
+        ).bind(userId).run();
 
-        const deductResult = batchResult[0];
         if (!deductResult.meta || deductResult.meta.changes === 0) {
           return new Response(JSON.stringify({
             success: false,
@@ -1099,10 +1072,13 @@ export default {
           }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        await DB.prepare(
+          'INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)'
+        ).bind(userId, photoId).run();
+
         const newUser = await DB.prepare(
           'SELECT credits FROM user_credits WHERE user_id = ?'
         ).bind(userId).first();
-
 
         return new Response(JSON.stringify({
           success:    true,
@@ -1249,7 +1225,7 @@ export default {
         woff:  'font/woff',
       };
 
-            let object       = await mainBucket.get(key);
+      let object       = await mainBucket.get(key);
       const isFallback = !object;
       const isAsset    = ext && ext !== 'html' && mimeTypes[ext];
 
@@ -1257,16 +1233,8 @@ export default {
         if (isAsset) {
           return new Response('Not Found', { status: 404 });
         }
-        // FIX: Jangan fallback ke index.html untuk file dengan ekstensi
-        // tidak dikenal — kembalikan 404 agar tidak mengirim HTML dengan
-        // Content-Type yang salah.
-        const hasExtension = key.includes('.') && !key.endsWith('.html');
-        if (hasExtension) {
-          return new Response('Not Found', { status: 404 });
-        }
         object = await mainBucket.get('index.html');
       }
-
 
       if (!object) return new Response('Not found', { status: 404 });
 
