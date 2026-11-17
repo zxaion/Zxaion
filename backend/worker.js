@@ -313,7 +313,7 @@ export default {
         }
 
         // FIX: Satu kali getPayPalAccessToken — reuse untuk signature verify
-        // dan order detail fetch. Cegah double OAuth round-trip
+        // dan order detail fetch. Cegah double OAuth round-trip.
         let accessToken;
         try {
           accessToken = await getPayPalAccessToken();

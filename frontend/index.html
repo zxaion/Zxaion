@@ -8,7 +8,8 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4913648248892788"
+     crossorigin="anonymous"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -39,7 +40,7 @@
                     <div id="logo-container" class="relative w-10 h-10 flex items-center justify-center overflow-hidden rounded-xl transition-transform duration-300 group-hover:scale-105">
                         <div id="logo-zx" class="w-full h-full bg-gradient-to-br from-gray-900 to-black text-white flex items-center justify-center font-black text-lg rounded-xl shadow-lg dark:from-white dark:to-gray-200 dark:text-black">
                             <span id="logo-text">ZX</span>
-                            <img id="logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png?w=96&q=90&f=auto" alt="Logo" class="hidden w-full h-full object-cover">
+                            <img id="logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png" alt="Logo" class="hidden w-full h-full object-cover">
                         </div>
                     </div>
                     <span class="font-black text-lg md:text-xl tracking-tight uppercase dark:text-white hidden sm:block">ZXAION GALLERY</span>
@@ -82,6 +83,9 @@
 
     <!-- ═══════════════════════════════════════════
          MOBILE SEARCH
+         FIX: id="mobile-search-bar" — dibutuhkan oleh ResizeObserver di script.js
+         untuk mengukur tinggi bar ini saat kalkulasi sticky top category-nav,
+         mencegah category-nav overlap mobile search di breakpoint < 768px.
          ═══════════════════════════════════════════ -->
     <div id="mobile-search-bar" class="md:hidden bg-white/90 backdrop-blur-xl border-b border-gray-200/50 px-4 py-2 dark:bg-gray-900/90 dark:border-gray-800/50">
         <div class="relative">
@@ -98,6 +102,10 @@
 
     <!-- ═══════════════════════════════════════════
          CATEGORY NAVIGATION
+         FIX: id="category-nav" — dibutuhkan oleh updateCategoryNavTop() di script.js.
+         Sticky top dikalkulasi secara dinamis via ResizeObserver sehingga tidak
+         hardcode pixel dan tidak overlap dengan nav + mobile search di semua device.
+         FIX: Hapus top-[57px] md:top-[65px] hardcode — diganti oleh JS dinamis.
          ═══════════════════════════════════════════ -->
     <div id="category-nav" class="sticky z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200/50 py-3 px-4 md:px-6 overflow-x-auto no-scrollbar dark:bg-gray-900/95 dark:border-gray-800/50">
         <div class="max-w-7xl mx-auto flex items-start gap-3 md:gap-5 min-w-max">
@@ -115,7 +123,7 @@
             <!-- Anime -->
             <button type="button" id="cat-anime" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-anime-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg?w=112&q=75&f=auto" alt="Anime" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-anime-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg" alt="Anime" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Anime</span>
             </button>
@@ -123,7 +131,7 @@
             <!-- Fantasy -->
             <button type="button" id="cat-fantasy" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-fantasy-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg?w=112&q=75&f=auto" alt="Fantasy" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-fantasy-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg" alt="Fantasy" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Fantasy</span>
             </button>
@@ -131,7 +139,7 @@
             <!-- Abstract -->
             <button type="button" id="cat-abstract" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-abstract-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Abstract.jpg?w=112&q=75&f=auto" alt="Abstract" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-abstract-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Abstract.jpg" alt="Abstract" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Abstract</span>
             </button>
@@ -139,7 +147,7 @@
             <!-- Photography -->
             <button type="button" id="cat-photography" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-photography-img" src="https://ai.zxaionverse.workers.dev/api/img/PHOTOGRAPHY/PSX_207.jpg?w=112&q=75&f=auto" alt="Photo" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-photography-img" src="https://ai.zxaionverse.workers.dev/api/img/PHOTOGRAPHY/PSX_207.jpg" alt="Photo" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Photo</span>
             </button>
@@ -147,7 +155,7 @@
             <!-- COMITBASE -->
             <button type="button" id="cat-comitbase" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-comitbase-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Combaseheader.jpg?w=112&q=75&f=auto" alt="COMITBASE" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-comitbase-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Combaseheader.jpg" alt="COMITBASE" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">COMITBASE</span>
             </button>
@@ -155,7 +163,7 @@
             <!-- DTREASURE -->
             <button type="button" id="cat-dtreasure" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-dtreasure-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Dtreasure.jpg?w=112&q=75&f=auto" alt="DTREASURE" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-dtreasure-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Dtreasure.jpg" alt="DTREASURE" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">DTREASURE</span>
             </button>
@@ -163,7 +171,7 @@
             <!-- ZMEME -->
             <button type="button" id="cat-zmeme" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-zmeme-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Memenav.jpg?w=112&q=75&f=auto" alt="ZMEME" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-zmeme-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Memenav.jpg" alt="ZMEME" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">ZMEME</span>
             </button>
@@ -171,7 +179,7 @@
             <!-- OVERLAY -->
             <button type="button" id="cat-overlay" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
                 <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
-                    <img id="cat-overlay-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Overlaynav.jpg?w=112&q=75&f=auto" alt="OVERLAY" class="w-full h-full rounded-full object-cover shadow-lg">
+                    <img id="cat-overlay-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Overlaynav.jpg" alt="OVERLAY" class="w-full h-full rounded-full object-cover shadow-lg">
                 </div>
                 <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">OVERLAY</span>
             </button>
@@ -193,10 +201,25 @@
     </header>
 
     <!-- ═══════════════════════════════════════════
+         AD SLOT 1: Banner antara Hero dan Carousel
+         ═══════════════════════════════════════════ -->
+    <div id="ad-banner-top" class="w-full bg-white dark:bg-gray-900 py-2 px-4 border-b border-gray-100 dark:border-gray-800">
+        <div class="max-w-[1600px] mx-auto flex justify-center">
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-client="ca-pub-4913648248892788"
+                 data-ad-slot="SLOT_ID_BANNER_TOP"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════
          TOP 20 RANKING CAROUSEL (Home only)
          ═══════════════════════════════════════════ -->
     <section id="ranking-carousel-section" class="hidden w-full bg-gradient-to-b from-gray-950 to-gray-900 py-5 px-4 border-b border-white/5">
         <div class="max-w-[1600px] mx-auto">
+            <!-- Header -->
             <div class="flex items-center justify-between mb-4 px-1">
                 <div class="flex items-center gap-3">
                     <div class="w-8 h-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/30 flex-shrink-0">
@@ -208,15 +231,23 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button id="carousel-scroll-left" type="button" class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110" aria-label="Scroll left">
+                    <button id="carousel-scroll-left" type="button"
+                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
+                        aria-label="Scroll left">
                         <i class="fas fa-chevron-left text-xs"></i>
                     </button>
-                    <button id="carousel-scroll-right" type="button" class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110" aria-label="Scroll right">
+                    <button id="carousel-scroll-right" type="button"
+                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
+                        aria-label="Scroll right">
                         <i class="fas fa-chevron-right text-xs"></i>
                     </button>
                 </div>
             </div>
-            <div id="ranking-carousel" class="flex gap-3 overflow-x-auto pb-2" style="scroll-behavior:smooth;scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;"></div>
+            <!-- Carousel Track -->
+            <div id="ranking-carousel"
+                 class="flex gap-3 overflow-x-auto pb-2"
+                 style="scroll-behavior:smooth;scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;">
+            </div>
         </div>
     </section>
 
@@ -225,8 +256,10 @@
          ═══════════════════════════════════════════ -->
     <main class="max-w-[1600px] mx-auto px-3 md:px-6 pb-10 flex-grow w-full min-h-[600px]">
 
+        <!-- Gallery Container -->
         <div id="gallery-container" class="masonry-layout"></div>
 
+        <!-- Pagination -->
         <div id="pagination-container" class="hidden mt-10 text-center">
             <div class="flex items-center justify-center gap-3">
                 <button id="prev-page" class="px-5 py-2.5 bg-white text-gray-700 rounded-full border border-gray-200 disabled:opacity-40 hover:bg-gray-50 hover:border-gray-300 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
@@ -239,10 +272,23 @@
             </div>
         </div>
 
+        <!-- Ad Slot: In-Content setelah galeri -->
+        <div id="ad-after-gallery" class="hidden mt-8 mb-4 text-center">
+            <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Advertisement</p>
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-client="ca-pub-4913648248892788"
+                 data-ad-slot="SLOT_ID_CONTENT"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+        </div>
+
+        <!-- Anime Collections -->
         <div id="anime-collections" class="hidden w-full">
+            <!-- Original Album Special Card -->
             <div id="original-album-card" class="max-w-[1600px] mx-auto mb-8 w-full h-[280px] md:h-[320px] cursor-pointer" onclick="openAnimeCollection('ORIGINAL')">
                 <div class="relative w-full h-full rounded-3xl overflow-hidden border border-gray-200/50 shadow-2xl group transition-all duration-500 hover:shadow-3xl dark:border-gray-800/50">
-                    <img src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Original.jpg?w=1200&q=80&f=auto" alt="Original Album" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700">
+                    <img src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Original.jpg" alt="Original Album" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700">
                     <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
                     <div class="relative z-10 h-full flex flex-col justify-center items-center text-center px-8">
                         <h3 class="text-3xl md:text-5xl font-black text-white mb-4 tracking-tighter drop-shadow-2xl">ORIGINAL ALBUM</h3>
@@ -259,9 +305,11 @@
                     </div>
                 </div>
             </div>
+            <!-- Anime Grid -->
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6" id="anime-grid"></div>
         </div>
 
+        <!-- COMITBASE Section -->
         <div id="comitbase-section" class="hidden w-full">
             <div class="mb-6 flex justify-end">
                 <button type="button" id="comit-here-btn" class="bg-gradient-to-r from-teal-500 to-emerald-500 text-white px-6 py-3 rounded-full font-bold text-sm hover:from-teal-600 hover:to-emerald-600 transition-all duration-300 shadow-lg shadow-teal-500/25 flex items-center gap-2 hover:scale-105">
@@ -282,6 +330,7 @@
             </div>
         </div>
 
+        <!-- DTREASURE Section -->
         <div id="dtreasure-section" class="hidden w-full">
             <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
                 <div></div>
@@ -307,6 +356,7 @@
             </div>
         </div>
 
+        <!-- Empty State -->
         <div id="empty-state" class="hidden text-center py-20 bg-gray-100/50 rounded-2xl border-2 border-dashed border-gray-300 mt-10 dark:bg-gray-800/50 dark:border-gray-700">
             <div class="w-20 h-20 mx-auto mb-6 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
                 <i class="fas fa-cloud text-3xl text-gray-400 dark:text-gray-500"></i>
@@ -318,6 +368,7 @@
             </button>
         </div>
 
+        <!-- No Results -->
         <div id="no-results" class="hidden text-center py-20 bg-gray-100/50 rounded-2xl border border-gray-200 mt-10 dark:bg-gray-800/50 dark:border-gray-700">
             <div class="w-20 h-20 mx-auto mb-6 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
                 <i class="fas fa-search text-3xl text-gray-400 dark:text-gray-500"></i>
@@ -341,11 +392,25 @@
 
         <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
 
+            <!-- Image Wrapper -->
             <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden" id="modal-img-wrapper">
-                <img id="modal-img" class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain select-none" alt="Wallpaper preview" draggable="false" style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;">
-                <div id="modal-img-shield" class="hidden absolute inset-0 z-10" oncontextmenu="return false;" ondragstart="return false;" style="-webkit-tap-highlight-color:transparent;"></div>
+                <img
+                    id="modal-img"
+                    class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain select-none"
+                    alt="Wallpaper preview"
+                    draggable="false"
+                    style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;">
+                <!-- Shield overlay: aktif untuk DTREASURE yang belum dibeli -->
+                <div
+                    id="modal-img-shield"
+                    class="hidden absolute inset-0 z-10"
+                    oncontextmenu="return false;"
+                    ondragstart="return false;"
+                    style="-webkit-tap-highlight-color:transparent;">
+                </div>
             </div>
 
+            <!-- Image Details Panel -->
             <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">
                 <div class="border-b pb-4 dark:border-gray-700">
                     <div class="flex items-center justify-between mb-3">
@@ -364,7 +429,18 @@
                     </div>
                 </div>
 
-                <div class="flex-1 overflow-y-auto py-4" style="min-height:0;"></div>
+                <!-- Ad slot di modal sidebar -->
+                <div class="flex-1 overflow-y-auto py-4" style="min-height:0;">
+                    <div id="ad-modal-sidebar" class="mb-4">
+                        <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1 text-center">Advertisement</p>
+                        <ins class="adsbygoogle"
+                             style="display:block"
+                             data-ad-client="ca-pub-4913648248892788"
+                             data-ad-slot="SLOT_ID_MODAL"
+                             data-ad-format="auto"
+                             data-full-width-responsive="true"></ins>
+                    </div>
+                </div>
 
                 <div class="border-t pt-4 dark:border-gray-700">
                     <a id="download-btn" href="#" class="w-full px-4 py-3.5 bg-gradient-to-r from-gray-900 to-black text-white rounded-xl font-bold hover:from-gray-800 hover:to-gray-900 transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-[1.02] dark:from-white dark:to-gray-200 dark:text-black">
@@ -395,6 +471,7 @@
                 </div>
             </div>
             <div class="p-6 md:p-8 overflow-y-auto max-h-[60vh]">
+                <!-- Primary Donation -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                     <a href="https://paypal.me/WANTO198" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-[#003087] text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 hover:scale-[1.02]">
                         <div class="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
@@ -407,6 +484,7 @@
                         <span class="relative z-10">Ko-fi</span>
                     </a>
                 </div>
+                <!-- Crypto -->
                 <div class="relative">
                     <div class="flex items-center gap-4 mb-4">
                         <div class="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent dark:via-gray-700"></div>
@@ -441,6 +519,7 @@
                             <span class="text-xs text-gray-400">BSC</span>
                         </button>
                     </div>
+                    <!-- USDT -->
                     <div class="mt-4 p-4 bg-gray-50 rounded-2xl dark:bg-gray-800/50">
                         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 dark:text-gray-400">USDT Networks</p>
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -599,6 +678,7 @@
             </div>
             <div class="p-6 overflow-y-auto max-h-[55vh]">
                 <div id="credit-packs" class="space-y-3"></div>
+                <!-- PayPal Container -->
                 <div id="paypal-button-container" class="mt-6 hidden">
                     <div class="relative">
                         <div class="absolute inset-0 flex items-center">
@@ -627,11 +707,12 @@
         </div>
         <div class="relative z-10 max-w-7xl mx-auto px-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-12 items-center">
+                <!-- Brand -->
                 <div class="text-center lg:text-left">
                     <div class="flex items-center justify-center lg:justify-start gap-3 mb-4">
                         <div id="footer-logo" class="w-12 h-12 bg-gradient-to-br from-white to-gray-200 text-gray-900 flex items-center justify-center font-black text-xl rounded-xl shadow-lg overflow-hidden">
                             <span id="footer-logo-text">ZX</span>
-                            <img id="footer-logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png?w=96&q=90&f=auto" alt="Logo" class="hidden w-full h-full object-cover rounded-xl">
+                            <img id="footer-logo-image" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Logo.png" alt="Logo" class="hidden w-full h-full object-cover rounded-xl">
                         </div>
                         <div>
                             <h2 class="text-2xl font-black tracking-tight uppercase">ZXAION</h2>
@@ -640,6 +721,7 @@
                     </div>
                     <p class="text-gray-400 text-sm max-w-xs mx-auto lg:mx-0">Empowering creators worldwide with high-quality visual content.</p>
                 </div>
+                <!-- Social Links -->
                 <div class="flex flex-wrap justify-center gap-4">
                     <a href="https://www.instagram.com/zx_vizuals?igsh=ZG14c3Y4d3EyaWQw" target="_blank" rel="noopener noreferrer" class="social-link group w-12 h-12 bg-white/5 hover:bg-gradient-to-br hover:from-[#833AB4] hover:via-[#E1306C] hover:to-[#F77737] rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-pink-500/25">
                         <i class="fab fa-instagram text-xl text-gray-400 group-hover:text-white transition-colors"></i>
@@ -669,6 +751,7 @@
                         <i class="fas fa-camera text-xl text-gray-400 group-hover:text-white transition-colors"></i>
                     </a>
                 </div>
+                <!-- Copyright -->
                 <div class="text-center lg:text-right">
                     <p class="text-gray-500 text-sm mb-2">&copy; 2026 ZXAION VERSE</p>
                     <p class="text-gray-600 text-xs">All rights reserved. Made with <i class="fas fa-heart text-red-500 mx-1"></i> for creators.</p>
@@ -677,6 +760,7 @@
         </div>
     </footer>
 
+    <!-- PayPal LIVE SDK — defer agar tidak blok parsing HTML -->
     <script src="https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture" defer></script>
 
     <script src="/script.js"></script>
