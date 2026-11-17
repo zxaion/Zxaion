@@ -515,14 +515,11 @@ nav.scrolled {
    BUTTON & LINK TRANSITIONS
    Scoped — tidak override Tailwind utility class
    ============================================ */
-button:not([class*="transition"]),
-a:not([class*="transition"]) {
-    transition:
-        color             0.2s ease,
-        background-color  0.2s ease,
-        border-color      0.2s ease,
-        opacity           0.2s ease;
+.nav-action-btn,
+.footer-link {
+    transition: color 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
 }
+
 
 /* ============================================
    LINE CLAMP UTILITY

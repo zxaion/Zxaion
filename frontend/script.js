@@ -367,8 +367,16 @@ const api = {
         this.imageCache.timestamp = 0;
     },
 
-    async fetchComitbaseImages() {
+        async fetchComitbaseImages() {
         try {
+            // FIX: Gunakan cache seperti fetchImages — cegah re-fetch setiap
+            // kali user buka kategori COMITBASE.
+            const now = Date.now();
+            if (this.imageCache.comitbase && (now - this.imageCache.timestamp) < 300000) {
+                state.comitbasePhotos = this.imageCache.comitbase;
+                return true;
+            }
+
             const PAGE_SIZE = 500;
             const MAX_PAGES = 50;
             let page    = 1;
@@ -385,6 +393,8 @@ const api = {
                 page++;
             }
 
+            this.imageCache.comitbase = allData;
+            if (!this.imageCache.timestamp) this.imageCache.timestamp = now;
             state.comitbasePhotos = allData;
             return true;
         } catch (e) {
@@ -393,8 +403,16 @@ const api = {
         }
     },
 
-    async fetchDtreasureImages() {
+
+        async fetchDtreasureImages() {
         try {
+            // FIX: Gunakan cache seperti fetchImages.
+            const now = Date.now();
+            if (this.imageCache.dtreasure && (now - this.imageCache.timestamp) < 300000) {
+                state.dtreasurePhotos = this.imageCache.dtreasure;
+                return true;
+            }
+
             const PAGE_SIZE = 500;
             const MAX_PAGES = 50;
             let page    = 1;
@@ -411,6 +429,8 @@ const api = {
                 page++;
             }
 
+            this.imageCache.dtreasure = allData;
+            if (!this.imageCache.timestamp) this.imageCache.timestamp = now;
             state.dtreasurePhotos = allData;
             return true;
         } catch (e) {
@@ -418,6 +438,7 @@ const api = {
             return false;
         }
     },
+
 
     async fetchImageStats(photoId) {
         if (!photoId) return { views: 0, downloads: 0 };
@@ -554,13 +575,22 @@ const api = {
                         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                         .join(' ');
 
-                    const matchedAlbum = ANIME_SUB_ALBUMS.find(album =>
-                        album.toLowerCase() === normalizedName.toLowerCase() ||
-                        normalizedName.toLowerCase().includes(album.toLowerCase()) ||
-                        album.toLowerCase().includes(normalizedName.toLowerCase())
-                    );
+                                        // FIX: Hindari substring match untuk nama pendek (mis. "AI"
+                    // akan cocok dengan "Fairy Tail", "Dr. Stone", dll).
+                    // Hanya izinkan substring match jika yang lebih pendek
+                    // memiliki minimal 4 karakter.
+                    const normalizedLower = normalizedName.toLowerCase();
+                    const matchedAlbum = ANIME_SUB_ALBUMS.find(album => {
+                        const albumLower = album.toLowerCase();
+                        if (albumLower === normalizedLower) return true;
+                        const shorter = albumLower.length < normalizedLower.length
+                            ? albumLower : normalizedLower;
+                        if (shorter.length < 4) return false;
+                        return normalizedLower.includes(albumLower) ||
+                               albumLower.includes(normalizedLower);
+                    });
                     albumTitle = matchedAlbum || normalizedName;
-                }
+
 
                 if (albumTitle) {
                     if (!state.animeAlbums[albumTitle]) {
@@ -648,11 +678,14 @@ const ui = {
         state.currentImageId = photo.id;
 
         // Optimistic DOM update + fire-and-forget ke server
+                // Optimistic DOM update + fire-and-forget ke server
         api.recordView(photo.id);
 
-        // Pakai viewCount yang sudah di-increment oleh recordView DOM update
-        const displayViews     = (photo.viewCount     || 0);
+        // FIX: Tambah 1 karena recordView baru saja men-increment counter
+        // di gallery grid, tapi photo.viewCount masih nilai lama dari API.
+        const displayViews     = (photo.viewCount     || 0) + 1;
         const displayDownloads = (photo.downloadCount || 0);
+
 
         const imageUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
 
@@ -765,10 +798,11 @@ const ui = {
         const fragment       = document.createDocumentFragment();
         const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
 
-        photosToShow.forEach((photo, index) => {
+                photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = 'masonry-item fade-in';
-            item.style.animationDelay = `${index * 50}ms`;
+            // FIX: Cap delay di 500ms — item ke-30 tidak perlu menunggu 1.5s
+            item.style.animationDelay = `${Math.min(index * 50, 500)}ms`;
             item.dataset.photoId = photo.id;
 
             const fullUrl       = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
@@ -1087,11 +1121,12 @@ const ui = {
         const fragment       = document.createDocumentFragment();
         const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
 
-        photosToShow.forEach((photo, index) => {
+                photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = 'masonry-item fade-in';
-            item.style.animationDelay = `${index * 50}ms`;
+            item.style.animationDelay = `${Math.min(index * 50, 500)}ms`;
             item.dataset.photoId = photo.id;
+
 
             const fullUrl       = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
@@ -1208,11 +1243,12 @@ const ui = {
         const fragment       = document.createDocumentFragment();
         const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
 
-        photosToShow.forEach((photo, index) => {
+                photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = 'masonry-item fade-in';
-            item.style.animationDelay = `${index * 50}ms`;
+            item.style.animationDelay = `${Math.min(index * 50, 500)}ms`;
             item.dataset.photoId = photo.id;
+
 
             const fullUrl       = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
             const isFree        = state.lifetime || state.purchasedImages.has(photo.id);
@@ -1547,10 +1583,17 @@ const ui = {
     async loadQuicklinks() {
         const list = document.getElementById('quicklinks-list');
         if (!list) return;
-        try {
+                try {
             const res = await fetch('/quicklink.json');
             if (!res.ok) throw new Error(`Failed to load quicklinks: HTTP ${res.status}`);
+            // FIX: Cek Content-Type — jika Worker fallback ke index.html,
+            // response bukan JSON dan res.json() akan throw.
+            const contentType = res.headers.get('Content-Type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error('Quicklinks endpoint returned non-JSON response');
+            }
             const data = await res.json();
+
             list.innerHTML = '';
 
             Object.keys(data).forEach(key => {
@@ -1568,12 +1611,16 @@ const ui = {
                     const menuModalEl = document.getElementById('menu-modal');
 
                     if (titleEl)   titleEl.textContent = data[key].title;
-                    if (contentEl) {
-                        // Sanitasi dasar: hapus script, inline handlers, javascript: URI
+                                        if (contentEl) {
+                        // FIX: Sanitasi yang lebih ketat — tangani unquoted
+                        // event handlers juga (mis. <svg onload=alert(1)>).
                         const sanitized = (data[key].content || '')
                             .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-                            .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
-                            .replace(/javascript\s*:/gi, '');
+                            .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+                            .replace(/javascript\s*:/gi, '')
+                            .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
+                            .replace(/<object[\s\S]*?>[\s\S]*?<\/object>/gi, '')
+                            .replace(/<embed[\s\S]*?>/gi, '');
                         contentEl.innerHTML = sanitized;
                     }
                     if (modalEl)    { modalEl.classList.remove('hidden');    modalEl.classList.add('flex'); }
@@ -1952,18 +1999,27 @@ function initEvents() {
     });
 }
 
-// --- PayPal Integration ---
 let paypalButtonsInstance = null;
 
-// Guard: jika SDK belum load (defer script), retry hingga 3x
 function initPayPalPurchase(packKey, price) {
     if (!window.paypal) {
         let retries = 0;
+        const MAX_RETRIES = 10; // FIX: 3x hanya 2.4s — terlalu pendek untuk koneksi lambat
         const waitForSdk = setInterval(() => {
             retries++;
             if (window.paypal) {
                 clearInterval(waitForSdk);
                 _renderPayPalButtons(packKey, price);
+            } else if (retries >= MAX_RETRIES) {
+                clearInterval(waitForSdk);
+                alert('❌ PayPal SDK failed to load. Please check your internet connection and refresh the page.');
+            }
+        }, 800);
+        return;
+    }
+    _renderPayPalButtons(packKey, price);
+}
+
             } else if (retries >= 3) {
                 clearInterval(waitForSdk);
                 alert('❌ PayPal SDK failed to load. Please check your internet connection and refresh the page.');
