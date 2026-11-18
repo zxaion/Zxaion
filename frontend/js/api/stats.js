@@ -1,0 +1,68 @@
+// frontend/js/api/stats.js
+// API statistik: stats, view, download, dan trending
+import { api } from './index.js';
+import { API_BASE } from '../config/constants.js';
+import { state } from '../state/appState.js';
+import { utils } from '../utils/helpers.js';
+import { getOrCreateUserToken } from '../utils/token.js';
+
+Object.assign(api, {
+    async fetchImageStats(photoId) {
+        if (!photoId) return { views: 0, downloads: 0 };
+        try {
+            const res = await fetch(`${API_BASE}/api/stats/${encodeURIComponent(photoId)}`);
+            if (!res.ok) return { views: 0, downloads: 0 };
+            const data = await res.json();
+            return { views: data.views || 0, downloads: data.downloads || 0 };
+        } catch {
+            return { views: 0, downloads: 0 };
+        }
+    },
+
+    async recordDownload(photoId) {
+        if (!photoId) return;
+        try {
+            const token = getOrCreateUserToken();
+            await fetch(`${API_BASE}/api/download/${encodeURIComponent(photoId)}`, {
+                method:  'POST',
+                headers: { 'X-User-Token': token },
+            });
+        } catch (error) {
+            console.error('Failed to record download:', error);
+        }
+    },
+
+    // FIX: Optimistic DOM update — counter di gallery grid diupdate instan
+    // sebelum server response, membuat stats terasa real-time.
+    async recordView(photoId) {
+        if (!photoId) return;
+        document.querySelectorAll(`.view-count[data-id="${photoId}"]`).forEach(el => {
+            el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
+        });
+        try {
+            const token = getOrCreateUserToken();
+            await fetch(`${API_BASE}/api/view/${encodeURIComponent(photoId)}`, {
+                method:  'POST',
+                headers: { 'X-User-Token': token },
+            });
+        } catch (error) {
+            console.error('Failed to record view:', error);
+        }
+    },
+
+    async fetchTrendingImages(limit = 20) {
+        try {
+            const res  = await fetch(`${API_BASE}/api/trending?limit=${limit}`);
+            if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+        } catch (e) {
+            console.error('Error fetching trending images:', e);
+            // Fallback: sort dari state.allPhotos
+            return state.allPhotos
+                .map(p => ({ ...p, score: (p.viewCount || 0) + (p.downloadCount || 0) }))
+                .sort((a, b) => b.score - a.score)
+                .slice(0, limit);
+        }
+    },
+});

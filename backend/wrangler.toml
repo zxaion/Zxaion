@@ -1,5 +1,5 @@
 name = "ai"
-main = "worker.js"
+main = "src/index.js"
 compatibility_date = "2026-01-15"
 
 # Database D1
@@ -38,6 +38,3 @@ invocation_logs = true
 enabled = false
 persist = true
 head_sampling_rate = 1
-
-[images]
-binding = "IMAGES"

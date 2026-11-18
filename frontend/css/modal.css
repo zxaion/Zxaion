@@ -1,0 +1,86 @@
+/* frontend/css/modal.css — Modal detail gambar */
+
+/* Inner flex container */
+#image-modal > div.h-full {
+    max-height: calc(100vh - 2rem); /* 2rem = p-4 × 2 */
+    overflow:   hidden;
+}
+
+/* Image wrapper */
+#modal-img-wrapper {
+    flex-shrink: 0;
+    min-height:  200px;
+    max-height:  55vh; /* mobile: batasi agar panel detail tidak terdorong */
+}
+
+@media (min-width: 1024px) {
+    #modal-img-wrapper {
+        max-height: 85vh;
+        flex-shrink: 1;
+    }
+}
+
+/* Detail panel: scroll internal */
+#image-modal .lg\:w-96 {
+    overflow:        hidden;
+    display:         flex;
+    flex-direction:  column;
+}
+
+/* Area dalam panel yang bisa di-scroll */
+#image-modal .lg\:w-96 .flex-1 {
+    overflow-y:               auto;
+    -webkit-overflow-scrolling: touch;
+    min-height: 0; /* CRITICAL: tanpa ini flexbox tidak scroll di Safari */
+}
+
+/* Modal image */
+#modal-img {
+    max-width:   100%;
+    max-height:  100%;
+    width:        auto;
+    height:       auto;
+    object-fit:  contain;
+}
+
+/* Mobile: stack vertikal dengan batasan yang jelas */
+@media (max-width: 1023px) {
+    #image-modal {
+        padding:                    0.5rem;
+        overflow-y:                 auto;
+        -webkit-overflow-scrolling: touch;
+        align-items:                flex-start; /* scroll dari atas, bukan center */
+    }
+
+    #image-modal > div.h-full {
+        flex-direction: column;
+        height:         auto;
+        max-height:     none;
+        min-height:     100%;
+    }
+
+    #modal-img-wrapper {
+        width:         100%;
+        max-height:    50vh;
+        min-height:    180px;
+        border-radius: 12px;
+        flex-shrink:   0;
+    }
+
+    #image-modal .lg\:w-96 {
+        width:         100%;
+        max-height:    none;
+        border-radius: 12px;
+        flex-shrink:   0;
+    }
+
+    #image-modal .lg\:w-96 .flex-1 {
+        max-height: 40vh;
+    }
+}
+
+/* Dark mode — modal panel */
+.dark #image-modal .bg-white {
+    background:   #1f2937;
+    border-color: #374151;
+}
