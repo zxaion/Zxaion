@@ -45,6 +45,340 @@ function parseImageMeta(key, bucket) {
 }
 
 // ============================================================
+// DTREASURE MODULE — paket, PayPal helper, fulfillment, preview
+// ============================================================
+const PACKS = {
+  '5$':   { priceCents: 500,   credits: 200,  bonus: 0,    lifetime: false },
+  '25$':  { priceCents: 2500,  credits: 1300, bonus: 450,  lifetime: false },
+  '45$':  { priceCents: 4500,  credits: 2700, bonus: 900,  lifetime: false },
+  '75$':  { priceCents: 7500,  credits: 4500, bonus: 1400, lifetime: false },
+  '99$':  { priceCents: 9900,  credits: 7000, bonus: 2300, lifetime: false },
+  '125$': { priceCents: 12500, credits: 0,    bonus: 0,    lifetime: true  },
+};
+const SPEND_COST    = 10;
+const PREVIEW_WIDTH = 640;
+const TOKEN_RE      = /^u_[a-z0-9]{6,12}_[a-f0-9]{32}$/;
+const ELIGIBLE      = "status IN ('created','processing','pending')";
+
+const isValidToken = (t) => typeof t === 'string' && TOKEN_RE.test(t);
+const hasPack      = (k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(PACKS, k);
+const nowSec       = () => Math.floor(Date.now() / 1000);
+const centsOf      = (v) => Math.round(parseFloat(v || '0') * 100);
+const usd          = (cents) => (cents / 100).toFixed(2);
+
+// ---------- PayPal ----------
+const paypalBase = (env) =>
+  env.PAYPAL_ENV === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+
+let _ppToken = { value: null, exp: 0 };
+
+async function getPayPalAccessToken(env) {
+  if (_ppToken.value && _ppToken.exp > Date.now() + 60_000) return _ppToken.value;
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET_ID) throw new Error('PayPal credentials not configured');
+  const res = await fetch(`${paypalBase(env)}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET_ID}`)}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+  });
+  if (!res.ok) throw new Error(`PayPal auth failed: HTTP ${res.status}`);
+  const data = await res.json();
+  _ppToken = { value: data.access_token, exp: Date.now() + (data.expires_in || 300) * 1000 };
+  return _ppToken.value;
+}
+
+async function paypalRequest(env, method, path, body, requestId, _retry = false) {
+  const token   = await getPayPalAccessToken(env);
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  if (requestId) headers['PayPal-Request-Id'] = requestId;
+  const res = await fetch(`${paypalBase(env)}${path}`, {
+    method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401 && !_retry) {
+    _ppToken = { value: null, exp: 0 };
+    return paypalRequest(env, method, path, body, requestId, true);
+  }
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  return { ok: res.ok, status: res.status, data };
+}
+
+function isTrustedPayPalCert(certUrl) {
+  try {
+    const u = new URL(certUrl);
+    return u.protocol === 'https:' && [
+      'api.paypal.com', 'api-m.paypal.com', 'api.sandbox.paypal.com', 'api-m.sandbox.paypal.com',
+    ].includes(u.hostname);
+  } catch { return false; }
+}
+
+// Body mentah disisipkan apa adanya (PayPal memverifikasi terhadap body asli)
+async function verifyWebhookSignature(env, h, rawBody) {
+  const j    = JSON.stringify;
+  const body = `{"auth_algo":${j(h.authAlgo)},"cert_url":${j(h.certUrl)},"transmission_id":${j(h.transmissionId)},` +
+               `"transmission_sig":${j(h.transmissionSig)},"transmission_time":${j(h.transmissionTime)},` +
+               `"webhook_id":${j(env.PAYPAL_WEBHOOK_ID)},"webhook_event":${rawBody}}`;
+  const token = await getPayPalAccessToken(env);
+  const res = await fetch(`${paypalBase(env)}/v1/notifications/verify-webhook-signature`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body,
+  });
+  if (!res.ok) return false;
+  const data = await res.json();
+  return data.verification_status === 'SUCCESS';
+}
+
+// Validasi hasil capture terhadap order yang DIBUAT SERVER (bukan input klien)
+function validateCapture(order, row) {
+  const capture = order?.purchase_units?.[0]?.payments?.captures?.[0];
+  if (!capture) return { state: 'rejected', reason: 'no_capture' };
+  const amt = capture.amount || {};
+  if (amt.currency_code !== 'USD' || row.currency !== 'USD')
+    return { state: 'rejected', reason: `currency ${amt.currency_code}` };
+  if (centsOf(amt.value) !== row.amount_cents)
+    return { state: 'rejected', reason: `amount ${amt.value} != ${row.amount_cents} cents` };
+  if (capture.status === 'COMPLETED') return { state: 'completed', captureId: capture.id };
+  if (capture.status === 'PENDING')   return { state: 'pending',   captureId: capture.id };
+  return { state: 'rejected', reason: `capture_${capture.status}` };
+}
+
+// Kredit + ledger + status 'completed' dalam SATU transaksi (DB.batch).
+// Semua statement dijaga status order, jadi aman dipanggil dobel (capture + webhook).
+// Return true bila kredit diberikan SEKARANG, false bila sudah pernah.
+async function fulfillOrder(env, row, captureId) {
+  if (!row.user_id) throw new Error(`Order ${row.order_id} tanpa user_id`);
+  const pack = PACKS[row.pack_key];
+  if (!pack) throw new Error(`Pack tidak dikenal: ${row.pack_key}`);
+  const credits = pack.credits + pack.bonus;
+  const guard   = `EXISTS (SELECT 1 FROM dt_orders WHERE id = ? AND ${ELIGIBLE})`;
+  const DB      = env.DB;
+
+  const res = await DB.batch([
+    DB.prepare(`
+      INSERT INTO user_credits (user_id, credits, lifetime)
+      SELECT ?, ?, ? WHERE ${guard}
+      ON CONFLICT(user_id) DO UPDATE SET
+        credits  = credits + excluded.credits,
+        lifetime = MAX(lifetime, excluded.lifetime)
+    `).bind(row.user_id, credits, pack.lifetime ? 1 : 0, row.id),
+    DB.prepare(`
+      INSERT OR IGNORE INTO credit_ledger (id, user_id, delta, kind, ref)
+      SELECT ?, ?, ?, 'purchase', ? WHERE ${guard}
+    `).bind(`purchase:${row.order_id}`, row.user_id, credits, row.order_id, row.id),
+    DB.prepare(`
+      UPDATE dt_orders
+      SET status = 'completed', capture_id = ?, completed_at = ?, error_message = NULL, updated_at = ?
+      WHERE id = ? AND ${ELIGIBLE}
+    `).bind(captureId || null, new Date().toISOString(), nowSec(), row.id),
+  ]);
+  return res[2].meta.changes === 1;
+}
+
+// Refund penuh / reversal: cabut kredit atau lifetime, sekali saja (idempotent).
+async function revokeOrder(env, row, newStatus) {
+  const pack = PACKS[row.pack_key];
+  if (!pack || !row.user_id) return false;
+  const credits = pack.credits + pack.bonus;
+  const guard   = "EXISTS (SELECT 1 FROM dt_orders WHERE id = ? AND status IN ('completed','disputed'))";
+  const DB      = env.DB;
+
+  const res = await DB.batch([
+    pack.lifetime
+      ? DB.prepare(`UPDATE user_credits SET lifetime = 0 WHERE user_id = ? AND ${guard}`).bind(row.user_id, row.id)
+      : DB.prepare(`UPDATE user_credits SET credits = credits - ? WHERE user_id = ? AND ${guard}`).bind(credits, row.user_id, row.id),
+    DB.prepare(`
+      INSERT OR IGNORE INTO credit_ledger (id, user_id, delta, kind, ref)
+      SELECT ?, ?, ?, 'revoke', ? WHERE ${guard}
+    `).bind(`revoke:${row.order_id}`, row.user_id, pack.lifetime ? 0 : -credits, row.order_id, row.id),
+    DB.prepare(`
+      UPDATE dt_orders SET status = ?, refunded_at = ?, updated_at = ?
+      WHERE id = ? AND status IN ('completed','disputed')
+    `).bind(newStatus, new Date().toISOString(), nowSec(), row.id),
+  ]);
+  return res[2].meta.changes === 1;
+}
+
+async function processPayPalEvent(env, ev) {
+  const DB   = env.DB;
+  const type = ev.event_type;
+  const r    = ev.resource || {};
+  const log  = (outcome, orderId, captureId) =>
+    DB.prepare('INSERT OR IGNORE INTO payment_events (id, event_type, order_id, capture_id, outcome) VALUES (?, ?, ?, ?, ?)')
+      .bind(ev.id || crypto.randomUUID(), type, orderId || null, captureId || null, outcome).run();
+
+  // ---- COMPLETED / PENDING / DENIED ----
+  if (['PAYMENT.CAPTURE.COMPLETED', 'PAYMENT.CAPTURE.PENDING', 'PAYMENT.CAPTURE.DENIED'].includes(type)) {
+    const orderId   = r.supplementary_data?.related_ids?.order_id;
+    const captureId = r.id;
+    if (!orderId) { await log('no_order_id', null, captureId); return; }
+
+    const row = await DB.prepare('SELECT * FROM dt_orders WHERE order_id = ?').bind(orderId).first();
+    if (!row) {
+      // Bukan order buatan server ini (mis. klien lama): JANGAN auto-credit, simpan untuk review
+      await DB.prepare(`
+        INSERT OR IGNORE INTO dt_orders (id, order_id, amount_cents, currency, status, capture_id, error_message, updated_at)
+        VALUES (?, ?, ?, ?, 'unmatched', ?, ?, ?)
+      `).bind(`order:${orderId}`, orderId, centsOf(r.amount?.value), r.amount?.currency_code || 'USD',
+              captureId || null, `unmatched ${type}`, nowSec()).run();
+      console.error(`[Webhook] ORDER TIDAK DIKENAL ${orderId} — perlu review manual`);
+      await log('unmatched', orderId, captureId);
+      return;
+    }
+
+    const ts = nowSec();
+    if (type === 'PAYMENT.CAPTURE.DENIED') {
+      await DB.prepare(`UPDATE dt_orders SET status = 'failed', updated_at = ? WHERE id = ? AND ${ELIGIBLE}`).bind(ts, row.id).run();
+      await log('denied', orderId, captureId);
+      return;
+    }
+    if (type === 'PAYMENT.CAPTURE.PENDING') {
+      await DB.prepare(`UPDATE dt_orders SET status = 'pending', capture_id = ?, updated_at = ? WHERE id = ? AND status IN ('created','processing')`)
+        .bind(captureId || null, ts, row.id).run();
+      await log('pending', orderId, captureId);
+      return;
+    }
+    // COMPLETED
+    if (r.amount?.currency_code !== 'USD' || centsOf(r.amount?.value) !== row.amount_cents) {
+      await DB.prepare(`UPDATE dt_orders SET status = 'rejected', error_message = ?, updated_at = ? WHERE id = ? AND ${ELIGIBLE}`)
+        .bind(`webhook amount ${r.amount?.value} ${r.amount?.currency_code}`, ts, row.id).run();
+      console.error(`[Webhook] AMOUNT MISMATCH order ${orderId}`);
+      await log('amount_mismatch', orderId, captureId);
+      return;
+    }
+    const fulfilled = await fulfillOrder(env, row, captureId); // throw → handler balas 500 → PayPal retry
+    await log(fulfilled ? 'credited' : 'already_done', orderId, captureId);
+    return;
+  }
+
+  // ---- REFUNDED / REVERSED ----
+  if (type === 'PAYMENT.CAPTURE.REFUNDED' || type === 'PAYMENT.CAPTURE.REVERSED') {
+    const ids = new Set();
+    if (r.id) ids.add(r.id);
+    for (const l of r.links || []) {
+      if (l.rel === 'up') { const m = /\/captures\/([^/?]+)/.exec(l.href || ''); if (m) ids.add(m[1]); }
+    }
+    const list = [...ids];
+    if (!list.length) { await log('no_capture_id'); return; }
+
+    const row = await DB.prepare(`SELECT * FROM dt_orders WHERE capture_id IN (${list.map(() => '?').join(',')})`).bind(...list).first();
+    if (!row) { await log('refund_unmatched', null, list[0]); return; }
+
+    const refunded = centsOf(r.seller_payable_breakdown?.total_refunded_amount?.value ?? r.amount?.value);
+    const full     = type === 'PAYMENT.CAPTURE.REVERSED' || refunded >= row.amount_cents;
+    if (!full) {
+      await DB.prepare('UPDATE dt_orders SET error_message = ?, updated_at = ? WHERE id = ?')
+        .bind(`partial refund ${refunded} cents — review manual`, nowSec(), row.id).run();
+      await log('partial_refund', row.order_id, list[0]);
+      return;
+    }
+    const done = await revokeOrder(env, row, type === 'PAYMENT.CAPTURE.REVERSED' ? 'reversed' : 'refunded');
+    await log(done ? 'revoked' : 'already_revoked', row.order_id, list[0]);
+    return;
+  }
+
+  // ---- DISPUTE (struktur payload berdasarkan PayPal Disputes API — uji di sandbox) ----
+  if (type === 'CUSTOMER.DISPUTE.CREATED') {
+    const ids = (r.disputed_transactions || []).map((t) => t.seller_transaction_id).filter(Boolean);
+    if (!ids.length) { await log('dispute_no_txn'); return; }
+    const row = await DB.prepare(`SELECT * FROM dt_orders WHERE capture_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).first();
+    if (row) {
+      await DB.prepare(`UPDATE dt_orders SET status = 'disputed', updated_at = ? WHERE id = ? AND status = 'completed'`).bind(nowSec(), row.id).run();
+    }
+    await log(row ? 'disputed' : 'dispute_unmatched', row?.order_id, ids[0]);
+    return;
+  }
+
+  await log('ignored');
+}
+
+// ---------- Preview DTREASURE ----------
+const previewKeyOf = (key) => `_preview/${key}.webp`; // prefix '_' sudah di-skip oleh parseImageMeta
+
+let _active = 0;
+const _waiters = [];
+async function withBuildSlot(fn, max = 3) { // batasi konkurensi agar memori isolate aman
+  while (_active >= max) await new Promise((r) => _waiters.push(r));
+  _active++;
+  try { return await fn(); } finally { _active--; _waiters.shift()?.(); }
+}
+
+async function buildPreview(env, key) {
+  const original = await env.TREASURE.get(key);
+  if (!original) return null;
+  const buf = await original.arrayBuffer();
+
+  const render = async (watermark) => {
+    let img = env.IMAGES.input(new Response(buf).body).transform({ width: PREVIEW_WIDTH });
+    if (watermark) {
+      img = img.draw(
+        env.IMAGES.text('ZXAION VERSE · PREVIEW', { size: 26, color: '#ffffff' }),
+        { repeat: true, opacity: 0.28 }
+      );
+    }
+    return (await img.output({ format: 'image/webp', quality: 60 })).response().arrayBuffer();
+  };
+
+  try { return await render(true); }
+  catch (e) {
+    console.warn('[Preview] watermark gagal, fallback tanpa watermark:', e.message);
+    return await render(false);
+  }
+}
+
+async function serveDtreasurePreview(env, ctx, key, corsHeaders) {
+  const errJson = (status, msg) => new Response(JSON.stringify({ error: msg }), {
+    status, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
+  if (!env.TREASURE || key.includes('..') || !parseImageMeta(key, 'dtreasure')) return errJson(404, 'Not found');
+
+  const okHeaders = {
+    ...corsHeaders,
+    'Content-Type': 'image/webp',
+    'Cache-Control': 'public, max-age=86400',
+    'X-Content-Type-Options': 'nosniff',
+  };
+
+  const cached = await env.TREASURE.get(previewKeyOf(key));
+  if (cached) return new Response(cached.body, { headers: okHeaders });
+
+  if (!env.IMAGES) return errJson(503, 'Preview service not configured'); // JANGAN fallback ke file asli
+  try {
+    const buf = await withBuildSlot(() => buildPreview(env, key));
+    if (!buf) return errJson(404, 'Not found');
+    ctx.waitUntil(env.TREASURE.put(previewKeyOf(key), buf, { httpMetadata: { contentType: 'image/webp' } }));
+    return new Response(buf, { headers: okHeaders });
+  } catch (e) {
+    console.error('[Preview] gagal:', key, e.message);
+    return errJson(503, 'Preview unavailable');
+  }
+}
+
+async function listAllKeys(bucket) {
+  let cursor, keys = [];
+  do {
+    const r = await bucket.list({ cursor, limit: 1000 });
+    for (const o of r.objects) keys.push(o.key);
+    cursor = r.truncated ? r.cursor : undefined;
+  } while (cursor);
+  return keys;
+}
+
+async function warmDtreasurePreviews(env, limit = 5) {
+  if (!env.TREASURE || !env.IMAGES) return;
+  const keys    = await listAllKeys(env.TREASURE);
+  const have    = new Set(keys.filter((k) => k.startsWith('_preview/')));
+  const missing = keys.filter((k) => parseImageMeta(k, 'dtreasure') && !have.has(previewKeyOf(k))).slice(0, limit);
+  for (const key of missing) {
+    try {
+      const buf = await buildPreview(env, key);
+      if (buf) await env.TREASURE.put(previewKeyOf(key), buf, { httpMetadata: { contentType: 'image/webp' } });
+    } catch (e) { console.error('[Warm] gagal:', key, e.message); }
+  }
+}
+// ============================================================
 // Scheduled Handler: Auto-scan R2 → D1 (Cron Trigger)
 // wrangler.toml: [triggers] crons = ["0 * * * *"]
 // ============================================================
@@ -61,6 +395,9 @@ async function handleScheduled(env) {
   for (const { bucket, name } of buckets) {
     if (!bucket) continue;
     const syncStartedAt = new Date().toISOString();
+      // Pre-generate preview DTREASURE (dibatasi per run supaya aman dari limit subrequest)
+  try { await warmDtreasurePreviews(env, 5); }
+  catch (e) { console.error('[Scheduled] warm preview:', e.message); }
 
     try {
       let cursor  = undefined;
@@ -173,13 +510,21 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // ----------------------------------------------------------------
+       // ----------------------------------------------------------------
     // Helpers
     // ----------------------------------------------------------------
+    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+    
+    const json = (data, status = 200, extra = {}) =>
+      new Response(JSON.stringify(data), {
+        status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', ...extra },
+      });
+    
     function getUserToken(req) {
       return req.headers.get('X-User-Token') || 'anonymous';
     }
-
+    
     async function checkRateLimit(endpoint, identifier, limit = 50, windowSec = 3600) {
       const key = `rate:${endpoint}:${identifier}`;
       const now = Math.floor(Date.now() / 1000);
@@ -190,52 +535,13 @@ export default {
             count      = CASE WHEN reset_time < ? THEN 1    ELSE count + 1 END,
             reset_time = CASE WHEN reset_time < ? THEN ?    ELSE reset_time END
         `).bind(key, now + windowSec, now, now, now + windowSec).run();
-
-        const record = await DB.prepare(
-          'SELECT count FROM rate_limits WHERE id = ?'
-        ).bind(key).first();
-
+        
+        const record = await DB.prepare('SELECT count FROM rate_limits WHERE id = ?').bind(key).first();
         return !record || record.count <= limit;
       } catch (e) {
         console.error('[RateLimit] DB error:', e.message);
         return true; // fail open
       }
-    }
-
-    async function getPayPalAccessToken() {
-      if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET_ID) {
-        throw new Error('PayPal credentials not configured');
-      }
-      const credentials = btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET_ID}`);
-      const res = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${credentials}`,
-          'Content-Type':  'application/x-www-form-urlencoded',
-        },
-        body: 'grant_type=client_credentials',
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`PayPal auth failed: ${err}`);
-      }
-      const data = await res.json();
-      return data.access_token;
-    }
-
-    async function verifyPayPalOrder(orderId, accessToken) {
-      const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type':  'application/json',
-        },
-      });
-      if (!res.ok) {
-        console.error(`verifyPayPalOrder failed: HTTP ${res.status} for order ${orderId}`);
-        return null;
-      }
-      return await res.json();
     }
 
     // ================================================================
@@ -277,178 +583,45 @@ export default {
       }
     }
 
-    // ================================================================
+        // ================================================================
     // ENDPOINT: PayPal Webhook
     // ================================================================
     if (path === '/api/paypal/webhook' && method === 'POST') {
       try {
+        if (!env.PAYPAL_WEBHOOK_ID) {
+          console.error('[Webhook] PAYPAL_WEBHOOK_ID belum diset');
+          return new Response('Server misconfigured', { status: 500 });
+        }
         const rawBody = await request.text();
-        let webhookEvent;
-        try {
-          webhookEvent = JSON.parse(rawBody);
-        } catch (e) {
-          return new Response('Invalid JSON', { status: 400 });
-        }
+        let ev;
+        try { ev = JSON.parse(rawBody); } catch { return new Response('Invalid JSON', { status: 400 }); }
 
-        const transmissionId   = request.headers.get('paypal-transmission-id');
-        const transmissionTime = request.headers.get('paypal-transmission-time');
-        const certUrl          = request.headers.get('paypal-cert-url');
-        const transmissionSig  = request.headers.get('paypal-transmission-sig');
-        const authAlgo         = request.headers.get('paypal-auth-algo');
-
-        if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
-          console.error('Missing required PayPal webhook headers');
-          return new Response('Unauthorized', { status: 401 });
-        }
-
-        // SSRF guard — only accept certs from official PayPal domains
-        const PAYPAL_CERT_DOMAINS = [
-          'https://api.paypal.com',
-          'https://api-m.paypal.com',
-          'https://api.sandbox.paypal.com',
-        ];
-        if (!PAYPAL_CERT_DOMAINS.some(domain => certUrl.startsWith(domain))) {
-          console.error('Webhook certUrl domain not trusted:', certUrl);
-          return new Response('Unauthorized', { status: 401 });
-        }
-
-        // FIX: Satu kali getPayPalAccessToken — reuse untuk signature verify
-        // dan order detail fetch. Cegah double OAuth round-trip.
-        let accessToken;
-        try {
-          accessToken = await getPayPalAccessToken();
-          const verifyRes = await fetch(`${PAYPAL_BASE}/v1/notifications/verify-webhook-signature`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type':  'application/json',
-            },
-            body: JSON.stringify({
-              auth_algo:         authAlgo,
-              cert_url:          certUrl,
-              transmission_id:   transmissionId,
-              transmission_sig:  transmissionSig,
-              transmission_time: transmissionTime,
-              webhook_id:        PAYPAL_WEBHOOK_ID,
-              webhook_event:     webhookEvent,
-            }),
-          });
-          const verifyData = await verifyRes.json();
-          if (verifyData.verification_status !== 'SUCCESS') {
-            console.error('Webhook signature verification failed:', verifyData);
-            return new Response('Unauthorized', { status: 401 });
-          }
-        } catch (e) {
-          console.error('Webhook verification error:', e.message);
-          return new Response('Verification failed', { status: 500 });
-        }
-
-        if (webhookEvent.event_type !== 'PAYMENT.CAPTURE.COMPLETED') {
-          return new Response('OK', { status: 200 });
-        }
-
-        const orderId        = webhookEvent.resource?.supplementary_data?.related_ids?.order_id;
-        const capturedAmount = parseFloat(webhookEvent.resource?.amount?.value || '0');
-        const currencyCode   = webhookEvent.resource?.amount?.currency_code;
-
-        if (!orderId || !capturedAmount || currencyCode !== 'USD') {
-          return new Response('OK', { status: 200 });
-        }
-
-        const existingOrder = await DB.prepare(
-          'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
-        ).bind(orderId).first();
-
-        if (existingOrder) {
-          console.log(`Webhook: order ${orderId} already processed (status: ${existingOrder.status})`);
-          return new Response('OK', { status: 200 });
-        }
-
-        const PACK_BY_PRICE = {
-          5:   { credits: 200,  bonus: 0,    lifetime: false },
-          25:  { credits: 1300, bonus: 450,  lifetime: false },
-          45:  { credits: 2700, bonus: 900,  lifetime: false },
-          75:  { credits: 4500, bonus: 1400, lifetime: false },
-          99:  { credits: 7000, bonus: 2300, lifetime: false },
-          125: { credits: 0,    bonus: 0,    lifetime: true  },
+        const h = {
+          transmissionId:   request.headers.get('paypal-transmission-id'),
+          transmissionTime: request.headers.get('paypal-transmission-time'),
+          certUrl:          request.headers.get('paypal-cert-url'),
+          transmissionSig:  request.headers.get('paypal-transmission-sig'),
+          authAlgo:         request.headers.get('paypal-auth-algo'),
         };
-
-        const roundedAmount = Math.round(capturedAmount);
-        const packData      = PACK_BY_PRICE[roundedAmount];
-
-        if (!packData) {
-          console.error(`Unknown pack amount from webhook: $${capturedAmount}`);
-          return new Response('OK', { status: 200 });
+        if (!h.transmissionId || !h.transmissionTime || !h.certUrl || !h.transmissionSig || !h.authAlgo) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+        if (!isTrustedPayPalCert(h.certUrl)) {
+          console.error('[Webhook] certUrl tidak tepercaya:', h.certUrl);
+          return new Response('Unauthorized', { status: 401 });
+        }
+        if (!(await verifyWebhookSignature(env, h, rawBody))) {
+          console.error('[Webhook] signature tidak valid');
+          return new Response('Unauthorized', { status: 401 });
         }
 
-        let userId = webhookEvent.resource?.custom_id || null;
-
-        // FIX: Reuse accessToken dari signature verification — cegah double OAuth
-        if (!userId && orderId) {
-          try {
-            const orderDetails = await verifyPayPalOrder(orderId, accessToken);
-            if (orderDetails?.purchase_units?.length > 0) {
-              userId = orderDetails.purchase_units[0].custom_id || null;
-            }
-          } catch (fetchErr) {
-            console.error('Failed to fetch order for custom_id:', fetchErr.message);
-          }
-        }
-
-        if (!userId) {
-          console.error('No userId found in webhook event for orderId:', orderId);
-          return new Response('OK', { status: 200 });
-        }
-
-        // FIX: ATOMIC CLAIM — pasangan dari klaim yang sama di /api/credits/purchase.
-        // Siapa yang berhasil INSERT lebih dulu (id = order:<orderId> adalah PK),
-        // dialah yang boleh credit. Yang kedua dapat changes=0 dan langsung stop
-        // — mencegah double-credit untuk orderId yang sama.
-        const claim = await DB.prepare(`
-          INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status)
-          VALUES (?, ?, ?, ?, ?, 'processing')
-          ON CONFLICT(id) DO NOTHING
-        `).bind(`order:${orderId}`, userId, orderId, String(roundedAmount), capturedAmount).run();
-
-        if (!claim.meta || claim.meta.changes === 0) {
-          console.log(`Webhook: order ${orderId} sudah diklaim/diproses sebelumnya — skip duplikasi credit`);
-          return new Response('OK', { status: 200 });
-        }
-
-        try {
-          if (packData.lifetime) {
-            await DB.prepare(
-              'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET lifetime = 1'
-            ).bind(userId).run();
-          } else {
-            const totalCredits = packData.credits + (packData.bonus || 0);
-            await DB.prepare(
-              'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?'
-            ).bind(userId, totalCredits, totalCredits).run();
-          }
-
-          await DB.prepare(
-            `UPDATE payment_orders SET status = 'completed', completed_at = ? WHERE id = ?`
-          ).bind(new Date().toISOString(), `order:${orderId}`).run();
-
-          console.log(`Webhook: credited user ${userId} for order ${orderId} ($${capturedAmount})`);
-        } catch (creditError) {
-          // Klaim sudah terambil tapi crediting gagal — tandai 'failed', JANGAN
-          // biarkan 'processing' permanen (PayPal akan retry webhook ini).
-          console.error(`Webhook: gagal credit user ${userId} untuk order ${orderId}:`, creditError.message);
-          await DB.prepare(
-            `UPDATE payment_orders SET status = 'failed', error_message = ? WHERE id = ?`
-          ).bind(creditError.message, `order:${orderId}`).run();
-        }
-
+        await processPayPalEvent(env, ev);
         return new Response('OK', { status: 200 });
-
       } catch (e) {
-        console.error('Webhook handler error:', e.message);
-        return new Response('Internal error', { status: 500 });
+        console.error('[Webhook] error:', e.message);
+        return new Response('Internal error', { status: 500 }); // 5xx → PayPal akan retry
       }
     }
-
     // ================================================================
     // ENDPOINT: List main gallery
     // ================================================================
@@ -726,448 +899,325 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // ================================================================
+        // ================================================================
     // ENDPOINT: Credit balance
     // ================================================================
     if (path === '/api/credits/balance' && method === 'GET') {
       const userId = getUserToken(request);
-
-      if (!userId || userId === 'anonymous') {
-        return new Response(
-          JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+      const empty  = { credits: 0, lifetime: false, purchased: [] };
+      if (!isValidToken(userId)) return json(empty);
+      if (!await checkRateLimit('dt-balance', userId, 300, 3600)) return json(empty, 429);
 
       try {
-        let user = await DB.prepare(
-          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-        ).bind(userId).first();
-
-        if (!user) {
-          user = { credits: 0, lifetime: 0 };
-          // FIX: INSERT OR IGNORE — idempotent, cegah error UNIQUE constraint
-          // kalau ada 2 request bersamaan dari user baru yang sama.
-          await DB.prepare(
-            'INSERT OR IGNORE INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
-          ).bind(userId).run();
-        }
-
-        const purchasedRows = await DB.prepare(
-          'SELECT photo_id FROM purchased_images WHERE user_id = ? LIMIT 1000'
+        const user = await DB.prepare('SELECT credits, lifetime FROM user_credits WHERE user_id = ?').bind(userId).first();
+        const rows = await DB.prepare(
+          "SELECT photo_id FROM purchased_images WHERE user_id = ? AND photo_id LIKE 'dtreasure:%' LIMIT 5000"
         ).bind(userId).all();
-        const purchased = purchasedRows.results.map(r => r.photo_id);
-
-        return new Response(
-          JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return json({
+          credits:   Math.max(0, user?.credits || 0),
+          lifetime:  !!user?.lifetime,
+          purchased: rows.results.map((r) => r.photo_id),
+        });
       } catch (e) {
         console.error('/api/credits/balance error:', e.message);
-        return new Response(
-          JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return json(empty);
       }
     }
 
     // ================================================================
-    // ENDPOINT: Purchase credits
+    // ENDPOINT: Buat order PayPal (SERVER-SIDE — harga & mata uang dari server)
     // ================================================================
-    if (path === '/api/credits/purchase' && method === 'POST') {
+    if (path === '/api/dtreasure/checkout/create' && method === 'POST') {
       const userId = getUserToken(request);
-
-      if (!userId || userId === 'anonymous') {
-        return new Response(JSON.stringify({ success: false, error: 'Invalid user token' }), {
-          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+      if (!isValidToken(userId)) return json({ success: false, error: 'Authentication required' }, 401);
+      if (!await checkRateLimit('dt-checkout', userId, 20, 3600) ||
+          !await checkRateLimit('dt-checkout-ip', clientIp, 60, 3600)) {
+        return json({ success: false, error: 'Too many requests' }, 429);
       }
 
-      let body;
-      try {
-        body = await request.json();
-      } catch (e) {
-        return new Response(JSON.stringify({ success: false, error: 'Invalid request body' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const { pack, orderId } = body;
-
-      if (!pack || !orderId) {
-        return new Response(JSON.stringify({ success: false, error: 'Missing pack or orderId' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const PACK_PRICES = {
-        '5$':   5,
-        '25$':  25,
-        '45$':  45,
-        '75$':  75,
-        '99$':  99,
-        '125$': 125,
-      };
-
-      const packs = {
-        '5$':   { credits: 200,  bonus: 0,    lifetime: false },
-        '25$':  { credits: 1300, bonus: 450,  lifetime: false },
-        '45$':  { credits: 2700, bonus: 900,  lifetime: false },
-        '75$':  { credits: 4500, bonus: 1400, lifetime: false },
-        '99$':  { credits: 7000, bonus: 2300, lifetime: false },
-        '125$': { credits: 0,    bonus: 0,    lifetime: true  },
-      };
-
-      const packData = packs[pack];
-      if (!packData) {
-        return new Response(JSON.stringify({ success: false, error: 'Invalid pack' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+      const body = await request.json().catch(() => null);
+      if (!hasPack(body?.pack)) return json({ success: false, error: 'Invalid pack' }, 400);
+      const pack = PACKS[body.pack];
+      const ref  = crypto.randomUUID(); // custom_id di PayPal — BUKAN token user
 
       try {
-        const existingPayment = await DB.prepare(
-          'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
-        ).bind(orderId).first();
+        const created = await paypalRequest(env, 'POST', '/v2/checkout/orders', {
+          intent: 'CAPTURE',
+          purchase_units: [{
+            reference_id: ref,
+            custom_id:    ref,
+            description:  `ZXAION Credits ${body.pack}`,
+            amount:       { currency_code: 'USD', value: usd(pack.priceCents) },
+          }],
+        }, `create-${ref}`);
 
-        if (existingPayment) {
-          if (existingPayment.status === 'completed') {
-            const user = await DB.prepare(
-              'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-            ).bind(userId).first();
-            return new Response(JSON.stringify({
-              success:    true,
-              message:    'Order already processed',
-              newBalance: user?.credits  || 0,
-              lifetime:   !!user?.lifetime,
-            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-          }
+        if (!created.ok || !created.data?.id) {
+          console.error('[Checkout] create gagal:', created.status, JSON.stringify(created.data)?.slice(0, 400));
+          return json({ success: false, error: 'Gagal membuat order PayPal' }, 502);
         }
 
-        const accessToken  = await getPayPalAccessToken();
-        const orderDetails = await verifyPayPalOrder(orderId, accessToken);
+        await DB.prepare(`
+          INSERT INTO dt_orders (id, order_id, ref, user_id, pack_key, amount_cents, currency, status, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'USD', 'created', ?)
+        `).bind(`order:${created.data.id}`, created.data.id, ref, userId, body.pack, pack.priceCents, nowSec()).run();
 
-        if (!orderDetails) {
-          await DB.prepare(`
-            INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
-            VALUES (?, ?, ?, ?, ?, 'failed', ?)
-          `).bind(`order:${orderId}`, userId, orderId, pack, PACK_PRICES[pack], 'Order not found in PayPal').run();
-
-          return new Response(JSON.stringify({ success: false, error: 'PayPal order not found' }), {
-            status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        if (orderDetails.status !== 'COMPLETED') {
-          await DB.prepare(`
-            INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
-            VALUES (?, ?, ?, ?, ?, 'failed', ?)
-          `).bind(
-            `order:${orderId}`, userId, orderId, pack, PACK_PRICES[pack],
-            `Order status is ${orderDetails.status}, not COMPLETED`
-          ).run();
-
-          return new Response(JSON.stringify({
-            success: false,
-            error:   `Payment status invalid: ${orderDetails.status}. Please try again or contact support.`,
-          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
-
-        let verifiedUserId = userId;
-        let verifiedAmount = null;
-
-        if (orderDetails.purchase_units?.length > 0) {
-          const purchaseUnit = orderDetails.purchase_units[0];
-          if (purchaseUnit.custom_id) verifiedUserId = purchaseUnit.custom_id;
-          if (purchaseUnit.payments?.captures?.length > 0) {
-            verifiedAmount = parseFloat(purchaseUnit.payments.captures[0].amount?.value || '0');
-          }
-        }
-
-        if (verifiedAmount !== null) {
-          const roundedAmount  = Math.round(verifiedAmount * 100) / 100;
-          const expectedAmount = PACK_PRICES[pack];
-          if (roundedAmount !== expectedAmount) {
-            await DB.prepare(`
-              INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
-              VALUES (?, ?, ?, ?, ?, 'failed', ?)
-            `).bind(
-              `order:${orderId}`, verifiedUserId, orderId, pack, roundedAmount,
-              `Amount mismatch: expected $${expectedAmount}, got $${roundedAmount}`
-            ).run();
-
-            return new Response(JSON.stringify({
-              success: false,
-              error:   `Amount mismatch. Expected $${expectedAmount}, received $${roundedAmount}.`,
-            }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-          }
-        }
-
-        // FIX: ATOMIC CLAIM — pasangan dari klaim yang sama di webhook handler.
-        const claim = await DB.prepare(`
-          INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status)
-          VALUES (?, ?, ?, ?, ?, 'processing')
-          ON CONFLICT(id) DO NOTHING
-        `).bind(`order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack]).run();
-
-        if (!claim.meta || claim.meta.changes === 0) {
-          // Sudah diklaim proses lain (kemungkinan besar webhook PayPal datang
-          // lebih dulu). Tunggu sebentar lalu laporkan status final — JANGAN
-          // credit dua kali untuk orderId yang sama.
-          await new Promise(r => setTimeout(r, 1500));
-
-          const settled = await DB.prepare(
-            'SELECT status FROM payment_orders WHERE id = ?'
-          ).bind(`order:${orderId}`).first();
-          const user = await DB.prepare(
-            'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-          ).bind(verifiedUserId).first();
-
-          if (settled?.status === 'completed') {
-            return new Response(JSON.stringify({
-              success:    true,
-              message:    'Order already processed',
-              newBalance: user?.credits  || 0,
-              lifetime:   !!user?.lifetime,
-            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-          }
-
-          return new Response(JSON.stringify({
-            success: false,
-            error:   'Order is being processed by another request. Please refresh in a few seconds.',
-          }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
-
-        try {
-          if (packData.lifetime) {
-            await DB.prepare(
-              'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET lifetime = 1'
-            ).bind(verifiedUserId).run();
-          } else {
-            const totalCredits = packData.credits + (packData.bonus || 0);
-            await DB.prepare(
-              'INSERT INTO user_credits (user_id, credits, lifetime) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?'
-            ).bind(verifiedUserId, totalCredits, totalCredits).run();
-          }
-
-          await DB.prepare(
-            `UPDATE payment_orders SET status = 'completed', completed_at = ? WHERE id = ?`
-          ).bind(new Date().toISOString(), `order:${orderId}`).run();
-
-          const user = await DB.prepare(
-            'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-          ).bind(verifiedUserId).first();
-
-          console.log(`Payment success: User ${verifiedUserId}, Order ${orderId}, Pack ${pack}`);
-
-          return new Response(JSON.stringify({
-            success:    true,
-            newBalance: user?.credits  || 0,
-            lifetime:   !!user?.lifetime,
-          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
-        } catch (dbError) {
-          console.error('Database credit error:', dbError.message);
-          await DB.prepare(
-            `UPDATE payment_orders SET status = 'failed', error_message = ? WHERE id = ?`
-          ).bind(dbError.message, `order:${orderId}`).run();
-          throw dbError;
-        }
-
+        return json({ success: true, orderID: created.data.id });
       } catch (e) {
-        console.error('Credit purchase error:', e.message, 'OrderID:', orderId);
-        return new Response(JSON.stringify({
-          success: false,
-          error:   'Payment processing error. Please contact support with Order ID: ' + orderId,
-          orderId,
-        }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        console.error('[Checkout] create error:', e.message);
+        return json({ success: false, error: 'Checkout error' }, 500);
       }
     }
 
     // ================================================================
-    // ENDPOINT: Spend credits
+    // ENDPOINT: Capture order PayPal (SERVER-SIDE, idempotent)
+    // ================================================================
+    if (path === '/api/dtreasure/checkout/capture' && method === 'POST') {
+      const userId = getUserToken(request);
+      if (!isValidToken(userId)) return json({ success: false, error: 'Authentication required' }, 401);
+      if (!await checkRateLimit('dt-capture', userId, 30, 3600) ||
+          !await checkRateLimit('dt-capture-ip', clientIp, 90, 3600)) {
+        return json({ success: false, error: 'Too many requests' }, 429);
+      }
+
+      const body    = await request.json().catch(() => null);
+      const orderID = body?.orderID;
+      if (typeof orderID !== 'string' || !/^[A-Za-z0-9]{8,32}$/.test(orderID)) {
+        return json({ success: false, error: 'Invalid orderID' }, 400);
+      }
+
+      try {
+        const row = await DB.prepare('SELECT * FROM dt_orders WHERE order_id = ?').bind(orderID).first();
+        if (!row || row.user_id !== userId) return json({ success: false, error: 'Order not found' }, 404);
+
+        const balanceOf = async () => {
+          const u = await DB.prepare('SELECT credits, lifetime FROM user_credits WHERE user_id = ?').bind(userId).first();
+          return { newBalance: Math.max(0, u?.credits || 0), lifetime: !!u?.lifetime };
+        };
+
+        if (row.status === 'completed') return json({ success: true, status: 'completed', ...(await balanceOf()) });
+        if (row.status === 'pending')   return json({ success: true, status: 'pending' });
+        if (!['created', 'processing'].includes(row.status)) {
+          return json({ success: false, error: `Order status: ${row.status}`, orderId: orderID }, 409);
+        }
+
+        // Klaim atomik; 'processing' yang macet >20 detik boleh diambil ulang
+        const ts    = nowSec();
+        const claim = await DB.prepare(`
+          UPDATE dt_orders SET status = 'processing', updated_at = ?
+          WHERE id = ? AND (status = 'created' OR (status = 'processing' AND updated_at < ?))
+        `).bind(ts, row.id, ts - 20).run();
+
+        if (claim.meta.changes === 0) {
+          const cur = await DB.prepare('SELECT status FROM dt_orders WHERE id = ?').bind(row.id).first();
+          if (cur?.status === 'completed') return json({ success: true, status: 'completed', ...(await balanceOf()) });
+          if (cur?.status === 'pending')   return json({ success: true, status: 'pending' });
+          return json({ success: false, retryable: true, error: 'Order sedang diproses, coba lagi.' }, 409);
+        }
+
+        // Capture ke PayPal (PayPal-Request-Id = idempotent bila diulang)
+        let order = null, restart = false;
+        try {
+          const cap = await paypalRequest(env, 'POST', `/v2/checkout/orders/${orderID}/capture`, {}, `capture-${orderID}`);
+          if (cap.ok) {
+            order = cap.data;
+          } else {
+            const issue = cap.data?.details?.[0]?.issue;
+            if (issue === 'ORDER_ALREADY_CAPTURED') {
+              const g = await paypalRequest(env, 'GET', `/v2/checkout/orders/${orderID}`);
+              if (g.ok) order = g.data;
+            } else if (issue === 'INSTRUMENT_DECLINED') {
+              restart = true;
+            } else {
+              console.error('[Capture] PayPal error', cap.status, JSON.stringify(cap.data)?.slice(0, 400));
+            }
+          }
+        } catch (e) { console.error('[Capture] network:', e.message); }
+
+        if (!order) {
+          await DB.prepare(`UPDATE dt_orders SET status = 'created', updated_at = ? WHERE id = ? AND status = 'processing'`)
+            .bind(nowSec(), row.id).run();
+          return json({
+            success: false, restart, retryable: !restart,
+            error: restart ? 'Pembayaran ditolak, silakan pilih metode lain.' : 'Gagal menghubungi PayPal, coba lagi.',
+          }, restart ? 422 : 502);
+        }
+
+        const v = validateCapture(order, row);
+
+        if (v.state === 'completed') {
+          try {
+            await fulfillOrder(env, row, v.captureId);
+          } catch (e) {
+            // status tetap 'processing' → webhook / retry akan menyelesaikan
+            console.error('[Capture] fulfill gagal:', e.message, orderID);
+            return json({ success: false, retryable: true, error: 'Pembayaran diterima, kredit sedang diproses. Refresh sebentar lagi.', orderId: orderID }, 500);
+          }
+          return json({ success: true, status: 'completed', ...(await balanceOf()) });
+        }
+
+        if (v.state === 'pending') {
+          await DB.prepare(`UPDATE dt_orders SET status = 'pending', capture_id = ?, updated_at = ? WHERE id = ? AND status IN ('created','processing')`)
+            .bind(v.captureId || null, nowSec(), row.id).run();
+          return json({ success: true, status: 'pending' });
+        }
+
+        await DB.prepare(`UPDATE dt_orders SET status = 'rejected', error_message = ?, updated_at = ? WHERE id = ? AND ${ELIGIBLE}`)
+          .bind(v.reason, nowSec(), row.id).run();
+        console.error(`[Capture] REJECTED order ${orderID}: ${v.reason}`);
+        return json({ success: false, error: 'Verifikasi pembayaran gagal. Hubungi support dengan Order ID.', orderId: orderID }, 400);
+
+      } catch (e) {
+        console.error('[Capture] error:', e.message, orderID);
+        return json({ success: false, retryable: true, error: 'Payment processing error.', orderId: orderID }, 500);
+      }
+    }
+
+    // Endpoint lama (client-side order) DITUTUP
+    if (path === '/api/credits/purchase') {
+      return json({ success: false, error: 'Endpoint deprecated. Please refresh the page.' }, 410);
+    }
+
+    // ================================================================
+    // ENDPOINT: Spend credits (atomik: satu transaksi, tanpa kompensasi)
     // ================================================================
     if (path === '/api/credits/spend' && method === 'POST') {
       const userId = getUserToken(request);
+      if (!isValidToken(userId)) return json({ success: false, error: 'Authentication required' }, 401);
+      if (!await checkRateLimit('dt-spend', userId, 60, 3600)) return json({ success: false, error: 'Too many requests' }, 429);
 
-      if (!userId || userId === 'anonymous') {
-        return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), {
-          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      let body;
-      try {
-        body = await request.json();
-      } catch (e) {
-        return new Response(JSON.stringify({ success: false, error: 'Invalid request body' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const { photoId } = body;
-      if (!photoId) {
-        return new Response(JSON.stringify({ success: false, error: 'Missing photoId' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+      const body    = await request.json().catch(() => null);
+      const photoId = body?.photoId;
+      if (typeof photoId !== 'string' || !photoId.startsWith('dtreasure:') || photoId.length > 600) {
+        return json({ success: false, error: 'Invalid photoId' }, 400);
       }
 
       try {
-        const alreadyPurchased = await DB.prepare(
-          'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-        ).bind(userId, photoId).first();
+        const exists = await DB.prepare("SELECT 1 FROM images WHERE id = ? AND bucket = 'dtreasure'").bind(photoId).first();
+        if (!exists) return json({ success: false, error: 'Image not found' }, 404);
 
-        if (alreadyPurchased) {
-          const user = await DB.prepare(
-            'SELECT credits FROM user_credits WHERE user_id = ?'
-          ).bind(userId).first();
-          return new Response(JSON.stringify({
-            success:      true,
-            newBalance:   user?.credits || 0,
-            purchased:    true,
-            alreadyOwned: true,
-          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const user = await DB.prepare('SELECT credits, lifetime FROM user_credits WHERE user_id = ?').bind(userId).first();
+
+        // Lifetime: tidak potong kredit
+        if (user?.lifetime) {
+          await DB.prepare('INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)').bind(userId, photoId).run();
+          return json({ success: true, newBalance: Math.max(0, user.credits || 0), purchased: true });
         }
 
-        const userRecord = await DB.prepare(
-          'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-        ).bind(userId).first();
+        // Satu transaksi: ledger (penanda) → potong kredit → beri kepemilikan.
+        // Ledger hanya masuk bila: kredit cukup & belum memiliki. Dua langkah berikutnya bergantung padanya.
+        const nonce = `spend:${crypto.randomUUID()}`;
+        const res = await DB.batch([
+          DB.prepare(`
+            INSERT INTO credit_ledger (id, user_id, delta, kind, ref)
+            SELECT ?, ?, ?, 'spend', ?
+            WHERE EXISTS (SELECT 1 FROM user_credits WHERE user_id = ? AND credits >= ? AND lifetime = 0)
+              AND NOT EXISTS (SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?)
+          `).bind(nonce, userId, -SPEND_COST, photoId, userId, SPEND_COST, userId, photoId),
+          DB.prepare(`
+            UPDATE user_credits SET credits = credits - ?
+            WHERE user_id = ? AND EXISTS (SELECT 1 FROM credit_ledger WHERE id = ?)
+          `).bind(SPEND_COST, userId, nonce),
+          DB.prepare(`
+            INSERT OR IGNORE INTO purchased_images (user_id, photo_id)
+            SELECT ?, ? WHERE EXISTS (SELECT 1 FROM credit_ledger WHERE id = ?)
+          `).bind(userId, photoId, nonce),
+        ]);
 
-        if (!userRecord) {
-          return new Response(JSON.stringify({ success: false, error: 'User not found. Please refresh.' }), {
-            status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
+        const after = await DB.prepare('SELECT credits FROM user_credits WHERE user_id = ?').bind(userId).first();
+        const newBalance = Math.max(0, after?.credits || 0);
 
-        if (userRecord.lifetime) {
-          await DB.prepare(
-            'INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)'
-          ).bind(userId, photoId).run();
-          return new Response(JSON.stringify({
-            success:    true,
-            newBalance: userRecord.credits || 0,
-            purchased:  true,
-          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
+        if (res[0].meta.changes === 1) return json({ success: true, newBalance, purchased: true });
 
-        if (userRecord.credits < 10) {
-          return new Response(JSON.stringify({
-            success:        false,
-            error:          'Insufficient credits',
-            currentCredits: userRecord.credits,
-            required:       10,
-          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
+        const owned = await DB.prepare('SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?').bind(userId, photoId).first();
+        if (owned) return json({ success: true, newBalance, purchased: true, alreadyOwned: true });
 
-// Atomic deduct — race condition safe.
-        // FIX: jumlah baris berubah ada di `meta.changes`, bukan `changes`.
-        const deductResult = await DB.prepare(
-          'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'
-        ).bind(userId).run();
-
-        if (!deductResult.meta || deductResult.meta.changes === 0) {
-          return new Response(JSON.stringify({
-            success: false,
-            error:   'Insufficient credits (concurrent request detected)',
-          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
-
-        await DB.prepare(
-          'INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)'
-        ).bind(userId, photoId).run();
-
-        const newUser = await DB.prepare(
-          'SELECT credits FROM user_credits WHERE user_id = ?'
-        ).bind(userId).first();
-
-        return new Response(JSON.stringify({
-          success:    true,
-          newBalance: newUser?.credits || 0,
-          purchased:  true,
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
+        return json({ success: false, error: 'Insufficient credits', currentCredits: newBalance, required: SPEND_COST }, 400);
       } catch (e) {
         console.error('Spend credit error:', e.message);
-        return new Response(JSON.stringify({ success: false, error: 'Database error' }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return json({ success: false, error: 'Database error' }, 500);
       }
     }
 
     // ================================================================
-    // ENDPOINT: Serve images dari R2 (main, comitbase, dtreasure)
+    // ENDPOINT: Admin — order DTREASURE bermasalah (butuh X-Admin-Token)
     // ================================================================
-    if (
-      path.startsWith('/api/img/') ||
-      path.startsWith('/api/comitbase/img/') ||
-      path.startsWith('/api/dtreasure/img/')
-    ) {
-      const isDtreasure = path.startsWith('/api/dtreasure/img/');
+    if (path === '/api/admin/dt-orders' && method === 'GET') {
+      if (!env.ADMIN_TOKEN || request.headers.get('X-Admin-Token') !== env.ADMIN_TOKEN) {
+        return json({ error: 'Unauthorized' }, 401);
+      }
+      const { results } = await DB.prepare(`
+        SELECT id, user_id, pack_key, amount_cents, status, capture_id, error_message, created_at, updated_at
+        FROM dt_orders
+        WHERE status IN ('unmatched','rejected','failed','disputed')
+           OR (status IN ('processing','pending') AND updated_at > 0 AND updated_at < ?)
+        ORDER BY created_at DESC LIMIT 100
+      `).bind(nowSec() - 900).all();
+      return json(results);
+    }
 
-      // Auth check untuk DTREASURE download
-      if (isDtreasure && url.searchParams.get('download') === 'true') {
-        const headerToken = getUserToken(request);
-        const userId = (headerToken && headerToken !== 'anonymous')
-          ? headerToken
-          : (url.searchParams.get('userToken') || 'anonymous');
+    // ================================================================
+    // ENDPOINT: DTREASURE preview (PUBLIK, 640px + watermark — bukan file asli)
+    // ================================================================
+    if (path.startsWith('/api/dtreasure/img/') && method === 'GET') {
+      let key;
+      try { key = decodeURIComponent(path.slice('/api/dtreasure/img/'.length)); }
+      catch { return json({ error: 'Bad key' }, 400); }
+      return serveDtreasurePreview(env, ctx, key, corsHeaders);
+    }
 
-        if (!userId || userId === 'anonymous') {
-          return new Response(JSON.stringify({ error: 'Authentication required' }), {
-            status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
+    // ================================================================
+    // ENDPOINT: DTREASURE download FILE ASLI (wajib punya hak akses)
+    // Hak akses dihitung server dari key file — bukan dari parameter klien.
+    // ================================================================
+    if (path.startsWith('/api/dtreasure/download/') && method === 'GET') {
+      if (!treasureBucket) return json({ error: 'Not available' }, 503);
 
-        try {
-          const userRecord = await DB.prepare(
-            'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
-          ).bind(userId).first();
+      let key;
+      try { key = decodeURIComponent(path.slice('/api/dtreasure/download/'.length)); }
+      catch { return json({ error: 'Bad key' }, 400); }
+      const meta = key.includes('..') ? null : parseImageMeta(key, 'dtreasure');
+      if (!meta) return json({ error: 'Not found' }, 404);
 
-          const hasLifetime = userRecord && !!userRecord.lifetime;
-
-          if (!hasLifetime) {
-            const photoIdFromQuery = url.searchParams.get('photoId');
-            const rawKey           = decodeURIComponent(path.slice('/api/dtreasure/img/'.length));
-
-            let purchasedRecord = null;
-
-            if (photoIdFromQuery) {
-              purchasedRecord = await DB.prepare(
-                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-              ).bind(userId, photoIdFromQuery).first();
-            }
-
-            if (!purchasedRecord) {
-              purchasedRecord = await DB.prepare(
-                'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
-              ).bind(userId, rawKey).first();
-            }
-
-            if (!purchasedRecord) {
-              return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
-                status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              });
-            }
-          }
-        } catch (e) {
-          console.error('[DTREASURE Download] Auth check DB error:', e.message);
-          return new Response(JSON.stringify({ error: 'Server error during authorization check' }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
+      const userId = getUserToken(request);
+      if (!isValidToken(userId)) return json({ error: 'Authentication required' }, 401);
+      if (!await checkRateLimit('dt-download', userId, 60, 3600) ||
+          !await checkRateLimit('dt-download-ip', clientIp, 200, 3600)) {
+        return json({ error: 'Too many requests' }, 429);
       }
 
-      let bucket, prefix;
-      if (path.startsWith('/api/comitbase/img/')) {
-        bucket = comitbaseBucket;
-        prefix = '/api/comitbase/img/';
-      } else if (isDtreasure) {
-        bucket = treasureBucket;
-        prefix = '/api/dtreasure/img/';
-      } else {
-        bucket = mainBucket;
-        prefix = '/api/img/';
+      try {
+        const user = await DB.prepare('SELECT lifetime FROM user_credits WHERE user_id = ?').bind(userId).first();
+        let allowed = !!user?.lifetime;
+        if (!allowed) {
+          allowed = !!(await DB.prepare('SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?')
+            .bind(userId, meta.id).first());
+        }
+        if (!allowed) return json({ error: 'Purchase required to download this image' }, 403);
+
+        const object = await treasureBucket.get(key);
+        if (!object) return json({ error: 'Not found' }, 404);
+
+        const headers = new Headers(corsHeaders);
+        object.writeHttpMetadata(headers);
+        const raw = key.split('/').pop();
+        headers.set('Content-Disposition',
+          `attachment; filename="${raw.replace(/[^a-zA-Z0-9._-]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(raw)}`);
+        headers.set('Cache-Control', 'private, no-store');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        return new Response(object.body, { headers });
+      } catch (e) {
+        console.error('[DTREASURE download] error:', e.message);
+        return json({ error: 'Server error during authorization check' }, 500);
       }
+    }
+
+    // ================================================================
+    // ENDPOINT: Serve images main & comitbase (publik)
+    // ================================================================
+    if (path.startsWith('/api/img/') || path.startsWith('/api/comitbase/img/')) {
+      const isComit = path.startsWith('/api/comitbase/img/');
+      const bucket  = isComit ? comitbaseBucket : mainBucket;
+      const prefix  = isComit ? '/api/comitbase/img/' : '/api/img/';
 
       try {
         const key    = decodeURIComponent(path.slice(prefix.length));
@@ -1177,28 +1227,20 @@ export default {
         const headers = new Headers();
         object.writeHttpMetadata(headers);
         headers.set('etag', object.httpEtag);
-        headers.set('Access-Control-Allow-Origin',
-          ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
+        headers.set('Access-Control-Allow-Origin', ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
         headers.set('Vary', 'Origin');
-        headers.set('Cache-Control',
-          isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
+        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
 
         if (url.searchParams.get('download') === 'true') {
           const rawFilename     = key.split('/').pop();
           const asciiFilename   = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
           const encodedFilename = encodeURIComponent(rawFilename);
-          headers.set(
-            'Content-Disposition',
-            `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`
-          );
+          headers.set('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`);
         }
-
         return new Response(object.body, { headers });
       } catch (e) {
         console.error('Image serve error:', e.message);
-        return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return json({ error: 'Failed to fetch image' }, 500);
       }
     }
 
@@ -1259,7 +1301,7 @@ export default {
           "script-src 'self' 'unsafe-inline' " +
             "https://cdn.tailwindcss.com " +
             "https://cdnjs.cloudflare.com " +
-            "https://www.paypal.com " +
+            "https://www.paypal.com " + "https://*.paypal.com https://*.paypalobjects.com " +
             "https://pagead2.googlesyndication.com " +
             "https://partner.googleadservices.com " +
             "https://tpc.googlesyndication.com " +
@@ -1276,12 +1318,12 @@ export default {
             "https://fonts.gstatic.com; " +
           "connect-src 'self' " +
             "https://ai.zxaionverse.workers.dev " +
-            "https://www.paypal.com " +
+            "https://www.paypal.com " +"https://*.paypal.com " +
             "https://pagead2.googlesyndication.com " +
             "https://googleads.g.doubleclick.net " +
             "https://www.google.com; " +
           "frame-src " +
-            "https://www.paypal.com " +
+            "https://www.paypal.com " + "https://*.paypal.com " +
             "https://googleads.g.doubleclick.net " +
             "https://tpc.googlesyndication.com " +
             "https://www.google.com;"

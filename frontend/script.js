@@ -495,28 +495,48 @@ const api = {
         }
     },
 
-    async purchaseCredits(packKey, orderId) {
-        const token = getOrCreateUserToken();
-        try {
-            const res  = await fetch(`${API_BASE}/api/credits/purchase`, {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
-                body:    JSON.stringify({ pack: packKey, orderId })
-            });
-            const data = await res.json();
-
-            if (res.ok && data.success === true) {
-                return { success: true, newBalance: data.newBalance ?? 0, lifetime: data.lifetime ?? false, error: null };
-            } else if (data.message === 'Order already processed') {
-                return { success: true, newBalance: data.newBalance ?? 0, lifetime: data.lifetime ?? false, error: null };
-            } else {
-                return { success: false, error: data.error || 'Payment verification failed', orderId: data.orderId || orderId, newBalance: 0, lifetime: false };
+        // Order dibuat SERVER — harga & mata uang tidak bisa diubah dari browser
+    async createCheckout(packKey) {
+            const token = getOrCreateUserToken();
+            try {
+                const res = await fetch(`${API_BASE}/api/dtreasure/checkout/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+                    body: JSON.stringify({ pack: packKey })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.success && data.orderID) return { success: true, orderID: data.orderID };
+                return { success: false, error: data.error || `HTTP ${res.status}` };
+            } catch (e) {
+                console.error('createCheckout network error:', e);
+                return { success: false, error: 'Network error. Please check your connection.' };
             }
-        } catch (e) {
-            console.error('purchaseCredits network error:', e);
-            return { success: false, error: 'Network error. Please check your connection.', newBalance: 0, lifetime: false };
-        }
-    },
+        },
+        
+        // Capture di server; aman diulang (idempotent) — retry hanya untuk error sementara
+        async captureCheckout(orderID) {
+            const token = getOrCreateUserToken();
+            const delays = [0, 1500, 3000, 6000];
+            let last = { success: false, error: 'Unknown error' };
+            
+            for (const d of delays) {
+                if (d) await new Promise(r => setTimeout(r, d));
+                try {
+                    const res = await fetch(`${API_BASE}/api/dtreasure/checkout/capture`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+                        body: JSON.stringify({ orderID })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data.success) return data;
+                    last = { ...data, success: false, error: data.error || `HTTP ${res.status}` };
+                    if (!data.retryable) return last;
+                } catch (e) {
+                    last = { success: false, retryable: true, error: 'Network error. Please check your connection.' };
+                }
+            }
+            return last;
+        },
 
     async spendCredit(photoId) {
         const token = getOrCreateUserToken();
@@ -683,27 +703,16 @@ const ui = {
         elements.modalViewCount.textContent     = utils.formatNumber(displayViews);
         elements.modalDownloadCount.textContent = utils.formatNumber(displayDownloads);
 
-        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+                const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
         const isPurchased = state.lifetime || state.purchasedImages.has(photo.id);
 
         this.applyModalShield(isDtreasure && !isPurchased);
 
         if (isDtreasure) {
             if (isPurchased) {
-                const token       = getOrCreateUserToken();
-                const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-                const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-                const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
-                elements.downloadBtn.href = downloadUrl;
-                elements.downloadBtn.setAttribute('download', filename);
-                elements.downloadBtn.onclick = () => {
-                    api.recordDownload(photo.id);
-                    const el = elements.modalDownloadCount;
-                    if (el) el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
-                };
-                elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+                this.bindOwnedDownloadButton(photo);
             } else {
-                elements.downloadBtn.removeAttribute('href');
+                elements.downloadBtn.href = '#';
                 elements.downloadBtn.removeAttribute('download');
                 elements.downloadBtn.onclick = (e) => { e.preventDefault(); ui.handleDownload(photo); };
                 elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
@@ -843,58 +852,67 @@ const ui = {
         elements.galleryContainer.addEventListener('click', handleGalleryClick);
     },
 
+        // Key R2 diturunkan dari id ('dtreasure:<key>')
+    dtreasureKey(photo) {
+        if (photo.id && photo.id.startsWith('dtreasure:')) return photo.id.slice('dtreasure:'.length);
+        const marker = '/api/dtreasure/img/';
+        const i = (photo.url || '').indexOf(marker);
+        return i >= 0 ? decodeURIComponent(photo.url.slice(i + marker.length).split('?')[0]) : '';
+    },
+
+    bindOwnedDownloadButton(photo) {
+        const btn = elements.downloadBtn;
+        btn.href = '#';
+        btn.removeAttribute('download');
+        btn.onclick = (e) => { e.preventDefault(); ui.triggerDownload(photo); };
+        btn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+    },
+
     async handleDownload(photo) {
         if (!photo) return;
 
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        if (!isDtreasure) { this.triggerDownload(photo); return; }
 
-        if (isDtreasure) {
-            if (state.lifetime || state.purchasedImages.has(photo.id)) {
-                this.triggerDownload(photo);
-                return;
-            }
-
-            if (state.credits < 10) {
-                alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
-                document.getElementById('buy-credits-btn')?.click();
-                return;
-            }
-
-            const result = await api.spendCredit(photo.id);
-            if (result.success) {
-                state.credits = result.newBalance;
-                state.purchasedImages.add(photo.id);
-                ui.updateCreditDisplay();
-
-                if (state.currentImageId === photo.id) {
-                    this.applyModalShield(false);
-                    const token       = getOrCreateUserToken();
-                    const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-                    const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-                    const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
-                    elements.downloadBtn.href = downloadUrl;
-                    elements.downloadBtn.setAttribute('download', filename);
-                    elements.downloadBtn.onclick = () => { api.recordDownload(photo.id); };
-                    elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-                }
-
-                // O(1) DOM update pada item spesifik — tidak reset scroll position
-                this.unlockDtreasureThumbnail(photo.id);
-                this.triggerDownload(photo);
-            } else {
-                alert('❌ ' + (result.error || 'Download failed. Please try again.'));
-            }
-        } else {
+        if (state.lifetime || state.purchasedImages.has(photo.id)) {
             this.triggerDownload(photo);
+            return;
+        }
+
+        if (state.credits < 10) {
+            alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
+            document.getElementById('buy-credits-btn')?.click();
+            return;
+        }
+
+        if (!confirm(`Gunakan 10 credits untuk membuka "${photo.title || 'gambar ini'}"?\n\nSetelah dibuka, Anda bisa mengunduhnya lagi gratis.`)) return;
+
+        if (this._spending) return; // cegah klik ganda
+        this._spending = true;
+        try {
+            const result = await api.spendCredit(photo.id);
+            if (!result.success) {
+                alert('❌ ' + (result.error || 'Download failed. Please try again.'));
+                return;
+            }
+            state.credits = result.newBalance;
+            state.purchasedImages.add(photo.id);
+            ui.updateCreditDisplay();
+
+            if (state.currentImageId === photo.id) {
+                this.applyModalShield(false);
+                this.bindOwnedDownloadButton(photo);
+            }
+            this.unlockDtreasureThumbnail(photo.id);
+            await this.triggerDownload(photo);
+        } finally {
+            this._spending = false;
         }
     },
 
     async triggerDownload(photo) {
         if (!photo || !photo.url) return;
 
-        // FIX: pencatatan stats dipisah jadi helper, dan untuk jalur DTREASURE
-        // hanya dipanggil SETELAH fetch() sukses — sebelumnya stats naik duluan
-        // walau download gagal/diblokir.
         const markDownloaded = () => {
             api.recordDownload(photo.id);
             document.querySelectorAll(`.download-count[data-id="${photo.id}"]`).forEach(el => {
@@ -904,65 +922,79 @@ const ui = {
 
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
         const fullUrl     = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-        const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
-        const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
 
-        if (isDtreasure) {
-            const token        = getOrCreateUserToken();
-            const loadingToast = document.createElement('div');
-            loadingToast.id    = 'dl-toast';
-            loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
-            loadingToast.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing download...';
-            document.body.appendChild(loadingToast);
-
-            try {
-                const res = await fetch(downloadUrl, {
-                    method:  'GET',
-                    headers: { 'X-User-Token': token },
-                });
-
-                if (!res.ok) {
-                    let errMsg = `Download failed (HTTP ${res.status})`;
-                    try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
-                    throw new Error(errMsg);
-                }
-
-                const blob      = await res.blob();
-                const objectUrl = URL.createObjectURL(blob);
-                const a         = document.createElement('a');
-                a.href          = objectUrl;
-                a.download      = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-
-                markDownloaded(); // baru dicatat setelah blob berhasil didapat
-
-                loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
-                loadingToast.classList.add('bg-green-800');
-
-            } catch (error) {
-                console.error('DTREASURE download error:', error);
-                loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${error.message}`;
-                loadingToast.classList.add('bg-red-800');
-                if (error.message.includes('403') || error.message.toLowerCase().includes('purchase required')) {
-                    setTimeout(() => {
-                        alert('❌ Download blocked: Purchase required.\n\nBuy credits to download DTREASURE images.');
-                        document.getElementById('buy-credits-btn')?.click();
-                    }, 500);
-                }
-            } finally {
-                setTimeout(() => { document.getElementById('dl-toast')?.remove(); }, 3500);
-            }
-        } else {
+        // --- Kategori publik ---
+        if (!isDtreasure) {
+            const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
             markDownloaded();
             const a    = document.createElement('a');
-            a.href     = downloadUrl;
+            a.href     = `${fullUrl}?download=true`;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
             setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 300);
+            return;
+        }
+
+        // --- DTREASURE: file asli, token hanya lewat header (tidak di URL) ---
+        const key = this.dtreasureKey(photo);
+        if (!key) return;
+        const ext      = (key.match(/\.(jpe?g|png|webp|gif)$/i) || [null, 'jpg'])[1].toLowerCase();
+        const filename = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.' + ext;
+        const token    = getOrCreateUserToken();
+
+        const toast = document.createElement('div');
+        toast.id = 'dl-toast';
+        toast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
+        toast.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing download...';
+        document.body.appendChild(toast);
+
+        try {
+            const res = await fetch(`${API_BASE}/api/dtreasure/download/${encodeURIComponent(key)}`, {
+                method:  'GET',
+                headers: { 'X-User-Token': token },
+            });
+
+            if (!res.ok) {
+                let msg = `Download failed (HTTP ${res.status})`;
+                try { const err = await res.json(); msg = err.error || msg; } catch (_) {}
+                const e = new Error(msg);
+                e.status = res.status;
+                throw e;
+            }
+
+            const blob      = await res.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            const a         = document.createElement('a');
+            a.href          = objectUrl;
+            a.download      = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+
+            markDownloaded(); // hanya setelah file benar-benar diterima
+
+            toast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
+            toast.classList.add('bg-green-800');
+        } catch (error) {
+            console.error('DTREASURE download error:', error);
+            toast.textContent = '';
+            const icon = document.createElement('i');
+            icon.className = 'fas fa-times-circle text-red-400';
+            toast.appendChild(icon);
+            toast.appendChild(document.createTextNode(' ' + error.message));
+            toast.classList.add('bg-red-800');
+
+            if (error.status === 403) {
+                api.fetchCreditBalance(); // sinkronkan state yang basi
+                setTimeout(() => {
+                    alert('❌ Download blocked: Purchase required.\n\nBuy credits to download DTREASURE images.');
+                    document.getElementById('buy-credits-btn')?.click();
+                }, 500);
+            }
+        } finally {
+            setTimeout(() => { document.getElementById('dl-toast')?.remove(); }, 3500);
         }
     },
 
@@ -1983,78 +2015,55 @@ function _renderPayPalButtons(packKey, price) {
     if (elements.paypalButtonContainer) elements.paypalButtonContainer.classList.remove('hidden');
     if (elements.paypalButtons) elements.paypalButtons.innerHTML = '';
 
+    const closeBuyModal = () => {
+        const m = document.getElementById('buy-credits-modal');
+        if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
+        document.body.style.overflow = '';
+        if (elements.paypalButtonContainer) elements.paypalButtonContainer.classList.add('hidden');
+        if (elements.paypalButtons) elements.paypalButtons.innerHTML = '';
+        paypalButtonsInstance = null;
+    };
+
     try {
         paypalButtonsInstance = paypal.Buttons({
             style: { shape: 'pill', color: 'gold', layout: 'vertical', label: 'paypal' },
 
-            createOrder: (data, actions) => {
-                const token = getOrCreateUserToken();
-                return actions.order.create({
-                    purchase_units: [{
-                        description: `ZXAION Credits: ${packKey}`,
-                        custom_id:   token,
-                        amount:      { currency_code: 'USD', value: price.toString() }
-                    }]
-                });
+            // Order dibuat di SERVER: harga dari tabel server, bukan dari `price` di browser
+            createOrder: async () => {
+                const r = await api.createCheckout(packKey);
+                if (!r.success) throw new Error(r.error || 'Failed to create order');
+                return r.orderID;
             },
 
+            // Capture juga di SERVER; kredit hanya diberikan setelah verifikasi server
             onApprove: async (data, actions) => {
-                let capturedOrderId = null;
-                try {
-                    const order     = await actions.order.capture();
-                    capturedOrderId = order.id;
+                const r = await api.captureCheckout(data.orderID);
 
-                    let result      = null;
-                    let retryCount  = 0;
-                    const maxRetries = 3;
+                if (r.restart) return actions.restart(); // kartu/instrumen ditolak → pilih metode lain
 
-                    while (retryCount < maxRetries) {
-                        try {
-                            result = await api.purchaseCredits(packKey, capturedOrderId);
-                            if (result.success) break;
-                            retryCount++;
-                            if (retryCount < maxRetries) await new Promise(r => setTimeout(r, 2000 * retryCount));
-                        } catch (e) {
-                            retryCount++;
-                            console.error(`Attempt ${retryCount} network error:`, e);
-                            if (retryCount < maxRetries) await new Promise(r => setTimeout(r, 2000 * retryCount));
-                        }
-                    }
+                if (r.success && r.status === 'completed') {
+                    state.credits  = r.newBalance;
+                    state.lifetime = r.lifetime || false;
+                    ui.updateCreditDisplay();
+                    await api.fetchCreditBalance();
 
-                    if (result && result.success) {
-                        state.credits  = result.newBalance;
-                        state.lifetime = result.lifetime || false;
-                        ui.updateCreditDisplay();
-                        await api.fetchCreditBalance();
-                        api.invalidateCache();
+                    alert(state.lifetime
+                        ? '✅ Lifetime Access Activated!\n\nEnjoy unlimited downloads on DTREASURE collection.'
+                        : `✅ Purchase Successful!\n\nYou now have ${r.newBalance} credits.`
+                    );
+                    closeBuyModal();
+                    if (state.currentCategory === 'DTREASURE') ui.renderDtreasureGallery();
 
-                        alert(state.lifetime
-                            ? '✅ Lifetime Access Activated!\n\nEnjoy unlimited downloads on DTREASURE collection.'
-                            : `✅ Purchase Successful!\n\nYou now have ${result.newBalance} credits.`
-                        );
+                } else if (r.success && r.status === 'pending') {
+                    alert('⏳ Pembayaran Anda sedang diverifikasi oleh PayPal.\n\nKredit akan masuk otomatis setelah dikonfirmasi. Refresh halaman nanti untuk melihat saldo.');
+                    closeBuyModal();
 
-                        const buyCreditsModal = document.getElementById('buy-credits-modal');
-                        if (buyCreditsModal) { buyCreditsModal.classList.add('hidden'); buyCreditsModal.classList.remove('flex'); }
-                        document.body.style.overflow = '';
-                        if (elements.paypalButtonContainer) elements.paypalButtonContainer.classList.add('hidden');
-                        if (elements.paypalButtons) elements.paypalButtons.innerHTML = '';
-                        paypalButtonsInstance = null;
-
-                        if (state.currentCategory === 'DTREASURE') ui.renderDtreasureGallery();
-
-                    } else {
-                        const errMsg  = result?.error || 'Credits could not be applied automatically';
-                        const orderId = result?.orderId || capturedOrderId;
-                        alert(
-                            `⚠️ Payment Received But Auto-Credit Failed\n\n` +
-                            `Order ID: ${orderId}\n\n` +
-                            `Email zxaionxl@gmail.com with Order ID above.\n` +
-                            `Credits will be added within 24 hours.`
-                        );
-                    }
-                } catch (error) {
-                    console.error('PayPal onApprove error:', error);
-                    alert(`❌ Payment Processing Error${capturedOrderId ? '\n\nOrder ID: ' + capturedOrderId : ''}\n\n${error.message || 'An unexpected error occurred.'}`);
+                } else {
+                    alert(
+                        `⚠️ Payment Could Not Be Completed Automatically\n\n` +
+                        `Order ID: ${data.orderID}\n${r.error ? r.error + '\n\n' : '\n'}` +
+                        `Jika dana Anda terpotong, email zxaionxl@gmail.com dengan Order ID di atas.`
+                    );
                 }
             },
 
