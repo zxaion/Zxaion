@@ -24,6 +24,9 @@ bucket_name = "zx-cloud2"
 binding = "TREASURE"
 bucket_name = "d-treasures"
 
+[images]
+binding = "ZX"
+
 [observability]
 enabled = false
 head_sampling_rate = 1
