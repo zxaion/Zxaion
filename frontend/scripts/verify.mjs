@@ -45,26 +45,27 @@ for (const token of ["refreshImages", "changeCategory", "openAnimeCollection", "
   assert.ok(js.includes(token), `Bundled JS is missing compatibility token: ${token}`);
 }
 
-const activeRouteConditions = [
-  /if\\s*\\(path === '\/api\/health' && method === 'GET'\\)/,
-  /if\\s*\\(path === '\/api\/admin\/sync' && method === 'POST'\\)/,
-  /if\\s*\\(path === '\/api\/paypal\/webhook' && method === 'POST'\\)/,
-  /if\\s*\\(path === '\/api\/list' && method === 'GET'\\)/,
-  /if\\s*\\(path === '\/api\/comitbase\/list' && method === 'GET'\\)/,
-  /if\\s*\\(path === '\/api\/dtreasure\/list' && method === 'GET'\\)/,
-  /if\\s*\\(path === '\/api\/trending' && method === 'GET'\\)/,
-  /if\\s*\\(path.startsWith\('\/api\/stats\/'\) && method === 'GET'\\)/,
-  /if\\s*\\(path.startsWith\('\/api\/view\/'\) && method === 'POST'\\)/,
-  /if\\s*\\(path.startsWith\('\/api\/download\/'\) && method === 'POST'\\)/,
-  /if\\s*\\(path === '\/api\/credits\/balance' && method === 'GET'\\)/,
-  /if\\s*\\(path === '\/api\/credits\/purchase' && method === 'POST'\\)/,
-  /if\\s*\\(path === '\/api\/credits\/spend' && method === 'POST'\\)/,
-  /path.startsWith\('\/api\/img\/'\)/,
-  /path.startsWith\('\/api\/comitbase\/img\/'\)/,
-  /path.startsWith\('\/api\/dtreasure\/img\/'\)/,
+const activeRouteLines = [
+  "if (path === '/api/health' && method === 'GET') {",
+  "if (path === '/api/admin/sync' && method === 'POST') {",
+  "if (path === '/api/paypal/webhook' && method === 'POST') {",
+  "if (path === '/api/list' && method === 'GET') {",
+  "if (path === '/api/comitbase/list' && method === 'GET') {",
+  "if (path === '/api/dtreasure/list' && method === 'GET') {",
+  "if (path === '/api/trending' && method === 'GET') {",
+  "if (path.startsWith('/api/stats/') && method === 'GET') {",
+  "if (path.startsWith('/api/view/') && method === 'POST') {",
+  "if (path.startsWith('/api/download/') && method === 'POST') {",
+  "if (path === '/api/credits/balance' && method === 'GET') {",
+  "if (path === '/api/credits/purchase' && method === 'POST') {",
+  "if (path === '/api/credits/spend' && method === 'POST') {",
+  "path.startsWith('/api/img/') ||",
+  "path.startsWith('/api/comitbase/img/') ||",
+  "path.startsWith('/api/dtreasure/img/')",
 ];
-for (const condition of activeRouteConditions) {
-  assert.match(worker, condition, `Worker route condition missing or commented: ${condition}`);
+const workerLines = new Set(worker.split("\n").map((line) => line.trim()));
+for (const line of activeRouteLines) {
+  assert.ok(workerLines.has(line), `Worker route missing or commented: ${line}`);
 }
 
 for (const file of ["index.html", "style.css", "script.js", "quicklink.json"]) {
