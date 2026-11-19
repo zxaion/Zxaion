@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -25,6 +25,8 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.join(frontendDir, "src", "services", "api.service.js"), "utf8"),
   readFile(path.join(frontendDir, "src", "services", "ads.service.js"), "utf8"),
   readFile(path.join(frontendDir, "src", "ui", "ui.service.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "services", "r2-sync.service.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "index.js"), "utf8"),
 ]);
 
 assert.equal(html, sourceHtml, "Built HTML must remain byte-identical to the legacy HTML.");
@@ -83,5 +85,8 @@ assert.ok(adsModule.includes("export const ads"), "Ads service export is missing
 assert.ok(sourceScript.includes("./src/ui/ui.service.js"), "Application must consume extracted UI service.");
 assert.ok(uiModule.includes("export function createUiService") && uiModule.includes("return ui;"), "UI service factory is incomplete.");
 assert.ok(!sourceScript.includes("const ui = {"), "UI service must be created through its extracted factory.");
+assert.ok(worker.includes("./src/services/r2-sync.service.js"), "Worker must import the extracted scheduled sync service.");
+assert.ok(syncService.includes("export function parseImageMeta") && syncService.includes("export async function handleScheduled"), "R2 sync service exports are incomplete.");
+assert.ok(workerEntry.includes("../worker.js"), "Stable Worker entry must preserve the legacy fetch/scheduled handler.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");
