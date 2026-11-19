@@ -1,4 +1,4 @@
-// Build frontend: frontend/src → frontend/dist   (tanpa dependency, cukup Node.js)
+//Build frontend: frontend/src → frontend/dist   (tanpa dependency, cukup Node.js)
 //   dist/index.html     ← src/index.html + semua <!-- @include ... --> (partials)
 //   dist/style.css      ← gabungan src/css/*.css  (urutan = manifest.json)
 //   dist/script.js      ← gabungan src/js/**/*.js (urutan = manifest.json)
