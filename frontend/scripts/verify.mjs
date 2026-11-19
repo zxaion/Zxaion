@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -16,6 +16,10 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.join(frontendDir, "style.css"), "utf8"),
   readFile(path.join(frontendDir, "quicklink.json"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "worker.js"), "utf8"),
+  readFile(path.join(frontendDir, "src", "config", "app.config.js"), "utf8"),
+  readFile(path.join(frontendDir, "src", "core", "state.js"), "utf8"),
+  readFile(path.join(frontendDir, "src", "services", "session.service.js"), "utf8"),
+  readFile(path.join(frontendDir, "script.js"), "utf8"),
 ]);
 
 assert.equal(html, sourceHtml, "Built HTML must remain byte-identical to the legacy HTML.");
@@ -24,7 +28,7 @@ assert.equal(quicklinks, sourceQuicklinks, "quicklink.json must remain byte-iden
 assert.match(html, /href=["']\/style\.css["']/i, "HTML must reference the preserved CSS URL.");
 assert.match(html, /src=["']\/script\.js["']/i, "HTML must reference the preserved JS URL.");
 
-for (const token of ["refreshImages", "changeCategory", "openAnimeCollection", "paypalButtonsInstance"]) {
+for (const token of ["refreshImages", "changeCategory", "openAnimeCollection", "paypalButtonsInstance", "zx_user_token", "ZXAION"]) {
   assert.ok(js.includes(token), `Bundled JS is missing compatibility token: ${token}`);
 }
 
@@ -54,4 +58,13 @@ for (const file of ["index.html", "style.css", "script.js", "quicklink.json"]) {
   assert.ok(info.isFile() && info.size > 0, `Build output missing or empty: ${file}`);
 }
 
-console.log("Frontend verification passed: asset parity, browser paths, globals, and Worker route contract.");
+assert.ok(configModule.includes("export const API_BASE"), "Config module must export API_BASE.");
+assert.ok(configModule.includes("export const CREDIT_PACKS"), "Config module must export credit packs.");
+assert.ok(configModule.includes("applyLegacyWindowConfig"), "Config module must apply legacy window maps.");
+assert.ok(stateModule.includes("export class AppState") && stateModule.includes("export const state"), "State module exports are incomplete.");
+assert.ok(sessionModule.includes("export const getOrCreateUserToken"), "Session token service export is missing.");
+assert.ok(sourceScript.includes("./src/config/app.config.js"), "Legacy application must consume extracted config module.");
+assert.ok(sourceScript.includes("./src/core/state.js"), "Legacy application must consume extracted state module.");
+assert.ok(sourceScript.includes("./src/services/session.service.js"), "Legacy application must consume extracted session service.");
+
+console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");
