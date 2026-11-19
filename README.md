@@ -13,7 +13,7 @@ Refactor berjalan bertahap di branch `refactor/modular-architecture`. Snapshot a
 - `frontend/src/app.js`: entry point esbuild yang membundle komposisi modul ke `frontend/dist/script.js`.
 - `frontend/scripts/build.mjs`: membangun `frontend/dist/` dengan nama aset tetap: `index.html`, `style.css`, `script.js`, `quicklink.json`.
 - `backend/src/index.js`: entry Wrangler yang me-re-export handler kompatibilitas dari `backend/worker.js`.
-- `backend/worker.js`: router kompatibilitas; beberapa middleware, service, dan route handler sudah dipindahkan ke `backend/src/`.
+- `backend/worker.js`: router kompatibilitas; middleware, service, serta route handler health/admin/gallery/stats/trending/activity sudah dipindahkan ke `backend/src/`.
 
 ## Prasyarat
 

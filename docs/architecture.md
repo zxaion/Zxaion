@@ -73,6 +73,8 @@ The current Worker refers to `images`, `rate_limits`, `payment_orders`, `user_cr
 - `src/routes/admin.js`: `POST /api/admin/sync`.
 - `src/routes/trending.js`: `GET /api/trending`.
 - `src/routes/stats.js`: `GET /api/stats/:id`.
+- `src/routes/gallery.js`: main, Comitbase, and DTreasure gallery listings.
+- `src/routes/activity.js`: view/download tracking and credit balance.
 - `src/index.js` remains the Wrangler entry and re-exports the Worker handler while the remaining route handlers are extracted.
 
 The remaining API handlers are still in `backend/worker.js` (PayPal webhook, gallery lists, view/download, credits, media delivery, and static fallback); they are not yet considered modularized.
