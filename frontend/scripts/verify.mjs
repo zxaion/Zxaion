@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule, healthRoute, adminRoute, trendingRoute, statsRoute, galleryRoute] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule, healthRoute, adminRoute, trendingRoute, statsRoute, galleryRoute, activityRoute] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -36,6 +36,7 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "trending.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "stats.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "gallery.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "activity.js"), "utf8"),
 ]);
 
 assert.equal(html, sourceHtml, "Built HTML must remain byte-identical to the legacy HTML.");
@@ -113,5 +114,7 @@ assert.ok(trendingRoute.includes("export async function handleTrending"), "Trend
 assert.ok(statsRoute.includes("export async function handleImageStats"), "Image stats route handler export is missing.");
 assert.ok(worker.includes("./src/routes/gallery.js"), "Gallery route import is missing.");
 assert.ok(galleryRoute.includes("export async function handleMainGallery") && galleryRoute.includes("export async function handleComitbaseGallery") && galleryRoute.includes("export async function handleDtreasureGallery"), "Gallery route exports are incomplete.");
+assert.ok(worker.includes("./src/routes/activity.js"), "Activity/credit balance route import is missing.");
+assert.ok(activityRoute.includes("export async function handleRecordView") && activityRoute.includes("export async function handleRecordDownload") && activityRoute.includes("export async function handleCreditBalance"), "Activity route exports are incomplete.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");
