@@ -10,6 +10,7 @@ import { handleHealth } from "../src/routes/health.js";
 import { handleAdminSync } from "../src/routes/admin.js";
 import { handleTrending } from "../src/routes/trending.js";
 import { handleImageStats } from "../src/routes/stats.js";
+import { handleMainGallery, handleComitbaseGallery, handleDtreasureGallery } from "../src/routes/gallery.js";
 
 test("parseImageMeta preserves the legacy image identity and URL contract", () => {
   const meta = parseImageMeta("ANIME/Demon Slayer/test-image.jpg", "main");
@@ -197,4 +198,100 @@ test("image stats route decodes IDs and returns the existing response contract",
   });
   assert.equal(boundId, "main:folder/image.jpg");
   assert.deepEqual(await response.json(), { views: 17, downloads: 4 });
+});
+
+
+test("main gallery route preserves category filtering, pagination, and image mapping", async () => {
+  let sql = "";
+  let bindings = [];
+  const DB = {
+    prepare(query) {
+      sql = query;
+      return {
+        bind(...values) {
+          bindings = values;
+          return { all: async () => ({ results: [{
+            id: "main:anime/a.jpg",
+            title: "A",
+            category: "Anime",
+            sub_category: "Series",
+            r2_key: "anime/a.jpg",
+            size: 123,
+            uploaded: "2026-01-01",
+            view_count: 9,
+            download_count: 2
+          }] }) };
+        }
+      };
+    }
+  };
+  const response = await handleMainGallery({
+    url: new URL("https://worker.test/api/list?page=2&limit=900&category=Anime"),
+    DB,
+    corsHeaders: {}
+  });
+  assert.match(sql, /bucket = 'main' AND category = \?/);
+  assert.deepEqual(bindings, ["Anime", 500, 500]);
+  assert.equal(response.headers.get("Cache-Control"), "public, max-age=60");
+  assert.deepEqual(await response.json(), [{
+    id: "main:anime/a.jpg",
+    title: "A",
+    category: "Anime",
+    subCategory: "Series",
+    url: "/api/img/anime%2Fa.jpg",
+    size: 123,
+    uploaded: "2026-01-01",
+    path: "anime/a.jpg",
+    viewCount: 9,
+    downloadCount: 2
+  }]);
+});
+
+test("COMITBASE gallery route keeps the missing-bucket empty response", async () => {
+  const response = await handleComitbaseGallery({
+    url: new URL("https://worker.test/api/comitbase/list"),
+    DB: {},
+    comitbaseBucket: null,
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), []);
+});
+
+test("DTREASURE gallery route maps rows and keeps its private cache policy", async () => {
+  let bindings = [];
+  const DB = {
+    prepare() {
+      return {
+        bind(...values) {
+          bindings = values;
+          return { all: async () => ({ results: [{
+            id: "dtreasure:pack/a.png",
+            title: "A",
+            r2_key: "pack/a.png",
+            uploaded: "2026-02-01",
+            view_count: 4,
+            download_count: 1
+          }] }) };
+        }
+      };
+    }
+  };
+  const response = await handleDtreasureGallery({
+    url: new URL("https://worker.test/api/dtreasure/list?page=3&limit=100"),
+    DB,
+    treasureBucket: {},
+    corsHeaders: {}
+  });
+  assert.deepEqual(bindings, [100, 200]);
+  assert.equal(response.headers.get("Cache-Control"), "private, max-age=30");
+  assert.deepEqual(await response.json(), [{
+    id: "dtreasure:pack/a.png",
+    title: "A",
+    category: "DTREASURE",
+    url: "/api/dtreasure/img/pack%2Fa.png",
+    uploaded: "2026-02-01",
+    viewCount: 4,
+    downloadCount: 1
+  }]);
 });
