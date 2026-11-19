@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -27,6 +27,10 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.join(frontendDir, "src", "ui", "ui.service.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "services", "r2-sync.service.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "index.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "middleware", "cors.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "middleware", "auth.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "middleware", "rate-limit.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "services", "paypal.service.js"), "utf8"),
 ]);
 
 assert.equal(html, sourceHtml, "Built HTML must remain byte-identical to the legacy HTML.");
@@ -88,5 +92,11 @@ assert.ok(!sourceScript.includes("const ui = {"), "UI service must be created th
 assert.ok(worker.includes("./src/services/r2-sync.service.js"), "Worker must import the extracted scheduled sync service.");
 assert.ok(syncService.includes("export function parseImageMeta") && syncService.includes("export async function handleScheduled"), "R2 sync service exports are incomplete.");
 assert.ok(workerEntry.includes("../worker.js"), "Stable Worker entry must preserve the legacy fetch/scheduled handler.");
+assert.ok(worker.includes("./src/middleware/cors.js") && worker.includes("./src/middleware/auth.js") && worker.includes("./src/middleware/rate-limit.js"), "Worker middleware imports are incomplete.");
+assert.ok(worker.includes("./src/services/paypal.service.js"), "Worker must import the PayPal service.");
+assert.ok(corsModule.includes("export function createCorsHeaders"), "CORS middleware export is missing.");
+assert.ok(authModule.includes("export function getUserToken"), "Auth middleware export is missing.");
+assert.ok(rateModule.includes("export function createRateLimit"), "Rate-limit middleware export is missing.");
+assert.ok(paypalModule.includes("export function createPayPalService"), "PayPal service export is missing.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");

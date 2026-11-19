@@ -1,4 +1,8 @@
 import { handleScheduled } from "./src/services/r2-sync.service.js";
+import { createCorsHeaders } from "./src/middleware/cors.js";
+import { getUserToken } from "./src/middleware/auth.js";
+import { createRateLimit } from "./src/middleware/rate-limit.js";
+import { createPayPalService } from "./src/services/paypal.service.js";
 
 
 // ============================================================
@@ -25,22 +29,16 @@ export default {
     const PAYPAL_CLIENT_SECRET_ID = env.PAYPAL_CLIENT_SECRET_ID;
     const PAYPAL_WEBHOOK_ID       = env.PAYPAL_WEBHOOK_ID;
     const PAYPAL_BASE             = 'https://api-m.paypal.com';
+    const { getPayPalAccessToken, verifyPayPalOrder } = createPayPalService({
+      clientId: PAYPAL_CLIENT_ID,
+      clientSecret: PAYPAL_CLIENT_SECRET_ID,
+      baseUrl: PAYPAL_BASE,
+    });
 
     // ----------------------------------------------------------------
     // CORS
     // ----------------------------------------------------------------
-    const ALLOWED_ORIGINS = [
-      'https://zxaion-verse.pages.dev',
-      'https://zxaionverse.com',
-    ];
-    const origin = request.headers.get('Origin') || '';
-    const corsHeaders = {
-      'Access-Control-Allow-Origin':  ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
-      'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS, DELETE',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Token',
-      'Access-Control-Max-Age':       '86400',
-      'Vary':                         'Origin',
-    };
+    const corsHeaders = createCorsHeaders(request);
 
     if (method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
@@ -49,67 +47,7 @@ export default {
     // ----------------------------------------------------------------
     // Helpers
     // ----------------------------------------------------------------
-    function getUserToken(req) {
-      return req.headers.get('X-User-Token') || 'anonymous';
-    }
-
-    async function checkRateLimit(endpoint, identifier, limit = 50, windowSec = 3600) {
-      const key = `rate:${endpoint}:${identifier}`;
-      const now = Math.floor(Date.now() / 1000);
-      try {
-        await DB.prepare(`
-          INSERT INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            count      = CASE WHEN reset_time < ? THEN 1    ELSE count + 1 END,
-            reset_time = CASE WHEN reset_time < ? THEN ?    ELSE reset_time END
-        `).bind(key, now + windowSec, now, now, now + windowSec).run();
-
-        const record = await DB.prepare(
-          'SELECT count FROM rate_limits WHERE id = ?'
-        ).bind(key).first();
-
-        return !record || record.count <= limit;
-      } catch (e) {
-        console.error('[RateLimit] DB error:', e.message);
-        return true; // fail open
-      }
-    }
-
-    async function getPayPalAccessToken() {
-      if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET_ID) {
-        throw new Error('PayPal credentials not configured');
-      }
-      const credentials = btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET_ID}`);
-      const res = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${credentials}`,
-          'Content-Type':  'application/x-www-form-urlencoded',
-        },
-        body: 'grant_type=client_credentials',
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`PayPal auth failed: ${err}`);
-      }
-      const data = await res.json();
-      return data.access_token;
-    }
-
-    async function verifyPayPalOrder(orderId, accessToken) {
-      const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type':  'application/json',
-        },
-      });
-      if (!res.ok) {
-        console.error(`verifyPayPalOrder failed: HTTP ${res.status} for order ${orderId}`);
-        return null;
-      }
-      return await res.json();
-    }
+    const checkRateLimit = createRateLimit(DB);
 
     // ================================================================
     // ENDPOINT: Health check
