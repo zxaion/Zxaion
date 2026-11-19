@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule, healthRoute, adminRoute, trendingRoute, statsRoute, galleryRoute, activityRoute, paypalRoute, creditsRoute, mediaRoute, staticRoute] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, router, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule, healthRoute, adminRoute, trendingRoute, statsRoute, galleryRoute, activityRoute, paypalRoute, creditsRoute, mediaRoute, staticRoute] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -16,6 +16,7 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.join(frontendDir, "style.css"), "utf8"),
   readFile(path.join(frontendDir, "quicklink.json"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "worker.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "router.js"), "utf8"),
   readFile(path.join(frontendDir, "src", "config", "app.config.js"), "utf8"),
   readFile(path.join(frontendDir, "src", "core", "state.js"), "utf8"),
   readFile(path.join(frontendDir, "src", "services", "session.service.js"), "utf8"),
@@ -101,30 +102,35 @@ assert.ok(adsModule.includes("export const ads"), "Ads service export is missing
 assert.ok(sourceScript.includes("./src/ui/ui.service.js"), "Application must consume extracted UI service.");
 assert.ok(uiModule.includes("export function createUiService") && uiModule.includes("return ui;"), "UI service factory is incomplete.");
 assert.ok(!sourceScript.includes("const ui = {"), "UI service must be created through its extracted factory.");
-assert.ok(worker.includes("./src/services/r2-sync.service.js"), "Worker must import the extracted scheduled sync service.");
+assert.ok(worker.includes("./src/router.js"), "Worker adapter must delegate requests to the modular router.");
+assert.ok(router.includes("export async function handleRequest"), "Router entry export is missing.");
+assert.ok(router.includes("./services/r2-sync.service.js"), "Router must import the scheduled sync service for admin sync.");
+assert.ok(router.includes("./middleware/cors.js"), "Router must import shared CORS middleware.");
+assert.ok(router.includes("./routes/media.js") && router.includes("./routes/static.js"), "Router must dispatch media and static routes.");
+assert.ok(router.includes("./src/services/r2-sync.service.js") || router.includes("./services/r2-sync.service.js"), "R2 sync service import is missing.");
 assert.ok(syncService.includes("export function parseImageMeta") && syncService.includes("export async function handleScheduled"), "R2 sync service exports are incomplete.");
 assert.ok(workerEntry.includes("../worker.js"), "Stable Worker entry must preserve the legacy fetch/scheduled handler.");
-assert.ok(worker.includes("./src/middleware/cors.js") && worker.includes("./src/middleware/auth.js") && worker.includes("./src/middleware/rate-limit.js"), "Worker middleware imports are incomplete.");
-assert.ok(worker.includes("./src/services/paypal.service.js"), "Worker must import the PayPal service.");
+assert.ok(router.includes("./middleware/cors.js") && router.includes("./middleware/auth.js") && router.includes("./middleware/rate-limit.js"), "Router middleware imports are incomplete.");
+assert.ok(router.includes("./services/paypal.service.js"), "Router must import the PayPal service.");
 assert.ok(corsModule.includes("export function createCorsHeaders"), "CORS middleware export is missing.");
 assert.ok(authModule.includes("export function getUserToken"), "Auth middleware export is missing.");
 assert.ok(rateModule.includes("export function createRateLimit"), "Rate-limit middleware export is missing.");
 assert.ok(paypalModule.includes("export function createPayPalService"), "PayPal service export is missing.");
-assert.ok(worker.includes("./src/routes/health.js") && worker.includes("./src/routes/admin.js"), "Worker route imports are incomplete.");
+assert.ok(router.includes("./routes/health.js") && router.includes("./routes/admin.js"), "Router route imports are incomplete.");
 assert.ok(healthRoute.includes("export async function handleHealth"), "Health route handler export is missing.");
 assert.ok(adminRoute.includes("export async function handleAdminSync"), "Admin sync route handler export is missing.");
-assert.ok(worker.includes("./src/routes/trending.js") && worker.includes("./src/routes/stats.js"), "Trending/stats route imports are incomplete.");
+assert.ok(router.includes("./routes/trending.js") && router.includes("./routes/stats.js"), "Trending/stats route imports are incomplete.");
 assert.ok(trendingRoute.includes("export async function handleTrending"), "Trending route handler export is missing.");
 assert.ok(statsRoute.includes("export async function handleImageStats"), "Image stats route handler export is missing.");
-assert.ok(worker.includes("./src/routes/gallery.js"), "Gallery route import is missing.");
+assert.ok(router.includes("./routes/gallery.js"), "Gallery route import is missing.");
 assert.ok(galleryRoute.includes("export async function handleMainGallery") && galleryRoute.includes("export async function handleComitbaseGallery") && galleryRoute.includes("export async function handleDtreasureGallery"), "Gallery route exports are incomplete.");
-assert.ok(worker.includes("./src/routes/activity.js"), "Activity/credit balance route import is missing.");
+assert.ok(router.includes("./routes/activity.js"), "Activity/credit balance route import is missing.");
 assert.ok(activityRoute.includes("export async function handleRecordView") && activityRoute.includes("export async function handleRecordDownload") && activityRoute.includes("export async function handleCreditBalance"), "Activity route exports are incomplete.");
-assert.ok(worker.includes("./src/routes/paypal.js") && worker.includes("./src/routes/credits.js"), "PayPal/credits route imports are incomplete.");
+assert.ok(router.includes("./routes/paypal.js") && router.includes("./routes/credits.js"), "PayPal/credits route imports are incomplete.");
 assert.ok(paypalRoute.includes("export async function handlePayPalWebhook"), "PayPal webhook route export is missing.");
 assert.ok(creditsRoute.includes("export async function handleCreditPurchase") && creditsRoute.includes("export async function handleCreditSpend"), "Credit route exports are incomplete.");
-assert.ok(worker.includes("./src/routes/media.js") && worker.includes("./src/routes/static.js"), "Media/static route imports are incomplete.");
+assert.ok(router.includes("./routes/media.js") && router.includes("./routes/static.js"), "Media/static route imports are incomplete.");
 assert.ok(mediaRoute.includes("export async function handleMediaRequest") && staticRoute.includes("export async function handleStaticAsset"), "Media/static route exports are incomplete.");
-assert.ok(!worker.includes("ALLOWED_ORIGINS"), "Legacy inline CORS allowlist must not remain in Worker.");
+assert.ok(!router.includes("ALLOWED_ORIGINS"), "Legacy inline CORS allowlist must not remain in router.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");
