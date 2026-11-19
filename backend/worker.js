@@ -62,11 +62,8 @@ export default {
       return handleAdminSync({ request, env, handleScheduled, corsHeaders });
     }
 
-    if (path === '/api/admin/sync' && method === 'POST') {
-      return handleAdminSync({ request, env, handleScheduled, corsHeaders });
-    }
     // ================================================================
-    // ENDPOINT: PayPal Webhook
+        // ENDPOINT: PayPal Webhook
     // ================================================================
     if (path === '/api/paypal/webhook' && method === 'POST') {
       try {
