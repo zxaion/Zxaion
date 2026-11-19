@@ -16,6 +16,7 @@ import { handlePayPalWebhook } from "../src/routes/paypal.js";
 import { handleCreditPurchase, handleCreditSpend } from "../src/routes/credits.js";
 import { handleMediaRequest } from "../src/routes/media.js";
 import { handleStaticAsset } from "../src/routes/static.js";
+import { handleRequest } from "../src/router.js";
 
 test("parseImageMeta preserves the legacy image identity and URL contract", () => {
   const meta = parseImageMeta("ANIME/Demon Slayer/test-image.jpg", "main");
@@ -549,6 +550,50 @@ test("static asset miss returns 404 without SPA fallback", async () => {
     corsHeaders: {}
   });
   assert.deepEqual(requested, ["script.js"]);
+  assert.equal(response.status, 404);
+  assert.equal(await response.text(), "Not Found");
+});
+
+
+test("router handles CORS preflight before route/database access", async () => {
+  const response = await handleRequest(
+    new Request("https://worker.test/api/health", {
+      method: "OPTIONS",
+      headers: { Origin: "https://zxaionverse.com" }
+    }),
+    { DB: null },
+    {}
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://zxaionverse.com");
+  assert.equal(response.headers.get("Access-Control-Allow-Methods"), "GET, HEAD, POST, OPTIONS, DELETE");
+});
+
+test("router dispatches health requests to the extracted handler", async () => {
+  const response = await handleRequest(
+    new Request("https://worker.test/api/health", {
+      method: "GET",
+      headers: { Origin: "https://zxaion-verse.pages.dev" }
+    }),
+    {
+      DB: { prepare: () => ({ first: async () => ({ success: true }) }) },
+      Zxaion_B: null,
+      ZX_BUCKET: null,
+      TREASURE: null
+    },
+    {}
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://zxaion-verse.pages.dev");
+  assert.deepEqual(await response.json(), { status: "ok", db: "connected" });
+});
+
+test("router rejects unknown API paths without attempting SPA fallback", async () => {
+  const response = await handleRequest(
+    new Request("https://worker.test/api/not-real", { method: "GET" }),
+    { DB: null, Zxaion_B: { get: async () => null } },
+    {}
+  );
   assert.equal(response.status, 404);
   assert.equal(await response.text(), "Not Found");
 });
