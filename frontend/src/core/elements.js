@@ -24,4 +24,4 @@ export const elements = {
     creditBalance:         document.getElementById('credit-balance'),
     paypalButtonContainer: document.getElementById('paypal-button-container'),
     paypalButtons:         document.getElementById('paypal-buttons'),
-};;
+};

@@ -39,4 +39,4 @@ export const utils = {
         if (s.endsWith('K')) return Math.round(parseFloat(s) * 1_000);
         return parseInt(s) || 0;
     }
-};;
+};
