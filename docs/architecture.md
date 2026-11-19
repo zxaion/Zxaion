@@ -47,6 +47,34 @@ OPTIONS is handled globally for CORS. Static assets are served by the Worker fal
 
 The current Worker refers to `images`, `rate_limits`, `payment_orders`, `user_credits`, `views`, `downloads`, and `purchased_images`. Database migrations/schema are not present in the current tracked repository snapshot; verify the live D1 schema before changing queries or deploying a new backend entry.
 
+
+## Modules extracted in the current branch
+
+### Frontend modules now active through the esbuild bundle
+
+- `src/config/app.config.js`: API base, category/album data, credit packs, legacy image maps, logo, and icon maps.
+- `src/core/state.js`: `AppState` and the shared state instance.
+- `src/core/elements.js`: DOM element references keyed to the existing HTML IDs.
+- `src/services/session.service.js`: legacy anonymous visitor token storage/format.
+- `src/services/api.service.js`: gallery, statistics, trending, credits, and anime album data operations.
+- `src/services/ads.service.js`: AdSense slot and in-feed behavior.
+- `src/ui/ui.service.js`: gallery rendering, modals, pagination, category/search, and credit UI.
+- `src/utils/helpers.js`: escaping, shuffle, debounce, number formatting, and count parsing.
+- `src/app.js` remains the esbuild entry; it bundles the active application into the legacy `/script.js` URL.
+
+### Backend modules now used by the Worker
+
+- `src/services/r2-sync.service.js`: R2 metadata parsing and scheduled R2-to-D1 sync.
+- `src/services/paypal.service.js`: PayPal OAuth access-token and order-verification requests.
+- `src/middleware/cors.js`: existing CORS origin/header policy.
+- `src/middleware/auth.js`: existing `X-User-Token` reader and anonymous fallback.
+- `src/middleware/rate-limit.js`: existing D1 fixed-window rate limiter and fail-open behavior.
+- `src/routes/health.js`: `GET /api/health`.
+- `src/routes/admin.js`: `POST /api/admin/sync`.
+- `src/index.js` remains the Wrangler entry and re-exports the Worker handler while the remaining route handlers are extracted.
+
+The remaining API handlers are still in `backend/worker.js`; they are not yet considered modularized.
+
 ## Transitional build
 
 `frontend/src/app.js` imports the untouched legacy script. esbuild emits one browser bundle at `frontend/dist/script.js`; HTML, CSS, and quicklink JSON are copied byte-for-byte. This establishes a reproducible build without changing the browser URL contract.
