@@ -4,13 +4,16 @@ Repository tunggal untuk frontend gallery dan Cloudflare Worker API.
 
 ## Status migrasi
 
-Refactor berjalan bertahap di branch `refactor/modular-architecture`. File produksi lama tetap dipertahankan; tidak ada penghapusan atau penggantian fitur dalam tahap fondasi ini.
+Refactor berjalan bertahap di branch `refactor/modular-architecture`. Snapshot asli tersimpan di `legacy/original/`; kode aktif dimigrasikan bertahap tanpa mengubah kontrak browser/API.
 
 - `legacy/original/`: snapshot file repository sebelum modularisasi. File backup memakai Git blob yang sama dengan file sumber.
-- `frontend/script.js`, `frontend/index.html`, `frontend/style.css`: implementasi aktif lama yang tetap menjadi sumber kompatibilitas selama migrasi.
-- `frontend/src/app.js`: entry point esbuild sementara yang mengimpor implementasi lama. Pemisahan modul fitur dilakukan bertahap setelah kontrak UI/API diuji.
+- `frontend/index.html` dan `frontend/style.css`: aset aktif dengan URL dan isi lama.
+- `frontend/script.js`: lapisan komposisi kompatibilitas yang mengimpor modul dari `frontend/src/`.
+- `legacy/original/frontend/script.js`: salinan persis script monolitik sebelum ekstraksi.
+- `frontend/src/app.js`: entry point esbuild yang membundle komposisi modul ke `frontend/dist/script.js`.
 - `frontend/scripts/build.mjs`: membangun `frontend/dist/` dengan nama aset tetap: `index.html`, `style.css`, `script.js`, `quicklink.json`.
-- `backend/src/index.js`: entry Worker stabil yang me-re-export implementasi lama dari `backend/worker.js`. `wrangler.toml` kini menunjuk ke entry baru; implementasi fetch/scheduled lama tetap utuh.
+- `backend/src/index.js`: entry Wrangler yang me-re-export handler kompatibilitas dari `backend/worker.js`.
+- `backend/worker.js`: router kompatibilitas; beberapa middleware, service, dan route handler sudah dipindahkan ke `backend/src/`.
 
 ## Prasyarat
 
@@ -34,7 +37,7 @@ Hasil build berada di `frontend/dist/`. Nama file output dipertahankan agar jalu
 
 - Frontend API base: `https://ai.zxaionverse.workers.dev`
 - Asset browser: `/style.css`, `/script.js`, dan `/quicklink.json`
-- Worker entry: `backend/worker.js`
+- Worker entry: `backend/src/index.js`
 - D1 binding: `DB`
 - R2 bindings: `Zxaion_B`, `ZX_BUCKET`, `TREASURE`
 - PayPal secrets: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET_ID`, `PAYPAL_WEBHOOK_ID`

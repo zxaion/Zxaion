@@ -1,8 +1,8 @@
 /**
- * Transitional esbuild entry point.
+ * Browser bundle entry for esbuild.
  *
- * The original application remains in ../script.js unchanged while modules
- * are extracted incrementally. Keep this import until parity tests cover
- * each extracted feature and the legacy implementation can be retired safely.
+ * script.js is now the compatibility composition layer: it imports the
+ * extracted config, core, service, and UI modules while preserving the
+ * deployed /script.js asset URL and existing window-level entry points.
  */
 import "../script.js";
