@@ -5,6 +5,8 @@ import { createRateLimit } from "./src/middleware/rate-limit.js";
 import { createPayPalService } from "./src/services/paypal.service.js";
 import { handleHealth } from "./src/routes/health.js";
 import { handleAdminSync } from "./src/routes/admin.js";
+import { handleTrending } from "./src/routes/trending.js";
+import { handleImageStats } from "./src/routes/stats.js";
 
 
 // ============================================================
@@ -385,73 +387,14 @@ export default {
     // ENDPOINT: Top trending images
     // ================================================================
     if (path === '/api/trending' && method === 'GET') {
-      const rawLimit = parseInt(url.searchParams.get('limit') ?? '20', 10);
-      const limit    = Math.min(50, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
-
-      try {
-        const { results } = await DB.prepare(`
-          SELECT id, title, r2_key, bucket, category, sub_category,
-                 view_count, download_count,
-                 (COALESCE(view_count, 0) + COALESCE(download_count, 0)) AS score
-          FROM images
-          WHERE bucket = 'main'
-            AND category != 'Header'
-          ORDER BY score DESC, uploaded DESC
-          LIMIT ?
-        `).bind(limit).all();
-
-        const photos = results.map(row => ({
-          id:            row.id,
-          title:         row.title,
-          category:      row.category,
-          subCategory:   row.sub_category,
-          url:           `/api/img/${encodeURIComponent(row.r2_key)}`,
-          viewCount:     row.view_count     || 0,
-          downloadCount: row.download_count || 0,
-          score:         row.score          || 0,
-        }));
-
-        return new Response(JSON.stringify(photos), {
-          headers: {
-            ...corsHeaders,
-            'Content-Type':  'application/json',
-            'Cache-Control': 'public, max-age=120',
-          },
-        });
-      } catch (e) {
-        console.error('/api/trending error:', e.message);
-        return new Response(JSON.stringify([]), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+      return handleTrending({ url, DB, corsHeaders });
     }
 
     // ================================================================
     // ENDPOINT: Image stats
     // ================================================================
     if (path.startsWith('/api/stats/') && method === 'GET') {
-      const rawSegment = path.split('/').filter(Boolean).pop() || '';
-      const photoId    = decodeURIComponent(rawSegment);
-      if (!photoId) {
-        return new Response(JSON.stringify({ error: 'Invalid photo ID' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      try {
-        const row = await DB.prepare(
-          'SELECT view_count, download_count FROM images WHERE id = ?'
-        ).bind(photoId).first();
-
-        return new Response(JSON.stringify({
-          views:     row?.view_count     || 0,
-          downloads: row?.download_count || 0,
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      } catch (e) {
-        console.error('/api/stats error:', e.message);
-        return new Response(JSON.stringify({ views: 0, downloads: 0 }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+      return handleImageStats({ path, DB, corsHeaders });
     }
 
     // ================================================================
