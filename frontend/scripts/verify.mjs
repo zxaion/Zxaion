@@ -49,6 +49,7 @@ assert.equal(css, sourceCss, "Built CSS must remain byte-identical to the legacy
 assert.equal(quicklinks, sourceQuicklinks, "quicklink.json must remain byte-identical.");
 assert.match(html, /href=["']\/style\.css["']/i, "HTML must reference the preserved CSS URL.");
 assert.match(html, /src=["']\/script\.js["']/i, "HTML must reference the preserved JS URL.");
+assert.match(html, /<script\s+type=["']module["']\s+src=["']\/script\.js["']/i, "Modular frontend must load script.js as an ES module when Pages serves the source directory.");
 
 for (const token of ["refreshImages", "changeCategory", "openAnimeCollection", "paypalButtonsInstance", "zx_user_token", "ZXAION"]) {
   assert.ok(js.includes(token), `Bundled JS is missing compatibility token: ${token}`);

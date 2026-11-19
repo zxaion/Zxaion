@@ -52,6 +52,8 @@ The current Worker refers to `images`, `rate_limits`, `payment_orders`, `user_cr
 
 ### Frontend modules now active through the esbuild bundle
 
+Cloudflare Pages must build from repository root with `npm install && npm run build:frontend` and publish `frontend/dist`. The source `frontend/index.html` loads `/script.js` with `type="module"` so direct source preview remains valid too.
+
 - `src/config/app.config.js`: API base, category/album data, credit packs, legacy image maps, logo, and icon maps.
 - `src/core/state.js`: `AppState` and the shared state instance.
 - `src/core/elements.js`: DOM element references keyed to the existing HTML IDs.

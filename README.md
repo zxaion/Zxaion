@@ -32,7 +32,19 @@ npm test
 npm run check
 ```
 
-Hasil build berada di `frontend/dist/`. Nama file output dipertahankan agar jalur aset lama tetap cocok. Upload hasil build ke R2 hanya setelah hasil verifikasi dan pengujian deployment staging disetujui.
+Hasil build berada di `frontend/dist/`. Nama file output dipertahankan agar jalur aset lama tetap cocok.
+
+### Cloudflare Pages
+
+Agar esbuild benar-benar dipakai saat deploy Pages, atur project Pages:
+
+- Root directory: `/` (repository root).
+- Build command: `npm install && npm run build:frontend`.
+- Build output directory: `frontend/dist`.
+
+`index.html` memuat `/script.js` sebagai ES module. Ini juga membuat source directory `frontend/` tetap dapat diuji langsung, sementara hasil `dist/` berisi bundle IIFE hasil esbuild. Jangan arahkan Pages ke `frontend/src/`.
+
+Deploy backend Worker secara terpisah dari `backend/` memakai `backend/wrangler.toml`. Jangan mengubah binding atau production deployment sebelum smoke test Cloudflare staging.
 
 ## Kontrak integrasi yang dipertahankan
 
