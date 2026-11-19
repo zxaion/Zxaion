@@ -165,4 +165,6 @@ export default {
       return handleMediaRequest({ path, url, request, DB, mainBucket, comitbaseBucket, treasureBucket, getUserToken, corsHeaders });
     }
 
-        return handleStaticAsset({ path, mainBucket, corsHeaders });
+    return handleStaticAsset({ path, mainBucket, corsHeaders });
+  },
+};
