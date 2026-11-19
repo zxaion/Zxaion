@@ -2,8 +2,13 @@
   "name": "zxaion-verse",
   "private": true,
   "scripts": {
-    "build:frontend": "npm --prefix frontend run build",
+    "build:frontend": "node frontend/scripts/build.mjs",
+    "verify:frontend": "node frontend/scripts/verify.mjs",
+    "check": "npm run build:frontend && npm run verify:frontend",
     "dev:backend": "npm --prefix backend run dev",
     "deploy:backend": "npm --prefix backend run deploy"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
   }
 }

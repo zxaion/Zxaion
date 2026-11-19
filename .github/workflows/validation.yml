@@ -1,0 +1,21 @@
+name: Repository validation
+
+on:
+  push:
+    branches:
+      - main
+      - refactor/modular-architecture
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
