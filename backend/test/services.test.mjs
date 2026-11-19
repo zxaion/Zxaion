@@ -6,6 +6,8 @@ import { createCorsHeaders } from "../src/middleware/cors.js";
 import { getUserToken } from "../src/middleware/auth.js";
 import { createRateLimit } from "../src/middleware/rate-limit.js";
 import { createPayPalService } from "../src/services/paypal.service.js";
+import { handleHealth } from "../src/routes/health.js";
+import { handleAdminSync } from "../src/routes/admin.js";
 
 test("parseImageMeta preserves the legacy image identity and URL contract", () => {
   const meta = parseImageMeta("ANIME/Demon Slayer/test-image.jpg", "main");
@@ -80,4 +82,50 @@ test("PayPal order verification returns null for unsuccessful HTTP responses", a
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+
+test("health route returns connected status and preserves CORS headers", async () => {
+  const response = await handleHealth({
+    DB: { prepare: () => ({ first: async () => ({ success: true }) }) },
+    corsHeaders: { "Access-Control-Allow-Origin": "https://zxaion-verse.pages.dev" }
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://zxaion-verse.pages.dev");
+  assert.deepEqual(await response.json(), { status: "ok", db: "connected" });
+});
+
+test("health route reports D1 errors with HTTP 500", async () => {
+  const response = await handleHealth({
+    DB: { prepare: () => ({ first: async () => { throw new Error("D1 down"); } }) },
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { status: "error", db: "disconnected", message: "D1 down" });
+});
+
+test("admin sync route rejects missing or incorrect admin token", async () => {
+  let called = false;
+  const response = await handleAdminSync({
+    request: new Request("https://worker.test/api/admin/sync", { headers: { "X-Admin-Token": "wrong" } }),
+    env: { ADMIN_TOKEN: "expected" },
+    handleScheduled: async () => { called = true; },
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 401);
+  assert.equal(called, false);
+  assert.deepEqual(await response.json(), { error: "Unauthorized" });
+});
+
+test("admin sync route invokes scheduled sync only after token validation", async () => {
+  let called = false;
+  const response = await handleAdminSync({
+    request: new Request("https://worker.test/api/admin/sync", { headers: { "X-Admin-Token": "expected" } }),
+    env: { ADMIN_TOKEN: "expected" },
+    handleScheduled: async () => { called = true; },
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+  assert.deepEqual(await response.json(), { success: true, message: "Sync completed" });
 });
