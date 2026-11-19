@@ -53,14 +53,15 @@ export default {
 
     // =======================================================    if (path === '/api/health' && method === 'GET') {
       return handleHealth({ DB, corsHeaders });
-    }       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
     }
 
     // ================================================================
     // ENDPOINT: Manual sync trigger (POST /api/admin/sync)
     // ================================================================
+    if (path === '/api/admin/sync' && method === 'POST') {
+      return handleAdminSync({ request, env, handleScheduled, corsHeaders });
+    }
+
     if (path === '/api/admin/sync' && method === 'POST') {
       return handleAdminSync({ request, env, handleScheduled, corsHeaders });
     }
