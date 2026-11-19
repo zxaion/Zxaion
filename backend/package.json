@@ -4,6 +4,8 @@
   "scripts": {
     "dev": "wrangler dev --config wrangler.toml",
     "deploy": "wrangler deploy --config wrangler.toml",
-    "dry-run": "wrangler deploy --dry-run --config wrangler.toml"
-  }
+    "dry-run": "wrangler deploy --dry-run --config wrangler.toml",
+    "test": "node --test"
+  },
+  "type": "module"
 }

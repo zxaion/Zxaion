@@ -62,4 +62,4 @@ export const ads = {
         if (bannerTop)    bannerTop.classList.toggle('hidden', isPremium);
         if (afterGallery) afterGallery.classList.toggle('hidden', isPremium);
     }
-};;
+};
