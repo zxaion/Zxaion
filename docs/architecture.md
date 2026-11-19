@@ -75,9 +75,13 @@ The current Worker refers to `images`, `rate_limits`, `payment_orders`, `user_cr
 - `src/routes/stats.js`: `GET /api/stats/:id`.
 - `src/routes/gallery.js`: main, Comitbase, and DTreasure gallery listings.
 - `src/routes/activity.js`: view/download tracking and credit balance.
+- `src/routes/paypal.js`: PayPal webhook signature verification and event handling.
+- `src/routes/credits.js`: credit purchase verification and credit spending.
+- `src/routes/media.js`: R2 image delivery, DTREASURE authorization, and download headers.
+- `src/routes/static.js`: R2 static assets, SPA fallback, and HTML security headers.
 - `src/index.js` remains the Wrangler entry and re-exports the Worker handler while the remaining route handlers are extracted.
 
-The remaining API handlers are still in `backend/worker.js` (PayPal webhook, gallery lists, view/download, credits, media delivery, and static fallback); they are not yet considered modularized.
+Route business logic has been extracted from `backend/worker.js`; the Worker retains request-scoped dependency setup and method/path dispatch. D1 repositories are still embedded in route handlers and remain a future separation step.
 
 ## Transitional build
 

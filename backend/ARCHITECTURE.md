@@ -8,17 +8,16 @@ Already extracted and active:
 - `src/services/r2-sync.service.js` for metadata parsing and scheduled R2 sync.
 - `src/services/paypal.service.js` for OAuth and order lookup.
 - `src/middleware/cors.js`, `auth.js`, and `rate-limit.js` for existing middleware behavior.
-- `src/routes/health.js`, `admin.js`, `trending.js`, `stats.js`, `gallery.js`, and `activity.js` for extracted route handlers.
+- `src/routes/health.js`, `admin.js`, `trending.js`, `stats.js`, `gallery.js`, `activity.js`, `paypal.js`, `credits.js`, `media.js`, and `static.js` for extracted route handlers.
 
-Still in `worker.js`: PayPal webhook, gallery listing, view/download, credits, media delivery, and static fallback routes.
+`worker.js` now primarily wires Cloudflare bindings, constructs request-scoped services, applies global OPTIONS/CORS handling, and dispatches method/path pairs to route modules. D1 query/repository extraction remains a separate next phase.
 
-Target extraction order for remaining routes:
+Target extraction order for remaining backend internals:
 
-1. `src/index.js`: fetch/scheduled composition.
-2. `src/middleware/cors.js` and `src/middleware/rate-limit.js`.
-3. `src/routes/`: preserve the complete method/path contract in `../docs/architecture.md`.
-4. `src/services/`: R2 synchronization, image metadata, gallery queries, credits, PayPal.
-5. `src/repositories/`: D1 statements grouped by images, credits, payments, and analytics.
+1. Extract D1 query groups into repositories for images, credits, payments, and analytics.
+2. Keep PayPal webhook verification and payment claim/crediting semantics covered by integration tests.
+3. Add contract tests for R2 Range requests, content metadata, CORS, and static fallback.
+4. Keep `src/index.js` as the only Wrangler entry and avoid changing binding names.
 6. Switch `wrangler.toml` only after parity tests prove that the modular Worker matches the original.
 
 Do not copy snippets into active handlers without first tracing their shared helpers, SQL transaction boundaries, error responses, and Cloudflare bindings. The original Worker is retained in `legacy/original/backend/worker.js`.
