@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule, healthRoute, adminRoute] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -31,6 +31,8 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.resolve(frontendDir, "..", "backend", "src", "middleware", "auth.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "middleware", "rate-limit.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "services", "paypal.service.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "health.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "admin.js"), "utf8"),
 ]);
 
 assert.equal(html, sourceHtml, "Built HTML must remain byte-identical to the legacy HTML.");
@@ -98,5 +100,8 @@ assert.ok(corsModule.includes("export function createCorsHeaders"), "CORS middle
 assert.ok(authModule.includes("export function getUserToken"), "Auth middleware export is missing.");
 assert.ok(rateModule.includes("export function createRateLimit"), "Rate-limit middleware export is missing.");
 assert.ok(paypalModule.includes("export function createPayPalService"), "PayPal service export is missing.");
+assert.ok(worker.includes("./src/routes/health.js") && worker.includes("./src/routes/admin.js"), "Worker route imports are incomplete.");
+assert.ok(healthRoute.includes("export async function handleHealth"), "Health route handler export is missing.");
+assert.ok(adminRoute.includes("export async function handleAdminSync"), "Admin sync route handler export is missing.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");

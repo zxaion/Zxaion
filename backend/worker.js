@@ -3,6 +3,8 @@ import { createCorsHeaders } from "./src/middleware/cors.js";
 import { getUserToken } from "./src/middleware/auth.js";
 import { createRateLimit } from "./src/middleware/rate-limit.js";
 import { createPayPalService } from "./src/services/paypal.service.js";
+import { handleHealth } from "./src/routes/health.js";
+import { handleAdminSync } from "./src/routes/admin.js";
 
 
 // ============================================================
@@ -49,19 +51,9 @@ export default {
     // ----------------------------------------------------------------
     const checkRateLimit = createRateLimit(DB);
 
-    // ================================================================
-    // ENDPOINT: Health check
-    // ================================================================
-    if (path === '/api/health' && method === 'GET') {
-      try {
-        await DB.prepare('SELECT 1').first();
-        return new Response(JSON.stringify({ status: 'ok', db: 'connected' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      } catch (e) {
-        return new Response(
-          JSON.stringify({ status: 'error', db: 'disconnected', message: e.message }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    // =======================================================    if (path === '/api/health' && method === 'GET') {
+      return handleHealth({ DB, corsHeaders });
+    }       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
     }
@@ -70,24 +62,8 @@ export default {
     // ENDPOINT: Manual sync trigger (POST /api/admin/sync)
     // ================================================================
     if (path === '/api/admin/sync' && method === 'POST') {
-      const adminToken = request.headers.get('X-Admin-Token');
-      if (!env.ADMIN_TOKEN || adminToken !== env.ADMIN_TOKEN) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      try {
-        await handleScheduled(env);
-        return new Response(JSON.stringify({ success: true, message: 'Sync completed' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ success: false, error: e.message }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+      return handleAdminSync({ request, env, handleScheduled, corsHeaders });
     }
-
     // ================================================================
     // ENDPOINT: PayPal Webhook
     // ================================================================
