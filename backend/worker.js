@@ -243,21 +243,21 @@ export default {
     // ================================================================
     // ENDPOINT: List main gallery
     // ================================================================
-    if (path === '/api/list' && method === 'GET')) {
+    if (path === '/api/list' && method === 'GET') {
       return handleMainGallery({ url, DB, corsHeaders });
     }
 
     // ================================================================
     // ENDPOINT: COMITBASE list
     // ================================================================
-    if (path === '/api/comitbase/list' && method === 'GET')) {
+    if (path === '/api/comitbase/list' && method === 'GET') {
       return handleComitbaseGallery({ url, DB, comitbaseBucket, corsHeaders });
     }
 
     // ================================================================
     // ENDPOINT: DTREASURE list
     // ================================================================
-    if (path === '/api/dtreasure/list' && method === 'GET')) {
+    if (path === '/api/dtreasure/list' && method === 'GET') {
       return handleDtreasureGallery({ url, DB, treasureBucket, corsHeaders });
     }
 
