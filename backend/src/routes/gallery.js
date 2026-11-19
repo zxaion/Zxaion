@@ -1,8 +1,7 @@
-// backend/src/routes/gallery.js
-// Route: daftar galeri (main, COMITBASE, DTREASURE) & trending
-/** GET /api/list */
-export async function handleList(c) {
-  const { url, path, DB } = c;
+// ================================================================
+// ENDPOINT: List main gallery
+// ================================================================
+export async function handleListMain({ url, DB, corsHeaders }) {
   try {
     const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',  10);
     const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
@@ -50,9 +49,10 @@ export async function handleList(c) {
   }
 }
 
-/** GET /api/comitbase/list */
-export async function handleComitbaseList(c) {
-  const { url, comitbaseBucket, DB } = c;
+// ================================================================
+// ENDPOINT: COMITBASE list
+// ================================================================
+export async function handleListComitbase({ url, comitbaseBucket, DB, corsHeaders }) {
   if (!comitbaseBucket) return new Response('[]', {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
@@ -96,9 +96,10 @@ export async function handleComitbaseList(c) {
   }
 }
 
-/** GET /api/dtreasure/list */
-export async function handleDtreasureList(c) {
-  const { url, treasureBucket, DB } = c;
+// ================================================================
+// ENDPOINT: DTREASURE list
+// ================================================================
+export async function handleListDtreasure({ url, treasureBucket, DB, corsHeaders }) {
   if (!treasureBucket) return new Response('[]', {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
@@ -141,9 +142,10 @@ export async function handleDtreasureList(c) {
   }
 }
 
-/** GET /api/trending */
-export async function handleTrending(c) {
-  const { url, DB } = c;
+// ================================================================
+// ENDPOINT: Top trending images
+// ================================================================
+export async function handleTrending({ url, DB, corsHeaders }) {
   const rawLimit = parseInt(url.searchParams.get('limit') ?? '20', 10);
   const limit    = Math.min(50, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
 

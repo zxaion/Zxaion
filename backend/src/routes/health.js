@@ -1,8 +1,7 @@
-// backend/src/routes/health.js
-// Route: health check
-/** GET /api/health */
-export async function handleHealth(c) {
-  const { DB } = c;
+// ================================================================
+// ENDPOINT: Health check
+// ================================================================
+export async function handleHealth({ DB, corsHeaders }) {
   try {
     await DB.prepare('SELECT 1').first();
     return new Response(JSON.stringify({ status: 'ok', db: 'connected' }), {

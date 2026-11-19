@@ -1,7 +1,8 @@
-// backend/src/services/paypal.js
-// Pembungkus PayPal REST API: access token & verifikasi order
-export async function getPayPalAccessToken(paypal) {
-  const { clientId: PAYPAL_CLIENT_ID, clientSecret: PAYPAL_CLIENT_SECRET_ID, base: PAYPAL_BASE } = paypal;
+// Helper PayPal: OAuth access token + verifikasi order.
+import { PAYPAL_BASE } from '../config/constants.js';
+
+export async function getPayPalAccessToken(env) {
+  const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET_ID } = env;
   if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET_ID) {
     throw new Error('PayPal credentials not configured');
   }
@@ -22,8 +23,7 @@ export async function getPayPalAccessToken(paypal) {
   return data.access_token;
 }
 
-export async function verifyPayPalOrder(paypal, orderId, accessToken) {
-  const PAYPAL_BASE = paypal.base;
+export async function verifyPayPalOrder(orderId, accessToken) {
   const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderId}`, {
     method: 'GET',
     headers: {

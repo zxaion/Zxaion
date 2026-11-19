@@ -1,11 +1,7 @@
-// backend/src/routes/stats.js
-// Route: statistik, view, dan download
-import { getUserToken } from '../lib/request.js';
-import { checkRateLimit } from '../middleware/rateLimit.js';
-
-/** GET /api/stats/:id */
-export async function handleStats(c) {
-  const { path, DB } = c;
+// ================================================================
+// ENDPOINT: Image stats
+// ================================================================
+export async function handleStats({ path, DB, corsHeaders }) {
   const rawSegment = path.split('/').filter(Boolean).pop() || '';
   const photoId    = decodeURIComponent(rawSegment);
   if (!photoId) {
@@ -30,16 +26,20 @@ export async function handleStats(c) {
   }
 }
 
-/** POST /api/view/:id */
-export async function handleView(c) {
-  const { request, ctx, path, corsHeaders, DB } = c;
+// ================================================================
+// ENDPOINT: Record view
+// FIX: ctx.waitUntil + DB.batch — return 204 IMMEDIATELY.
+// DB write terjadi di background, eliminasi ~50-200ms latensi dari
+// response time yang sebelumnya menunggu DB write selesai.
+// ================================================================
+export async function handleRecordView({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
   const rawSegment = path.split('/').filter(Boolean).pop() || '';
   const photoId    = decodeURIComponent(rawSegment);
   if (!photoId) {
     return new Response(null, { status: 400, headers: corsHeaders });
   }
   const userId = getUserToken(request);
-  if (!await checkRateLimit(DB, 'view', userId, 100, 3600)) {
+  if (!await checkRateLimit('view', userId, 100, 3600)) {
     return new Response(null, { status: 429, headers: corsHeaders });
   }
 
@@ -57,16 +57,18 @@ export async function handleView(c) {
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
-/** POST /api/download/:id */
-export async function handleDownload(c) {
-  const { request, ctx, path, corsHeaders, DB } = c;
+// ================================================================
+// ENDPOINT: Record download
+// FIX: ctx.waitUntil + DB.batch — return 204 IMMEDIATELY.
+// ================================================================
+export async function handleRecordDownload({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
   const rawSegment = path.split('/').filter(Boolean).pop() || '';
   const photoId    = decodeURIComponent(rawSegment);
   if (!photoId) {
     return new Response(null, { status: 400, headers: corsHeaders });
   }
   const userId = getUserToken(request);
-  if (!await checkRateLimit(DB, 'download', userId, 50, 3600)) {
+  if (!await checkRateLimit('download', userId, 50, 3600)) {
     return new Response(null, { status: 429, headers: corsHeaders });
   }
 

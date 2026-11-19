@@ -1,0 +1,86 @@
+    <!-- ═══════════════════════════════════════════
+         CATEGORY NAVIGATION
+         FIX: id="category-nav" — dibutuhkan oleh updateCategoryNavTop() di script.js.
+         Sticky top dikalkulasi secara dinamis via ResizeObserver sehingga tidak
+         hardcode pixel dan tidak overlap dengan nav + mobile search di semua device.
+         FIX: Hapus top-[57px] md:top-[65px] hardcode — diganti oleh JS dinamis.
+         ═══════════════════════════════════════════ -->
+    <div id="category-nav" class="sticky z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200/50 py-3 px-4 md:px-6 overflow-x-auto no-scrollbar dark:bg-gray-900/95 dark:border-gray-800/50">
+        <div class="max-w-7xl mx-auto flex items-start gap-3 md:gap-5 min-w-max">
+
+            <!-- Home -->
+            <button type="button" id="cat-all" class="cat-btn active flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="home-icon-wrapper w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <div class="w-full h-full rounded-full bg-gradient-to-br from-gray-900 to-black flex items-center justify-center text-white shadow-lg">
+                        <i class="fas fa-home text-lg md:text-xl"></i>
+                    </div>
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Home</span>
+            </button>
+
+            <!-- Anime -->
+            <button type="button" id="cat-anime" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-anime-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg" alt="Anime" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Anime</span>
+            </button>
+
+            <!-- Fantasy -->
+            <button type="button" id="cat-fantasy" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-fantasy-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Fantasy.jpg" alt="Fantasy" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Fantasy</span>
+            </button>
+
+            <!-- Abstract -->
+            <button type="button" id="cat-abstract" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-abstract-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Abstract.jpg" alt="Abstract" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Abstract</span>
+            </button>
+
+            <!-- Photography -->
+            <button type="button" id="cat-photography" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-photography-img" src="https://ai.zxaionverse.workers.dev/api/img/PHOTOGRAPHY/PSX_207.jpg" alt="Photo" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">Photo</span>
+            </button>
+
+            <!-- COMITBASE -->
+            <button type="button" id="cat-comitbase" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-comitbase-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Combaseheader.jpg" alt="COMITBASE" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">COMITBASE</span>
+            </button>
+
+            <!-- DTREASURE -->
+            <button type="button" id="cat-dtreasure" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-dtreasure-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Dtreasure.jpg" alt="DTREASURE" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">DTREASURE</span>
+            </button>
+
+            <!-- ZMEME -->
+            <button type="button" id="cat-zmeme" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-zmeme-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Memenav.jpg" alt="ZMEME" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">ZMEME</span>
+            </button>
+
+            <!-- OVERLAY -->
+            <button type="button" id="cat-overlay" class="cat-btn flex flex-col items-center gap-2 group min-w-[56px] cursor-pointer">
+                <div class="w-11 h-11 md:w-14 md:h-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105">
+                    <img id="cat-overlay-img" src="https://ai.zxaionverse.workers.dev/api/img/HEADER/Overlaynav.jpg" alt="OVERLAY" class="w-full h-full rounded-full object-cover shadow-lg">
+                </div>
+                <span class="text-[10px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">OVERLAY</span>
+            </button>
+
+        </div>
+    </div>

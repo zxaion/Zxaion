@@ -1,8 +1,9 @@
-// backend/src/routes/admin.js
-// Route: admin (trigger sync manual)
-/** POST /api/admin/sync */
-export async function handleAdminSync(c) {
-  const { request, env } = c;
+import { handleScheduled } from '../services/r2Sync.js';
+
+// ================================================================
+// ENDPOINT: Manual sync trigger (POST /api/admin/sync)
+// ================================================================
+export async function handleAdminSync({ request, env, corsHeaders }) {
   const adminToken = request.headers.get('X-Admin-Token');
   if (!env.ADMIN_TOKEN || adminToken !== env.ADMIN_TOKEN) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {

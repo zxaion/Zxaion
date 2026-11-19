@@ -1,10 +1,10 @@
-// backend/src/routes/paypalWebhook.js
-// Route: PayPal webhook (verifikasi & klaim kredit)
-import { getPayPalAccessToken, verifyPayPalOrder } from '../services/paypal.js';
+import { PACK_BY_PRICE } from '../config/packs.js';
+import { PAYPAL_BASE } from '../config/constants.js';
 
-/** POST /api/paypal/webhook */
-export async function handlePaypalWebhook(c) {
-  const { request, url, method, DB, paypal, PAYPAL_WEBHOOK_ID, PAYPAL_BASE } = c;
+// ================================================================
+// ENDPOINT: PayPal Webhook
+// ================================================================
+export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID, getPayPalAccessToken, verifyPayPalOrder }) {
   try {
     const rawBody = await request.text();
     let webhookEvent;
@@ -40,7 +40,7 @@ export async function handlePaypalWebhook(c) {
     // dan order detail fetch. Cegah double OAuth round-trip.
     let accessToken;
     try {
-      accessToken = await getPayPalAccessToken(paypal);
+      accessToken = await getPayPalAccessToken();
       const verifyRes = await fetch(`${PAYPAL_BASE}/v1/notifications/verify-webhook-signature`, {
         method: 'POST',
         headers: {
@@ -88,15 +88,6 @@ export async function handlePaypalWebhook(c) {
       return new Response('OK', { status: 200 });
     }
 
-    const PACK_BY_PRICE = {
-      5:   { credits: 200,  bonus: 0,    lifetime: false },
-      25:  { credits: 1300, bonus: 450,  lifetime: false },
-      45:  { credits: 2700, bonus: 900,  lifetime: false },
-      75:  { credits: 4500, bonus: 1400, lifetime: false },
-      99:  { credits: 7000, bonus: 2300, lifetime: false },
-      125: { credits: 0,    bonus: 0,    lifetime: true  },
-    };
-
     const roundedAmount = Math.round(capturedAmount);
     const packData      = PACK_BY_PRICE[roundedAmount];
 
@@ -110,7 +101,7 @@ export async function handlePaypalWebhook(c) {
     // FIX: Reuse accessToken dari signature verification — cegah double OAuth
     if (!userId && orderId) {
       try {
-        const orderDetails = await verifyPayPalOrder(paypal, orderId, accessToken);
+        const orderDetails = await verifyPayPalOrder(orderId, accessToken);
         if (orderDetails?.purchase_units?.length > 0) {
           userId = orderDetails.purchase_units[0].custom_id || null;
         }

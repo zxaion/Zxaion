@@ -1,11 +1,9 @@
-// backend/src/routes/credits.js
-// Route: saldo, pembelian, dan pemakaian kredit
-import { getUserToken } from '../lib/request.js';
-import { getPayPalAccessToken, verifyPayPalOrder } from '../services/paypal.js';
+import { PACK_PRICES, PACKS } from '../config/packs.js';
 
-/** GET /api/credits/balance */
-export async function handleBalance(c) {
-  const { request, DB } = c;
+// ================================================================
+// ENDPOINT: Credit balance
+// ================================================================
+export async function handleCreditBalance({ request, DB, corsHeaders, getUserToken }) {
   const userId = getUserToken(request);
 
   if (!userId || userId === 'anonymous') {
@@ -47,9 +45,10 @@ export async function handleBalance(c) {
   }
 }
 
-/** POST /api/credits/purchase */
-export async function handlePurchase(c) {
-  const { request, DB, paypal } = c;
+// ================================================================
+// ENDPOINT: Purchase credits
+// ================================================================
+export async function handleCreditPurchase({ request, DB, corsHeaders, getUserToken, getPayPalAccessToken, verifyPayPalOrder }) {
   const userId = getUserToken(request);
 
   if (!userId || userId === 'anonymous') {
@@ -75,25 +74,7 @@ export async function handlePurchase(c) {
     });
   }
 
-  const PACK_PRICES = {
-    '5$':   5,
-    '25$':  25,
-    '45$':  45,
-    '75$':  75,
-    '99$':  99,
-    '125$': 125,
-  };
-
-  const packs = {
-    '5$':   { credits: 200,  bonus: 0,    lifetime: false },
-    '25$':  { credits: 1300, bonus: 450,  lifetime: false },
-    '45$':  { credits: 2700, bonus: 900,  lifetime: false },
-    '75$':  { credits: 4500, bonus: 1400, lifetime: false },
-    '99$':  { credits: 7000, bonus: 2300, lifetime: false },
-    '125$': { credits: 0,    bonus: 0,    lifetime: true  },
-  };
-
-  const packData = packs[pack];
+  const packData = PACKS[pack];
   if (!packData) {
     return new Response(JSON.stringify({ success: false, error: 'Invalid pack' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -119,8 +100,8 @@ export async function handlePurchase(c) {
       }
     }
 
-    const accessToken  = await getPayPalAccessToken(paypal);
-    const orderDetails = await verifyPayPalOrder(paypal, orderId, accessToken);
+    const accessToken  = await getPayPalAccessToken();
+    const orderDetails = await verifyPayPalOrder(orderId, accessToken);
 
     if (!orderDetails) {
       await DB.prepare(`
@@ -259,9 +240,10 @@ export async function handlePurchase(c) {
   }
 }
 
-/** POST /api/credits/spend */
-export async function handleSpend(c) {
-  const { request, DB } = c;
+// ================================================================
+// ENDPOINT: Spend credits
+// ================================================================
+export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken }) {
   const userId = getUserToken(request);
 
   if (!userId || userId === 'anonymous') {
@@ -333,7 +315,7 @@ export async function handleSpend(c) {
       }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-// Atomic deduct — race condition safe.
+  // Atomic deduct — race condition safe.
     // FIX: jumlah baris berubah ada di `meta.changes`, bukan `changes`.
     const deductResult = await DB.prepare(
       'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'

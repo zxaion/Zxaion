@@ -1,0 +1,9 @@
+{
+  "name": "zxaion-verse",
+  "private": true,
+  "scripts": {
+    "build:frontend": "npm --prefix frontend run build",
+    "dev:backend": "npm --prefix backend run dev",
+    "deploy:backend": "npm --prefix backend run deploy"
+  }
+}
