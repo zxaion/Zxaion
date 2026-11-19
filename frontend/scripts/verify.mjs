@@ -72,9 +72,9 @@ const activeRouteLines = [
   "path.startsWith('/api/comitbase/img/') ||",
   "path.startsWith('/api/dtreasure/img/')",
 ];
-const workerLines = new Set(worker.split("\n").map((line) => line.trim()));
+const routerLines = new Set(router.split("\n").map((line) => line.trim()));
 for (const line of activeRouteLines) {
-  assert.ok(workerLines.has(line), `Worker route missing or commented: ${line}`);
+  assert.ok(routerLines.has(line), `Router route missing or commented: ${line}`);
 }
 
 for (const file of ["index.html", "style.css", "script.js", "quicklink.json"]) {
@@ -107,7 +107,7 @@ assert.ok(router.includes("export async function handleRequest"), "Router entry 
 assert.ok(router.includes("./services/r2-sync.service.js"), "Router must import the scheduled sync service for admin sync.");
 assert.ok(router.includes("./middleware/cors.js"), "Router must import shared CORS middleware.");
 assert.ok(router.includes("./routes/media.js") && router.includes("./routes/static.js"), "Router must dispatch media and static routes.");
-assert.ok(router.includes("./src/services/r2-sync.service.js") || router.includes("./services/r2-sync.service.js"), "R2 sync service import is missing.");
+assert.ok(router.includes("./services/r2-sync.service.js"), "R2 sync service import is missing.");
 assert.ok(syncService.includes("export function parseImageMeta") && syncService.includes("export async function handleScheduled"), "R2 sync service exports are incomplete.");
 assert.ok(workerEntry.includes("../worker.js"), "Stable Worker entry must preserve the legacy fetch/scheduled handler.");
 assert.ok(router.includes("./middleware/cors.js") && router.includes("./middleware/auth.js") && router.includes("./middleware/rate-limit.js"), "Router middleware imports are incomplete.");

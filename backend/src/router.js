@@ -2,21 +2,21 @@
  * HTTP request router for the Cloudflare Worker.
  * Route modules receive only the bindings and request context they require.
  */
-import { handleScheduled } from "./src/services/r2-sync.service.js";
-import { createCorsHeaders } from "./src/middleware/cors.js";
-import { getUserToken } from "./src/middleware/auth.js";
-import { createRateLimit } from "./src/middleware/rate-limit.js";
-import { createPayPalService } from "./src/services/paypal.service.js";
-import { handleHealth } from "./src/routes/health.js";
-import { handleAdminSync } from "./src/routes/admin.js";
-import { handleTrending } from "./src/routes/trending.js";
-import { handleImageStats } from "./src/routes/stats.js";
-import { handleMainGallery, handleComitbaseGallery, handleDtreasureGallery } from "./src/routes/gallery.js";
-import { handlePayPalWebhook } from "./src/routes/paypal.js";
-import { handleCreditPurchase, handleCreditSpend } from "./src/routes/credits.js";
-import { handleMediaRequest } from "./src/routes/media.js";
-import { handleStaticAsset } from "./src/routes/static.js";
-import { handleRecordView, handleRecordDownload, handleCreditBalance } from "./src/routes/activity.js";
+import { handleScheduled } from "./services/r2-sync.service.js";
+import { createCorsHeaders } from "./middleware/cors.js";
+import { getUserToken } from "./middleware/auth.js";
+import { createRateLimit } from "./middleware/rate-limit.js";
+import { createPayPalService } from "./services/paypal.service.js";
+import { handleHealth } from "./routes/health.js";
+import { handleAdminSync } from "./routes/admin.js";
+import { handleTrending } from "./routes/trending.js";
+import { handleImageStats } from "./routes/stats.js";
+import { handleMainGallery, handleComitbaseGallery, handleDtreasureGallery } from "./routes/gallery.js";
+import { handlePayPalWebhook } from "./routes/paypal.js";
+import { handleCreditPurchase, handleCreditSpend } from "./routes/credits.js";
+import { handleMediaRequest } from "./routes/media.js";
+import { handleStaticAsset } from "./routes/static.js";
+import { handleRecordView, handleRecordDownload, handleCreditBalance } from "./routes/activity.js";
 
 export async function handleRequest(request, env, ctx) {
     const url    = new URL(request.url);
