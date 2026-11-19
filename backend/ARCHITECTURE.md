@@ -19,6 +19,5 @@ Target extraction order for remaining backend internals:
 2. Keep PayPal webhook verification and payment claim/crediting semantics covered by integration tests.
 3. Add contract tests for R2 Range requests, content metadata, CORS, and static fallback.
 4. Keep `src/index.js` as the only Wrangler entry and avoid changing binding names.
-6. Switch `wrangler.toml` only after parity tests prove that the modular Worker matches the original.
 
 Do not copy snippets into active handlers without first tracing their shared helpers, SQL transaction boundaries, error responses, and Cloudflare bindings. The original Worker is retained in `legacy/original/backend/worker.js`.

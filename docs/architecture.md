@@ -82,7 +82,7 @@ The current Worker refers to `images`, `rate_limits`, `payment_orders`, `user_cr
 - `src/router.js` owns HTTP method/path dispatch and request-scoped bindings.
 - `src/index.js` remains the Wrangler entry and re-exports the Worker adapter.
 
-Route business logic has been extracted from `backend/worker.js`; the Worker retains request-scoped dependency setup and method/path dispatch. D1 repositories are still embedded in route handlers and remain a future separation step.
+Route business logic and method/path dispatch now live under `backend/src/`; `backend/worker.js` is only the compatibility adapter. D1 repositories are still embedded in route handlers and remain a future separation step.
 
 ## Transitional build
 
