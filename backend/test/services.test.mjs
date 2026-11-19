@@ -8,6 +8,8 @@ import { createRateLimit } from "../src/middleware/rate-limit.js";
 import { createPayPalService } from "../src/services/paypal.service.js";
 import { handleHealth } from "../src/routes/health.js";
 import { handleAdminSync } from "../src/routes/admin.js";
+import { handleTrending } from "../src/routes/trending.js";
+import { handleImageStats } from "../src/routes/stats.js";
 
 test("parseImageMeta preserves the legacy image identity and URL contract", () => {
   const meta = parseImageMeta("ANIME/Demon Slayer/test-image.jpg", "main");
@@ -128,4 +130,71 @@ test("admin sync route invokes scheduled sync only after token validation", asyn
   assert.equal(response.status, 200);
   assert.equal(called, true);
   assert.deepEqual(await response.json(), { success: true, message: "Sync completed" });
+});
+
+
+test("trending route clamps limits and maps D1 rows to the public image shape", async () => {
+  let boundLimit = 0;
+  const DB = {
+    prepare() {
+      return {
+        bind(value) {
+          boundLimit = value;
+          return {
+            all: async () => ({
+              results: [{
+                id: "main:folder/image.jpg",
+                title: "Image",
+                r2_key: "folder/image.jpg",
+                bucket: "main",
+                category: "Anime",
+                sub_category: "series",
+                view_count: 8,
+                download_count: 2,
+                score: 10
+              }]
+            })
+          };
+        }
+      };
+    }
+  };
+  const response = await handleTrending({
+    url: new URL("https://worker.test/api/trending?limit=500"),
+    DB,
+    corsHeaders: {}
+  });
+  assert.equal(boundLimit, 50);
+  assert.equal(response.headers.get("Cache-Control"), "public, max-age=120");
+  assert.deepEqual(await response.json(), [{
+    id: "main:folder/image.jpg",
+    title: "Image",
+    category: "Anime",
+    subCategory: "series",
+    url: "/api/img/folder%2Fimage.jpg",
+    viewCount: 8,
+    downloadCount: 2,
+    score: 10
+  }]);
+});
+
+test("image stats route decodes IDs and returns the existing response contract", async () => {
+  let boundId = "";
+  const DB = {
+    prepare() {
+      return {
+        bind(value) {
+          boundId = value;
+          return { first: async () => ({ view_count: 17, download_count: 4 }) };
+        }
+      };
+    }
+  };
+  const response = await handleImageStats({
+    path: "/api/stats/main%3Afolder%2Fimage.jpg",
+    DB,
+    corsHeaders: {}
+  });
+  assert.equal(boundId, "main:folder/image.jpg");
+  assert.deepEqual(await response.json(), { views: 17, downloads: 4 });
 });
