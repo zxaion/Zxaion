@@ -1,74 +1,54 @@
-// Build frontend: frontend/src → frontend/dist
+// Build frontend: frontend/src → frontend/dist   (tanpa dependency, cukup Node.js)
+//   dist/index.html     ← src/index.html + semua <!-- @include ... --> (partials)
+//   dist/style.css      ← gabungan src/css/*.css  (urutan = manifest.json)
+//   dist/script.js      ← gabungan src/js/**/*.js (urutan = manifest.json)
+//   dist/quicklink.json ← salinan src/quicklink.json (divalidasi JSON)
+// Nama file hasil build SAMA dengan sebelumnya, jadi key di R2 & worker tidak berubah.
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const WEB  = join(ROOT, 'src'); // Tetap menggunakan 'src'
+const WEB  = join(ROOT, 'src');
 const DIST = join(ROOT, 'dist');
-
-// 1. Definisikan regex INCLUDE agar tidak error
-const INCLUDE = /<!-- @include (.*) -->/;
 
 const read = (rel) => {
   const file = join(WEB, rel);
-  if (!existsSync(file)) {
-    // 2. Gunakan throw agar build gagal jika file penting hilang, 
-    // tapi pesan errornya sudah benar menggunakan folder 'src'
-    throw new Error(`File tidak ditemukan: ${rel} (mencari di ${WEB})`);
-  }
+  if (!existsSync(file)) throw new Error(`File tidak ditemukan: web/${rel}`);
   return readFileSync(file, 'utf8');
 };
 
+const INCLUDE = /^[ \t]*<!-- @include (\S+) -->[ \t]*$/;
+
 function buildHtml() {
-  const content = read('index.html');
-  return content
+  return read('index.html')
     .split('\n')
     .map((line) => {
       const m = line.match(INCLUDE);
-      if (!m) return line;
-      
-      const includePath = m[1].trim();
-      const partContent = read(includePath);
-      
-      // Menghapus newline di akhir file partial agar tidak ada gap antar section
-      return partContent.replace(/\n$/, '');
+      return m ? read(m[1]).replace(/\n$/, '') : line;
     })
     .join('\n');
 }
 
-// Penanda "▸ nama-file" memudahkan debugging di browser.
+// Penanda "▸ nama-file" memudahkan mencari asal baris saat debugging di browser.
 function bundle(files, marker) {
-  return files.map((rel) => {
-    const content = read(rel);
-    return `${marker(rel)}\n${content.replace(/\n*$/, '\n')}`;
-  }).join('\n');
+  return files.map((rel) => `${marker(rel)}\n${read(rel).replace(/\n*$/, '\n')}`).join('\n');
 }
 
-// Load manifest
-const manifestRaw = read('manifest.json');
-const manifest = JSON.parse(manifestRaw);
+const manifest = JSON.parse(read('manifest.json'));
 
-// Bersihkan dan siapkan folder dist
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
-
-// Eksekusi Build
-console.log('Memulai build...');
 
 writeFileSync(join(DIST, 'index.html'),  buildHtml());
 writeFileSync(join(DIST, 'style.css'),   bundle(manifest.css, (f) => `/* ▸ ${f} */`));
 writeFileSync(join(DIST, 'script.js'),   bundle(manifest.js,  (f) => `// ▸ ${f}`));
 
 const quicklink = read('quicklink.json');
-JSON.parse(quicklink); // Validasi jika JSON rusak
+JSON.parse(quicklink);                       // gagal build jika JSON rusak
 writeFileSync(join(DIST, 'quicklink.json'), quicklink);
 
 console.log('Build selesai → dist/');
 for (const f of ['index.html', 'style.css', 'script.js', 'quicklink.json']) {
-  const filePath = join(DIST, f);
-  if (existsSync(filePath)) {
-    const size = (readFileSync(filePath).length / 1024).toFixed(1);
-    console.log(`  ${f.padEnd(15)} ${size} KB`);
-  }
+  console.log(`  ${f.padEnd(15)} ${(readFileSync(join(DIST, f)).length / 1024).toFixed(1)} KB`);
 }
