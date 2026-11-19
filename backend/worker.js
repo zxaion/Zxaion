@@ -51,7 +51,10 @@ export default {
     // ----------------------------------------------------------------
     const checkRateLimit = createRateLimit(DB);
 
-    // =======================================================    if (path === '/api/health' && method === 'GET') {
+    // ================================================================
+    // ENDPOINT: Health check
+    // ================================================================
+    if (path === '/api/health' && method === 'GET') {
       return handleHealth({ DB, corsHeaders });
     }
 
@@ -63,7 +66,7 @@ export default {
     }
 
     // ================================================================
-        // ENDPOINT: PayPal Webhook
+    // ENDPOINT: PayPal Webhook
     // ================================================================
     if (path === '/api/paypal/webhook' && method === 'POST') {
       try {

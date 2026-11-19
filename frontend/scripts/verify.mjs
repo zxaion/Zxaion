@@ -45,25 +45,26 @@ for (const token of ["refreshImages", "changeCategory", "openAnimeCollection", "
   assert.ok(js.includes(token), `Bundled JS is missing compatibility token: ${token}`);
 }
 
-for (const route of [
-  "/api/health",
-  "/api/admin/sync",
-  "/api/paypal/webhook",
-  "/api/list",
-  "/api/comitbase/list",
-  "/api/dtreasure/list",
-  "/api/trending",
-  "/api/credits/balance",
-  "/api/credits/purchase",
-  "/api/credits/spend",
-  "/api/stats/",
-  "/api/view/",
-  "/api/download/",
-  "/api/img/",
-  "/api/comitbase/img/",
-  "/api/dtreasure/img/",
-]) {
-  assert.ok(worker.includes(route), `Worker route contract missing: ${route}`);
+const activeRouteConditions = [
+  /if\\s*\\(path === '\/api\/health' && method === 'GET'\\)/,
+  /if\\s*\\(path === '\/api\/admin\/sync' && method === 'POST'\\)/,
+  /if\\s*\\(path === '\/api\/paypal\/webhook' && method === 'POST'\\)/,
+  /if\\s*\\(path === '\/api\/list' && method === 'GET'\\)/,
+  /if\\s*\\(path === '\/api\/comitbase\/list' && method === 'GET'\\)/,
+  /if\\s*\\(path === '\/api\/dtreasure\/list' && method === 'GET'\\)/,
+  /if\\s*\\(path === '\/api\/trending' && method === 'GET'\\)/,
+  /if\\s*\\(path.startsWith\('\/api\/stats\/'\) && method === 'GET'\\)/,
+  /if\\s*\\(path.startsWith\('\/api\/view\/'\) && method === 'POST'\\)/,
+  /if\\s*\\(path.startsWith\('\/api\/download\/'\) && method === 'POST'\\)/,
+  /if\\s*\\(path === '\/api\/credits\/balance' && method === 'GET'\\)/,
+  /if\\s*\\(path === '\/api\/credits\/purchase' && method === 'POST'\\)/,
+  /if\\s*\\(path === '\/api\/credits\/spend' && method === 'POST'\\)/,
+  /path.startsWith\('\/api\/img\/'\)/,
+  /path.startsWith\('\/api\/comitbase\/img\/'\)/,
+  /path.startsWith\('\/api\/dtreasure\/img\/'\)/,
+];
+for (const condition of activeRouteConditions) {
+  assert.match(worker, condition, `Worker route condition missing or commented: ${condition}`);
 }
 
 for (const file of ["index.html", "style.css", "script.js", "quicklink.json"]) {
