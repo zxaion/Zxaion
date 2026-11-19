@@ -14,7 +14,7 @@ const DIST = join(ROOT, 'dist');
 
 const read = (rel) => {
   const file = join(WEB, rel);
-  if (!existsSync(file)) throw new Error(`File tidak ditemukan: web/${rel}`);
+    if (!existsSync(file)) throw new Error(`File tidak ditemukan: src/${rel}`);
   return readFileSync(file, 'utf8');
 };
 
