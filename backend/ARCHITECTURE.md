@@ -8,9 +8,9 @@ Already extracted and active:
 - `src/services/r2-sync.service.js` for metadata parsing and scheduled R2 sync.
 - `src/services/paypal.service.js` for OAuth and order lookup.
 - `src/middleware/cors.js`, `auth.js`, and `rate-limit.js` for existing middleware behavior.
-- `src/routes/health.js` and `src/routes/admin.js` for the first route handlers.
+- `src/routes/health.js`, `admin.js`, `trending.js`, and `stats.js` for extracted route handlers.
 
-Still in `worker.js`: PayPal webhook, gallery listing, trending, stats, view/download, credits, media delivery, and static fallback routes.
+Still in `worker.js`: PayPal webhook, gallery listing, view/download, credits, media delivery, and static fallback routes.
 
 Target extraction order for remaining routes:
 

@@ -71,9 +71,11 @@ The current Worker refers to `images`, `rate_limits`, `payment_orders`, `user_cr
 - `src/middleware/rate-limit.js`: existing D1 fixed-window rate limiter and fail-open behavior.
 - `src/routes/health.js`: `GET /api/health`.
 - `src/routes/admin.js`: `POST /api/admin/sync`.
+- `src/routes/trending.js`: `GET /api/trending`.
+- `src/routes/stats.js`: `GET /api/stats/:id`.
 - `src/index.js` remains the Wrangler entry and re-exports the Worker handler while the remaining route handlers are extracted.
 
-The remaining API handlers are still in `backend/worker.js`; they are not yet considered modularized.
+The remaining API handlers are still in `backend/worker.js` (PayPal webhook, gallery lists, view/download, credits, media delivery, and static fallback); they are not yet considered modularized.
 
 ## Transitional build
 

@@ -24,6 +24,7 @@ Refactor berjalan bertahap di branch `refactor/modular-architecture`. File produ
 npm install
 npm run build:frontend
 npm run verify:frontend
+npm test
 npm run check
 ```
 
