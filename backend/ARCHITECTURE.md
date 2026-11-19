@@ -1,6 +1,6 @@
 # Backend modularization plan
 
-The deployed entry remains `worker.js` and `wrangler.toml` is intentionally unchanged in the baseline migration. This prevents a branch-only refactor from silently changing Cloudflare's runtime entry or bindings.
+The deployed entry is now `src/index.js`, a compatibility entry that re-exports the untouched default Worker from `../worker.js`. `wrangler.toml` changes only its `main` path; bindings and cron configuration remain unchanged. This creates a stable seam for incremental route/service extraction.
 
 Target extraction order:
 

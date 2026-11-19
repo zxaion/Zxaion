@@ -10,7 +10,7 @@ Refactor berjalan bertahap di branch `refactor/modular-architecture`. File produ
 - `frontend/script.js`, `frontend/index.html`, `frontend/style.css`: implementasi aktif lama yang tetap menjadi sumber kompatibilitas selama migrasi.
 - `frontend/src/app.js`: entry point esbuild sementara yang mengimpor implementasi lama. Pemisahan modul fitur dilakukan bertahap setelah kontrak UI/API diuji.
 - `frontend/scripts/build.mjs`: membangun `frontend/dist/` dengan nama aset tetap: `index.html`, `style.css`, `script.js`, `quicklink.json`.
-- `backend/worker.js`: Worker aktif saat ini; `backend/wrangler.toml` tetap menunjuk ke file ini agar konfigurasi deployment tidak berubah.
+- `backend/src/index.js`: entry Worker stabil yang me-re-export implementasi lama dari `backend/worker.js`. `wrangler.toml` kini menunjuk ke entry baru; implementasi fetch/scheduled lama tetap utuh.
 
 ## Prasyarat
 

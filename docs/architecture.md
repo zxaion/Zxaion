@@ -37,7 +37,7 @@ OPTIONS is handled globally for CORS. Static assets are served by the Worker fal
 
 ### Cloudflare bindings and configuration
 
-- Worker name: `ai`; active entry remains `worker.js`.
+- Worker name: `ai`; entry aktif `src/index.js` me-re-export default handler dari `../worker.js` sebagai lapisan kompatibilitas. Binding dan cron tidak berubah.
 - D1: `DB` -> database `zxwallpaper`.
 - R2: `Zxaion_B` -> `zxaionverse`; `ZX_BUCKET` -> `zx-cloud2`; `TREASURE` -> `d-treasures`.
 - Cron: `0 * * * *`.
