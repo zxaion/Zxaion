@@ -17,5 +17,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
-      - run: npm run check
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build frontend with esbuild
+        run: npm run build:frontend
+      - name: Run unit tests
+        run: npm test
+      - name: Verify frontend output and integration contracts
+        run: npm run verify:frontend
+      - name: Verify Cloudflare Worker bundle
+        run: npm run verify:backend
