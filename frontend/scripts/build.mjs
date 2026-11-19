@@ -14,18 +14,18 @@ const DIST = join(ROOT, 'dist');
 
 const read = (rel) => {
   const file = join(WEB, rel);
-    if (!existsSync(file)) throw new Error(`File tidak ditemukan: src/${rel}`);
+  if (!existsSync(file)) return null;  // null = file tidak ada
   return readFileSync(file, 'utf8');
 };
-
-const INCLUDE = /^[ \t]*<!-- @include (\S+) -->[ \t]*$/;
 
 function buildHtml() {
   return read('index.html')
     .split('\n')
     .map((line) => {
       const m = line.match(INCLUDE);
-      return m ? read(m[1]).replace(/\n$/, '') : line;
+      if (!m) return line;
+      const content = read(m[1]);
+      return content === null ? '' : content.replace(/\n$/, '');  // skip jika tidak ada
     })
     .join('\n');
 }
