@@ -11,6 +11,7 @@ import { handleAdminSync } from "../src/routes/admin.js";
 import { handleTrending } from "../src/routes/trending.js";
 import { handleImageStats } from "../src/routes/stats.js";
 import { handleMainGallery, handleComitbaseGallery, handleDtreasureGallery } from "../src/routes/gallery.js";
+import { handleRecordView, handleRecordDownload, handleCreditBalance } from "../src/routes/activity.js";
 
 test("parseImageMeta preserves the legacy image identity and URL contract", () => {
   const meta = parseImageMeta("ANIME/Demon Slayer/test-image.jpg", "main");
@@ -294,4 +295,90 @@ test("DTREASURE gallery route maps rows and keeps its private cache policy", asy
     viewCount: 4,
     downloadCount: 1
   }]);
+});
+
+
+test("view route records an asynchronous batch and returns 204", async () => {
+  const statements = [];
+  const pending = [];
+  const rateCalls = [];
+  const DB = {
+    prepare(sql) {
+      return { bind(...values) { return { sql, values }; } };
+    },
+    batch(items) {
+      statements.push(...items);
+      return Promise.resolve();
+    }
+  };
+  const response = await handleRecordView({
+    path: "/api/view/main%3Aimage.jpg",
+    request: new Request("https://worker.test/api/view/main%3Aimage.jpg", { headers: { "X-User-Token": "visitor-1" } }),
+    ctx: { waitUntil: promise => pending.push(promise) },
+    DB,
+    getUserToken: request => request.headers.get("X-User-Token") || "anonymous",
+    checkRateLimit: async (...args) => { rateCalls.push(args); return true; },
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 204);
+  assert.deepEqual(rateCalls, [["view", "visitor-1", 100, 3600]]);
+  assert.equal(statements.length, 2);
+  assert.match(statements[0].sql, /UPDATE images SET view_count/);
+  assert.deepEqual(statements[0].values, ["main:image.jpg"]);
+  assert.equal(pending.length, 1);
+  await Promise.all(pending);
+});
+
+test("download route enforces its rate limit and records a batch", async () => {
+  let batchCount = 0;
+  const DB = {
+    prepare(sql) { return { bind(...values) { return { sql, values }; } }; },
+    batch: async () => { batchCount++; }
+  };
+  const response = await handleRecordDownload({
+    path: "/api/download/main%3Aimage.jpg",
+    request: new Request("https://worker.test/api/download/main%3Aimage.jpg", { headers: { "X-User-Token": "visitor-2" } }),
+    ctx: { waitUntil: promise => { void promise; } },
+    DB,
+    getUserToken: request => request.headers.get("X-User-Token") || "anonymous",
+    checkRateLimit: async () => false,
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 429);
+  assert.equal(batchCount, 0);
+});
+
+test("credit balance route returns the anonymous default without querying D1", async () => {
+  const response = await handleCreditBalance({
+    request: new Request("https://worker.test/api/credits/balance"),
+    DB: { prepare() { throw new Error("must not query"); } },
+    getUserToken: () => "anonymous",
+    corsHeaders: {}
+  });
+  assert.deepEqual(await response.json(), { credits: 0, lifetime: false, purchased: [] });
+});
+
+test("credit balance route returns user credits and purchased image IDs", async () => {
+  let queryCount = 0;
+  const DB = {
+    prepare(sql) {
+      queryCount++;
+      return {
+        bind() {
+          if (sql.includes("SELECT credits, lifetime")) {
+            return { first: async () => ({ credits: 42, lifetime: 1 }) };
+          }
+          return { all: async () => ({ results: [{ photo_id: "main:a.jpg" }, { photo_id: "main:b.jpg" }] }) };
+        }
+      };
+    }
+  };
+  const response = await handleCreditBalance({
+    request: new Request("https://worker.test/api/credits/balance", { headers: { "X-User-Token": "visitor-3" } }),
+    DB,
+    getUserToken: request => request.headers.get("X-User-Token"),
+    corsHeaders: {}
+  });
+  assert.equal(queryCount, 2);
+  assert.deepEqual(await response.json(), { credits: 42, lifetime: true, purchased: ["main:a.jpg", "main:b.jpg"] });
 });
