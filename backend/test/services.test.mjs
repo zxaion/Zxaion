@@ -12,6 +12,8 @@ import { handleTrending } from "../src/routes/trending.js";
 import { handleImageStats } from "../src/routes/stats.js";
 import { handleMainGallery, handleComitbaseGallery, handleDtreasureGallery } from "../src/routes/gallery.js";
 import { handleRecordView, handleRecordDownload, handleCreditBalance } from "../src/routes/activity.js";
+import { handlePayPalWebhook } from "../src/routes/paypal.js";
+import { handleCreditPurchase, handleCreditSpend } from "../src/routes/credits.js";
 
 test("parseImageMeta preserves the legacy image identity and URL contract", () => {
   const meta = parseImageMeta("ANIME/Demon Slayer/test-image.jpg", "main");
@@ -381,4 +383,93 @@ test("credit balance route returns user credits and purchased image IDs", async 
   });
   assert.equal(queryCount, 2);
   assert.deepEqual(await response.json(), { credits: 42, lifetime: true, purchased: ["main:a.jpg", "main:b.jpg"] });
+});
+
+
+test("PayPal webhook rejects invalid JSON before attempting verification", async () => {
+  const response = await handlePayPalWebhook({
+    request: new Request("https://worker.test/api/paypal/webhook", {
+      method: "POST",
+      body: "{invalid"
+    }),
+    DB: {},
+    getPayPalAccessToken: async () => { throw new Error("must not run"); },
+    verifyPayPalOrder: async () => { throw new Error("must not run"); },
+    PAYPAL_WEBHOOK_ID: "webhook-test",
+    PAYPAL_BASE: "https://api-m.paypal.com"
+  });
+  assert.equal(response.status, 400);
+  assert.equal(await response.text(), "Invalid JSON");
+});
+
+test("PayPal webhook rejects requests missing required signature headers", async () => {
+  const response = await handlePayPalWebhook({
+    request: new Request("https://worker.test/api/paypal/webhook", {
+      method: "POST",
+      body: JSON.stringify({ id: "event-test" })
+    }),
+    DB: {},
+    getPayPalAccessToken: async () => { throw new Error("must not run"); },
+    verifyPayPalOrder: async () => { throw new Error("must not run"); },
+    PAYPAL_WEBHOOK_ID: "webhook-test",
+    PAYPAL_BASE: "https://api-m.paypal.com"
+  });
+  assert.equal(response.status, 401);
+  assert.equal(await response.text(), "Unauthorized");
+});
+
+test("credit purchase rejects anonymous users before reading payment data", async () => {
+  const response = await handleCreditPurchase({
+    request: new Request("https://worker.test/api/credits/purchase", { method: "POST", body: "not-json" }),
+    DB: {},
+    getUserToken: () => "anonymous",
+    getPayPalAccessToken: async () => { throw new Error("must not run"); },
+    verifyPayPalOrder: async () => { throw new Error("must not run"); },
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { success: false, error: "Invalid user token" });
+});
+
+test("credit purchase validates pack and order ID before database access", async () => {
+  const response = await handleCreditPurchase({
+    request: new Request("https://worker.test/api/credits/purchase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pack: "5$" })
+    }),
+    DB: { prepare() { throw new Error("must not query"); } },
+    getUserToken: () => "visitor",
+    getPayPalAccessToken: async () => { throw new Error("must not run"); },
+    verifyPayPalOrder: async () => { throw new Error("must not run"); },
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { success: false, error: "Missing pack or orderId" });
+});
+
+test("credit spend rejects anonymous users", async () => {
+  const response = await handleCreditSpend({
+    request: new Request("https://worker.test/api/credits/spend", { method: "POST", body: "{}" }),
+    DB: {},
+    getUserToken: () => "anonymous",
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { success: false, error: "Authentication required" });
+});
+
+test("credit spend validates photo ID before database access", async () => {
+  const response = await handleCreditSpend({
+    request: new Request("https://worker.test/api/credits/spend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }),
+    DB: { prepare() { throw new Error("must not query"); } },
+    getUserToken: () => "visitor",
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { success: false, error: "Missing photoId" });
 });
