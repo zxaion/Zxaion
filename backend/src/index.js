@@ -1,11 +1,10 @@
 /**
- * Stable modular Worker entry point.
+ * Stable Wrangler entry point.
  *
- * During the parity migration, the existing Worker implementation is kept
- * intact in ../worker.js and re-exported here. Route/service extraction can
- * now happen behind this stable entry without changing the Cloudflare entry
- * path again or altering the current fetch/scheduled behavior.
+ * The Worker adapter in ../worker.js delegates HTTP requests to src/router.js
+ * and scheduled events to the extracted R2 synchronization service.
+ * Keep this file as the single entry referenced by wrangler.toml.
  */
-import legacyWorker from "../worker.js";
+import worker from "../worker.js";
 
-export default legacyWorker;
+export default worker;

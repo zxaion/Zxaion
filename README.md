@@ -14,7 +14,7 @@ Refactor berjalan bertahap di branch `refactor/modular-architecture`. Snapshot a
 - `frontend/scripts/build.mjs`: membangun `frontend/dist/` dengan nama aset tetap: `index.html`, `style.css`, `script.js`, `quicklink.json`.
 - `backend/src/index.js`: entry Wrangler yang me-re-export handler kompatibilitas dari `backend/worker.js`.
 - `backend/src/router.js`: dispatcher HTTP dan komposisi route modules.
-- `backend/worker.js`: router kompatibilitas; middleware, service, serta route handler health/admin/gallery/stats/trending/activity sudah dipindahkan ke `backend/src/`.
+- `backend/worker.js`: adapter tipis untuk `fetch` dan `scheduled`, meneruskan request ke `backend/src/router.js`.
 
 ## Prasyarat
 
