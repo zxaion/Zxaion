@@ -79,7 +79,8 @@ The current Worker refers to `images`, `rate_limits`, `payment_orders`, `user_cr
 - `src/routes/credits.js`: credit purchase verification and credit spending.
 - `src/routes/media.js`: R2 image delivery, DTREASURE authorization, and download headers.
 - `src/routes/static.js`: R2 static assets, SPA fallback, and HTML security headers.
-- `src/index.js` remains the Wrangler entry and re-exports the Worker handler while the remaining route handlers are extracted.
+- `src/router.js` owns HTTP method/path dispatch and request-scoped bindings.
+- `src/index.js` remains the Wrangler entry and re-exports the Worker adapter.
 
 Route business logic has been extracted from `backend/worker.js`; the Worker retains request-scoped dependency setup and method/path dispatch. D1 repositories are still embedded in route handlers and remain a future separation step.
 
