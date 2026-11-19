@@ -125,5 +125,6 @@ assert.ok(paypalRoute.includes("export async function handlePayPalWebhook"), "Pa
 assert.ok(creditsRoute.includes("export async function handleCreditPurchase") && creditsRoute.includes("export async function handleCreditSpend"), "Credit route exports are incomplete.");
 assert.ok(worker.includes("./src/routes/media.js") && worker.includes("./src/routes/static.js"), "Media/static route imports are incomplete.");
 assert.ok(mediaRoute.includes("export async function handleMediaRequest") && staticRoute.includes("export async function handleStaticAsset"), "Media/static route exports are incomplete.");
+assert.ok(!worker.includes("ALLOWED_ORIGINS"), "Legacy inline CORS allowlist must not remain in Worker.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");

@@ -1,5 +1,6 @@
 /** R2 static asset and SPA fallback handler. */
-export async function handleStaticAsset({ path, mainBucket, corsHeaders }) {    try {
+export async function handleStaticAsset({ path, mainBucket, corsHeaders }) {
+    try {
       let key = path === '/' ? 'index.html' : path.slice(1);
       if (key.startsWith('api/')) return new Response('Not Found', { status: 404 });
 

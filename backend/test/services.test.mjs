@@ -14,6 +14,8 @@ import { handleMainGallery, handleComitbaseGallery, handleDtreasureGallery } fro
 import { handleRecordView, handleRecordDownload, handleCreditBalance } from "../src/routes/activity.js";
 import { handlePayPalWebhook } from "../src/routes/paypal.js";
 import { handleCreditPurchase, handleCreditSpend } from "../src/routes/credits.js";
+import { handleMediaRequest } from "../src/routes/media.js";
+import { handleStaticAsset } from "../src/routes/static.js";
 
 test("parseImageMeta preserves the legacy image identity and URL contract", () => {
   const meta = parseImageMeta("ANIME/Demon Slayer/test-image.jpg", "main");
@@ -472,4 +474,81 @@ test("credit spend validates photo ID before database access", async () => {
   });
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { success: false, error: "Missing photoId" });
+});
+
+
+test("media route serves a main-bucket image with the existing cache and download headers", async () => {
+  let requestedKey = "";
+  const object = {
+    body: "image-bytes",
+    httpEtag: '"etag-image"',
+    writeHttpMetadata(headers) { headers.set("Content-Type", "image/jpeg"); }
+  };
+  const response = await handleMediaRequest({
+    path: "/api/img/Folder%2Fphoto.jpg",
+    url: new URL("https://worker.test/api/img/Folder%2Fphoto.jpg?download=true"),
+    request: new Request("https://worker.test/api/img/Folder%2Fphoto.jpg?download=true"),
+    DB: {},
+    mainBucket: { get: async key => { requestedKey = key; return object; } },
+    comitbaseBucket: null,
+    treasureBucket: null,
+    getUserToken: () => "anonymous",
+    corsHeaders: { "Access-Control-Allow-Origin": "https://zxaion-verse.pages.dev", Vary: "Origin" }
+  });
+  assert.equal(requestedKey, "Folder/photo.jpg");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "public, max-age=31536000, immutable");
+  assert.equal(response.headers.get("Content-Disposition"), 'attachment; filename="photo.jpg"; filename*=UTF-8\'\'photo.jpg');
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://zxaion-verse.pages.dev");
+  assert.equal(await response.text(), "image-bytes");
+});
+
+test("DTREASURE download rejects anonymous users before reading the bucket", async () => {
+  let bucketRead = false;
+  const response = await handleMediaRequest({
+    path: "/api/dtreasure/img/secret.jpg",
+    url: new URL("https://worker.test/api/dtreasure/img/secret.jpg?download=true"),
+    request: new Request("https://worker.test/api/dtreasure/img/secret.jpg?download=true"),
+    DB: { prepare() { throw new Error("must not query"); } },
+    mainBucket: null,
+    comitbaseBucket: null,
+    treasureBucket: { get: async () => { bucketRead = true; return null; } },
+    getUserToken: () => "anonymous",
+    corsHeaders: {}
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "Authentication required" });
+  assert.equal(bucketRead, false);
+});
+
+test("static root fallback serves index.html with security headers", async () => {
+  const requested = [];
+  const object = {
+    body: "<html>ok</html>",
+    httpEtag: '"etag-index"',
+    writeHttpMetadata(headers) { headers.set("Content-Type", "text/html; charset=utf-8"); }
+  };
+  const response = await handleStaticAsset({
+    path: "/",
+    mainBucket: { get: async key => { requested.push(key); return key === "index.html" ? object : null; } },
+    corsHeaders: { "Access-Control-Allow-Origin": "https://zxaion-verse.pages.dev", Vary: "Origin" }
+  });
+  assert.deepEqual(requested, ["index.html"]);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("X-Frame-Options"), "DENY");
+  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  assert.match(response.headers.get("Content-Security-Policy"), /default-src 'self'/);
+  assert.equal(await response.text(), "<html>ok</html>");
+});
+
+test("static asset miss returns 404 without SPA fallback", async () => {
+  const requested = [];
+  const response = await handleStaticAsset({
+    path: "/script.js",
+    mainBucket: { get: async key => { requested.push(key); return null; } },
+    corsHeaders: {}
+  });
+  assert.deepEqual(requested, ["script.js"]);
+  assert.equal(response.status, 404);
+  assert.equal(await response.text(), "Not Found");
 });
