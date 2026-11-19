@@ -8,6 +8,7 @@ import { handleAdminSync } from "./src/routes/admin.js";
 import { handleTrending } from "./src/routes/trending.js";
 import { handleImageStats } from "./src/routes/stats.js";
 import { handleMainGallery, handleComitbaseGallery, handleDtreasureGallery } from "./src/routes/gallery.js";
+import { handleRecordView, handleRecordDownload, handleCreditBalance } from "./src/routes/activity.js";
 
 
 // ============================================================
