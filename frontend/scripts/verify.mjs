@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule, healthRoute, adminRoute, trendingRoute, statsRoute, galleryRoute, activityRoute, paypalRoute, creditsRoute] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule, uiModule, syncService, workerEntry, corsModule, authModule, rateModule, paypalModule, healthRoute, adminRoute, trendingRoute, statsRoute, galleryRoute, activityRoute, paypalRoute, creditsRoute, mediaRoute, staticRoute] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -39,6 +39,8 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "activity.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "paypal.js"), "utf8"),
   readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "credits.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "media.js"), "utf8"),
+  readFile(path.resolve(frontendDir, "..", "backend", "src", "routes", "static.js"), "utf8"),
 ]);
 
 assert.equal(html, sourceHtml, "Built HTML must remain byte-identical to the legacy HTML.");
@@ -121,5 +123,7 @@ assert.ok(activityRoute.includes("export async function handleRecordView") && ac
 assert.ok(worker.includes("./src/routes/paypal.js") && worker.includes("./src/routes/credits.js"), "PayPal/credits route imports are incomplete.");
 assert.ok(paypalRoute.includes("export async function handlePayPalWebhook"), "PayPal webhook route export is missing.");
 assert.ok(creditsRoute.includes("export async function handleCreditPurchase") && creditsRoute.includes("export async function handleCreditSpend"), "Credit route exports are incomplete.");
+assert.ok(worker.includes("./src/routes/media.js") && worker.includes("./src/routes/static.js"), "Media/static route imports are incomplete.");
+assert.ok(mediaRoute.includes("export async function handleMediaRequest") && staticRoute.includes("export async function handleStaticAsset"), "Media/static route exports are incomplete.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");
