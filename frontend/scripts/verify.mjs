@@ -7,7 +7,7 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const distDir = path.join(frontendDir, "dist");
 const read = (file) => readFile(path.join(distDir, file), "utf8");
 
-const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule] = await Promise.all([
+const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worker, configModule, stateModule, sessionModule, sourceScript, elementsModule, utilsModule, apiModule, adsModule] = await Promise.all([
   read("index.html"),
   read("style.css"),
   read("script.js"),
@@ -23,6 +23,7 @@ const [html, css, js, quicklinks, sourceHtml, sourceCss, sourceQuicklinks, worke
   readFile(path.join(frontendDir, "src", "core", "elements.js"), "utf8"),
   readFile(path.join(frontendDir, "src", "utils", "helpers.js"), "utf8"),
   readFile(path.join(frontendDir, "src", "services", "api.service.js"), "utf8"),
+  readFile(path.join(frontendDir, "src", "services", "ads.service.js"), "utf8"),
 ]);
 
 assert.equal(html, sourceHtml, "Built HTML must remain byte-identical to the legacy HTML.");
@@ -76,5 +77,7 @@ assert.ok(elementsModule.includes("export const elements"), "DOM elements module
 assert.ok(utilsModule.includes("export const utils"), "Utilities module export is missing.");
 assert.ok(apiModule.includes("export function createApiService") && apiModule.includes("return api;"), "API service factory is incomplete.");
 assert.ok(!sourceScript.includes("const api = {"), "API service must be created through its extracted factory.");
+assert.ok(sourceScript.includes("./src/services/ads.service.js"), "Application must consume extracted ads service.");
+assert.ok(adsModule.includes("export const ads"), "Ads service export is missing.");
 
 console.log("Frontend verification passed: output assets, module extraction, compatibility globals, and Worker route contract.");
