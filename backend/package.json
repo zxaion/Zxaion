@@ -1,9 +1,0 @@
-{
-  "name": "zxaion-verse-backend",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "npx wrangler dev",
-    "deploy": "npx wrangler deploy"
-  }
-}
