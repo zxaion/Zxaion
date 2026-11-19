@@ -4,11 +4,13 @@
   "scripts": {
     "build:frontend": "node frontend/scripts/build.mjs",
     "verify:frontend": "node frontend/scripts/verify.mjs",
-    "check": "npm run build:frontend && npm run verify:frontend",
+    "check": "npm run build:frontend && npm run verify:frontend && npm run verify:backend",
     "dev:backend": "npm --prefix backend run dev",
-    "deploy:backend": "npm --prefix backend run deploy"
+    "deploy:backend": "npm --prefix backend run deploy",
+    "verify:backend": "npm --prefix backend run dry-run"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "wrangler": "^4.0.0"
   }
 }

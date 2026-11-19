@@ -1,5 +1,5 @@
 name = "ai"
-main = "worker.js"
+main = "src/index.js"
 compatibility_date = "2026-01-15"
 
 # Database D1
