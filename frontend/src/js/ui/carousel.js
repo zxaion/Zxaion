@@ -43,7 +43,7 @@ Object.assign(ui, {
             : null;
 
         photos.forEach((photo, index) => {
-            const fullUrl    = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            const fullUrl    = utils.buildImageUrl(photo.url, { w: 360, h: 640, q: 80, fit: 'cover', fmt: 'auto' });
             const rankColors = ['from-amber-400 to-yellow-500', 'from-gray-300 to-gray-400', 'from-amber-700 to-amber-800'];
             const rankColor  = index < 3 ? rankColors[index] : 'from-gray-700 to-gray-800';
             const rankLabel  = index < 3 ? ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'][index] : `#${index + 1}`;
@@ -79,7 +79,10 @@ Object.assign(ui, {
                 else if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
             }
 
-            card.addEventListener('click', () => ui.openImageModal(photo));
+            card.addEventListener('click', () => {
+                if (carousel.dataset.justDragged) return;
+                ui.openImageModal(photo);
+            });
             fragment.appendChild(card);
         });
 

@@ -1,4 +1,4 @@
-        <!-- COMITBASE Section -->
+<!-- COMITBASE Section -->
         <div id="comitbase-section" class="hidden w-full">
             <div class="mb-6 flex justify-end">
                 <button type="button" id="comit-here-btn" class="bg-gradient-to-r from-teal-500 to-emerald-500 text-white px-6 py-3 rounded-full font-bold text-sm hover:from-teal-600 hover:to-emerald-600 transition-all duration-300 shadow-lg shadow-teal-500/25 flex items-center gap-2 hover:scale-105">
@@ -6,14 +6,29 @@
                 </button>
             </div>
             <div id="comitbase-gallery" class="masonry-layout"></div>
-            <div id="comitbase-pagination" class="hidden mt-10 text-center">
-                <div class="flex items-center justify-center gap-3">
-                    <button id="comitbase-prev" class="px-5 py-2.5 bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 hover:bg-teal-50 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
-                        <i class="fas fa-chevron-left mr-1"></i> Previous
+            <div id="comitbase-pagination" class="hidden mt-8 sm:mt-10 text-center relative z-[1]">
+                <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                    <button id="comitbase-prev" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-50 transition-all duration-300 shadow-sm cursor-pointer dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
+                        <i class="fas fa-chevron-left"></i> <span>Previous</span>
                     </button>
-                    <span id="comitbase-page-info" class="font-semibold text-gray-700 px-4 py-2 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Page 1 of 1</span>
-                    <button id="comitbase-next" class="px-5 py-2.5 bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 hover:bg-teal-50 transition-all duration-300 shadow-sm dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
-                        Next <i class="fas fa-chevron-right ml-1"></i>
+                    <span id="comitbase-page-info" class="inline-flex items-center justify-center whitespace-nowrap text-xs sm:text-sm font-semibold text-gray-700 px-3 py-2 sm:px-4 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Page 1 of 1</span>
+                    <button id="comitbase-next" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-50 transition-all duration-300 shadow-sm cursor-pointer dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
+                        <span>Next</span> <i class="fas fa-chevron-right"></i>
+                    </button>
+                    <button type="button" data-switch-mode="infinite" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                        <i class="fas fa-infinity"></i> <span>Infinite</span>
+                    </button>
+                </div>
+            </div>
+            <div id="comitbase-load-more" class="hidden mt-8 sm:mt-10 text-center relative z-[1]">
+                <div id="comitbase-infinite-sentinel" class="h-1 w-full"></div>
+                <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                    <span id="comitbase-loaded-info" class="inline-flex items-center justify-center whitespace-nowrap text-xs sm:text-sm font-semibold text-gray-600 px-3.5 py-2 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Showing 0 of 0</span>
+                    <button id="comitbase-load-more-btn" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold bg-teal-600 text-white rounded-full hover:bg-teal-700 transition-all duration-300 shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                        <i class="fas fa-plus"></i> <span>Load More</span>
+                    </button>
+                    <button type="button" data-switch-mode="pagination" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                        <i class="fas fa-list-ol"></i> <span>Pages</span>
                     </button>
                 </div>
             </div>

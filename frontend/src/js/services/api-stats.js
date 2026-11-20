@@ -28,11 +28,10 @@ Object.assign(api, {
         }
     },
 
-    // FIX: Optimistic DOM update — counter di gallery grid diupdate instan
-    // sebelum server response, membuat stats terasa real-time.
     async recordView(photoId) {
         if (!photoId) return;
-        document.querySelectorAll(`.view-count[data-id="${photoId}"]`).forEach(el => {
+        const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
+        document.querySelectorAll(`.view-count[data-id="${safeId}"]`).forEach(el => {
             el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
         });
         try {
@@ -54,7 +53,6 @@ Object.assign(api, {
             return Array.isArray(data) ? data : [];
         } catch (e) {
             console.error('Error fetching trending images:', e);
-            // Fallback: sort dari state.allPhotos
             return state.allPhotos
                 .map(p => ({ ...p, score: (p.viewCount || 0) + (p.downloadCount || 0) }))
                 .sort((a, b) => b.score - a.score)

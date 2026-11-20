@@ -1,6 +1,6 @@
 /**
  * ui/download.js — Alur download: cek kredit/pembelian DTREASURE + trigger unduhan file.
- * Depends on: ui (base.js), state, api, API_BASE, getOrCreateUserToken
+ * Depends on: ui (base.js), state, api, utils, API_BASE, getOrCreateUserToken
  */
 Object.assign(ui, {
     async handleDownload(photo) {
@@ -15,7 +15,7 @@ Object.assign(ui, {
             }
 
             if (state.credits < 10) {
-                alert('❌ Insufficient credits (Need: 10, Have: ' + state.credits + ')\n\nPlease buy more credits.');
+                this.showToast(`Insufficient credits (Need: 10, Have: ${state.credits}). Please buy more credits.`, 'warning');
                 document.getElementById('buy-credits-btn')?.click();
                 return;
             }
@@ -28,21 +28,21 @@ Object.assign(ui, {
 
                 if (state.currentImageId === photo.id) {
                     this.applyModalShield(false);
-                    const token       = getOrCreateUserToken();
-                    const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-                    const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-                    const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
-                    elements.downloadBtn.href = downloadUrl;
-                    elements.downloadBtn.setAttribute('download', filename);
-                    elements.downloadBtn.onclick = () => { api.recordDownload(photo.id); };
+                    elements.downloadBtn.removeAttribute('href');
+                    elements.downloadBtn.removeAttribute('download');
+                    elements.downloadBtn.onclick = (e) => {
+                        e.preventDefault();
+                        ui.triggerDownload(photo);
+                    };
                     elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
                 }
 
-                // O(1) DOM update pada item spesifik — tidak reset scroll position
                 this.unlockDtreasureThumbnail(photo.id);
+                if (typeof this.updateDtreasureTabCounts === 'function') this.updateDtreasureTabCounts();
+                if (state.currentCategory === 'DTREASURE') this.renderDtreasureGallery();
                 this.triggerDownload(photo);
             } else {
-                alert('❌ ' + (result.error || 'Download failed. Please try again.'));
+                this.showToast(result.error || 'Download failed. Please try again.', 'error');
             }
         } else {
             this.triggerDownload(photo);
@@ -52,14 +52,16 @@ Object.assign(ui, {
     async triggerDownload(photo) {
         if (!photo || !photo.url) return;
 
-        // FIX: pencatatan stats dipisah jadi helper, dan untuk jalur DTREASURE
-        // hanya dipanggil SETELAH fetch() sukses — sebelumnya stats naik duluan
-        // walau download gagal/diblokir.
         const markDownloaded = () => {
+            photo.downloadCount = (photo.downloadCount || 0) + 1;
             api.recordDownload(photo.id);
-            document.querySelectorAll(`.download-count[data-id="${photo.id}"]`).forEach(el => {
+            const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photo.id) : photo.id;
+            document.querySelectorAll(`.download-count[data-id="${safeId}"]`).forEach(el => {
                 el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
             });
+            if (state.currentImageId === photo.id && elements.modalDownloadCount) {
+                elements.modalDownloadCount.textContent = utils.formatNumber(photo.downloadCount);
+            }
         };
 
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
@@ -97,18 +99,18 @@ Object.assign(ui, {
                 document.body.removeChild(a);
                 setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
 
-                markDownloaded(); // baru dicatat setelah blob berhasil didapat
+                markDownloaded();
 
                 loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
                 loadingToast.classList.add('bg-green-800');
 
             } catch (error) {
                 console.error('DTREASURE download error:', error);
-                loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${error.message}`;
+                loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${utils.escapeHtml(error.message || 'Download error')}`;
                 loadingToast.classList.add('bg-red-800');
-                if (error.message.includes('403') || error.message.toLowerCase().includes('purchase required')) {
+                if ((error.message || '').includes('403') || (error.message || '').toLowerCase().includes('purchase required')) {
                     setTimeout(() => {
-                        alert('❌ Download blocked: Purchase required.\n\nBuy credits to download DTREASURE images.');
+                        this.showToast('Download blocked: Purchase required. Buy credits to download DTREASURE images.', 'warning');
                         document.getElementById('buy-credits-btn')?.click();
                     }, 500);
                 }

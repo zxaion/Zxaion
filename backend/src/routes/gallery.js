@@ -1,25 +1,46 @@
 // ================================================================
-// ENDPOINT: List main gallery
+// ENDPOINT: List main gallery (supports category, subCategory, q search, pagination)
 // ================================================================
 export async function handleListMain({ url, DB, corsHeaders }) {
   try {
-    const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',  10);
-    const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
-    const page     = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
-    const limit    = Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 500);
-    const offset   = (page - 1) * limit;
-    const category = url.searchParams.get('category') || null;
+    const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',  10);
+    const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
+    const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
+    const limit       = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 500));
+    const offset      = (page - 1) * limit;
+    const category    = (url.searchParams.get('category') || '').trim() || null;
+    const subCategory = (url.searchParams.get('subCategory') || '').trim() || null;
+    const searchQuery = (url.searchParams.get('q') || '').trim() || null;
 
-    let query, bindings;
-    if (category && category !== 'All') {
-      query    = "SELECT * FROM images WHERE bucket = 'main' AND category = ? ORDER BY uploaded DESC LIMIT ? OFFSET ?";
-      bindings = [category, limit, offset];
+    const conditions = ["bucket = 'main'"];
+    const bindings   = [];
+
+    if (category && category.toLowerCase() !== 'all') {
+      conditions.push('LOWER(category) = LOWER(?)');
+      bindings.push(category);
     } else {
-      query    = "SELECT * FROM images WHERE bucket = 'main' AND category != 'Header' ORDER BY uploaded DESC LIMIT ? OFFSET ?";
-      bindings = [limit, offset];
+      conditions.push("category != 'Header'");
     }
 
-    const { results } = await DB.prepare(query).bind(...bindings).all();
+    if (subCategory) {
+      conditions.push('LOWER(sub_category) = LOWER(?)');
+      bindings.push(subCategory);
+    }
+
+    if (searchQuery) {
+      const pattern = `%${searchQuery.toLowerCase()}%`;
+      conditions.push('(LOWER(title) LIKE ? OR LOWER(category) LIKE ? OR LOWER(COALESCE(sub_category, \'\')) LIKE ?)');
+      bindings.push(pattern, pattern, pattern);
+    }
+
+    const whereClause = conditions.join(' AND ');
+    const query       = `SELECT * FROM images WHERE ${whereClause} ORDER BY uploaded DESC LIMIT ? OFFSET ?`;
+    const countQuery  = `SELECT COUNT(*) AS total FROM images WHERE ${whereClause}`;
+
+    const [{ results }, countRow] = await Promise.all([
+      DB.prepare(query).bind(...bindings, limit, offset).all(),
+      DB.prepare(countQuery).bind(...bindings).first(),
+    ]);
 
     const photos = results.map(row => ({
       id:            row.id,
@@ -39,10 +60,39 @@ export async function handleListMain({ url, DB, corsHeaders }) {
         ...corsHeaders,
         'Content-Type':  'application/json',
         'Cache-Control': 'public, max-age=60',
+        'X-Total-Count': String(countRow?.total ?? photos.length),
       },
     });
   } catch (e) {
     console.error('/api/list error:', e.message);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+// ================================================================
+// ENDPOINT: Anime sub-albums summary
+// ================================================================
+export async function handleAnimeAlbums({ DB, corsHeaders }) {
+  try {
+    const { results } = await DB.prepare(
+      `SELECT sub_category, COUNT(*) AS count
+       FROM images
+       WHERE bucket = 'main' AND LOWER(category) = 'anime' AND sub_category IS NOT NULL
+       GROUP BY sub_category
+       ORDER BY sub_category ASC`
+    ).all();
+
+    return new Response(JSON.stringify(results), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type':  'application/json',
+        'Cache-Control': 'public, max-age=120',
+      },
+    });
+  } catch (e) {
+    console.error('/api/anime/albums error:', e.message);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -57,19 +107,25 @@ export async function handleListComitbase({ url, comitbaseBucket, DB, corsHeader
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
   try {
-    // FIX: dukungan pagination — sebelumnya hardcode LIMIT 500 tanpa OFFSET,
-    // gambar ke-501 dst tidak pernah bisa diambil.
-    const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',   10);
-    const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
-    const page     = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
-    const limit    = Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 500);
-    const offset   = (page - 1) * limit;
+    const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',   10);
+    const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
+    const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
+    const limit       = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 500));
+    const offset      = (page - 1) * limit;
+    const searchQuery = (url.searchParams.get('q') || '').trim() || null;
+
+    const conditions = ["bucket = 'comitbase'"];
+    const bindings   = [];
+    if (searchQuery) {
+      conditions.push('LOWER(title) LIKE ?');
+      bindings.push(`%${searchQuery.toLowerCase()}%`);
+    }
 
     const { results } = await DB.prepare(
       `SELECT id, title, r2_key, uploaded, view_count, download_count
-       FROM images WHERE bucket = 'comitbase'
+       FROM images WHERE ${conditions.join(' AND ')}
        ORDER BY uploaded DESC LIMIT ? OFFSET ?`
-    ).bind(limit, offset).all();
+    ).bind(...bindings, limit, offset).all();
 
     const photos = results.map(row => ({
       id:            row.id,
@@ -90,8 +146,8 @@ export async function handleListComitbase({ url, comitbaseBucket, DB, corsHeader
     });
   } catch (e) {
     console.error('/api/comitbase/list error:', e.message);
-    return new Response('[]', {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 }
@@ -104,18 +160,25 @@ export async function handleListDtreasure({ url, treasureBucket, DB, corsHeaders
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
   try {
-    // FIX: dukungan pagination — sama seperti /api/comitbase/list.
-    const rawPage  = parseInt(url.searchParams.get('page')  ?? '1',   10);
-    const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
-    const page     = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
-    const limit    = Math.min(500, Number.isFinite(rawLimit) ? rawLimit : 500);
-    const offset   = (page - 1) * limit;
+    const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',   10);
+    const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
+    const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
+    const limit       = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 500));
+    const offset      = (page - 1) * limit;
+    const searchQuery = (url.searchParams.get('q') || '').trim() || null;
+
+    const conditions = ["bucket = 'dtreasure'"];
+    const bindings   = [];
+    if (searchQuery) {
+      conditions.push('LOWER(title) LIKE ?');
+      bindings.push(`%${searchQuery.toLowerCase()}%`);
+    }
 
     const { results } = await DB.prepare(
       `SELECT id, title, r2_key, uploaded, view_count, download_count
-       FROM images WHERE bucket = 'dtreasure'
+       FROM images WHERE ${conditions.join(' AND ')}
        ORDER BY uploaded DESC LIMIT ? OFFSET ?`
-    ).bind(limit, offset).all();
+    ).bind(...bindings, limit, offset).all();
 
     const photos = results.map(row => ({
       id:            row.id,
@@ -136,8 +199,8 @@ export async function handleListDtreasure({ url, treasureBucket, DB, corsHeaders
     });
   } catch (e) {
     console.error('/api/dtreasure/list error:', e.message);
-    return new Response('[]', {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 }

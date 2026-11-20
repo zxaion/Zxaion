@@ -1,9 +1,20 @@
+function extractPhotoId(path, prefix) {
+  if (!path.startsWith(prefix)) return null;
+  const raw = path.slice(prefix.length);
+  if (!raw) return null;
+  try {
+    const decoded = decodeURIComponent(raw);
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
 // ================================================================
 // ENDPOINT: Image stats
 // ================================================================
 export async function handleStats({ path, DB, corsHeaders }) {
-  const rawSegment = path.split('/').filter(Boolean).pop() || '';
-  const photoId    = decodeURIComponent(rawSegment);
+  const photoId = extractPhotoId(path, '/api/stats/');
   if (!photoId) {
     return new Response(JSON.stringify({ error: 'Invalid photo ID' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -27,61 +38,69 @@ export async function handleStats({ path, DB, corsHeaders }) {
 }
 
 // ================================================================
-// ENDPOINT: Record view
-// FIX: ctx.waitUntil + DB.batch — return 204 IMMEDIATELY.
-// DB write terjadi di background, eliminasi ~50-200ms latensi dari
-// response time yang sebelumnya menunggu DB write selesai.
+// ENDPOINT: Record unique view per user
 // ================================================================
 export async function handleRecordView({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const rawSegment = path.split('/').filter(Boolean).pop() || '';
-  const photoId    = decodeURIComponent(rawSegment);
+  const photoId = extractPhotoId(path, '/api/view/');
   if (!photoId) {
     return new Response(null, { status: 400, headers: corsHeaders });
   }
-  const userId = getUserToken(request);
-  if (!await checkRateLimit('view', userId, 100, 3600)) {
+  const userId  = getUserToken(request);
+  const actorId = userId !== 'anonymous' ? userId : (request.headers.get('CF-Connecting-IP') || 'anonymous');
+
+  if (!await checkRateLimit('view', actorId, 100, 3600)) {
     return new Response(null, { status: 429, headers: corsHeaders });
   }
 
-  ctx.waitUntil(
-    DB.batch([
-      DB.prepare(
-        'UPDATE images SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?'
-      ).bind(photoId),
-      DB.prepare(
+  ctx.waitUntil((async () => {
+    try {
+      const inserted = await DB.prepare(
         'INSERT OR IGNORE INTO views (photo_id, user_id) VALUES (?, ?)'
-      ).bind(photoId, userId),
-    ]).catch(e => console.error('[view] DB batch error:', e.message))
-  );
+      ).bind(photoId, actorId).run();
+
+      if (inserted?.meta?.changes > 0) {
+        await DB.prepare(
+          'UPDATE images SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?'
+        ).bind(photoId).run();
+      }
+    } catch (e) {
+      console.error('[view] DB error:', e.message);
+    }
+  })());
 
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
 // ================================================================
-// ENDPOINT: Record download
-// FIX: ctx.waitUntil + DB.batch — return 204 IMMEDIATELY.
+// ENDPOINT: Record unique download per user
 // ================================================================
 export async function handleRecordDownload({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const rawSegment = path.split('/').filter(Boolean).pop() || '';
-  const photoId    = decodeURIComponent(rawSegment);
+  const photoId = extractPhotoId(path, '/api/download/');
   if (!photoId) {
     return new Response(null, { status: 400, headers: corsHeaders });
   }
-  const userId = getUserToken(request);
-  if (!await checkRateLimit('download', userId, 50, 3600)) {
+  const userId  = getUserToken(request);
+  const actorId = userId !== 'anonymous' ? userId : (request.headers.get('CF-Connecting-IP') || 'anonymous');
+
+  if (!await checkRateLimit('download', actorId, 50, 3600)) {
     return new Response(null, { status: 429, headers: corsHeaders });
   }
 
-  ctx.waitUntil(
-    DB.batch([
-      DB.prepare(
-        'UPDATE images SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?'
-      ).bind(photoId),
-      DB.prepare(
+  ctx.waitUntil((async () => {
+    try {
+      const inserted = await DB.prepare(
         'INSERT OR IGNORE INTO downloads (photo_id, user_id) VALUES (?, ?)'
-      ).bind(photoId, userId),
-    ]).catch(e => console.error('[download] DB batch error:', e.message))
-  );
+      ).bind(photoId, actorId).run();
+
+      if (inserted?.meta?.changes > 0) {
+        await DB.prepare(
+          'UPDATE images SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?'
+        ).bind(photoId).run();
+      }
+    } catch (e) {
+      console.error('[download] DB error:', e.message);
+    }
+  })());
 
   return new Response(null, { status: 204, headers: corsHeaders });
 }

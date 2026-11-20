@@ -19,6 +19,7 @@
     "js/config/assets.js",
     "js/core/token.js",
     "js/core/utils.js",
+    "js/core/filters.js",
     "js/core/state.js",
     "js/core/elements.js",
     "js/services/api-gallery.js",

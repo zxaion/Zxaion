@@ -1,7 +1,7 @@
 import { parseImageMeta } from './imageMeta.js';
 
 // ============================================================
-// Scheduled Handler: Auto-scan R2 → D1 (Cron Trigger)
+// Scheduled Handler: Auto-scan R2 → D1 + cleanup rate_limits
 // wrangler.toml: [triggers] crons = ["0 * * * *"]
 // ============================================================
 export async function handleScheduled(env) {
@@ -12,16 +12,16 @@ export async function handleScheduled(env) {
     { bucket: env.TREASURE,  name: 'dtreasure' },
   ];
 
-  const BATCH_CHUNK_SIZE = 200; // FIX: kirim batch bertahap, cegah payload D1 kebesaran
+  const BATCH_CHUNK_SIZE = 200;
 
   for (const { bucket, name } of buckets) {
     if (!bucket) continue;
     const syncStartedAt = new Date().toISOString();
 
     try {
-      let cursor  = undefined;
+      let cursor      = undefined;
       let totalSynced = 0;
-      let pending = [];
+      let pending     = [];
 
       const flush = async () => {
         if (pending.length === 0) return;
@@ -69,9 +69,6 @@ export async function handleScheduled(env) {
 
       await flush();
 
-      // FIX: hapus baris yang tidak lagi ditemukan di R2 pada sync ini
-      // (file sudah dihapus dari bucket). Tanpa ini, gambar yang dihapus
-      // tetap nyangkut di galeri (link mati / 404) selamanya.
       const cleanup = await DB.prepare(
         'DELETE FROM images WHERE bucket = ? AND (last_synced IS NULL OR last_synced < ?)'
       ).bind(name, syncStartedAt).run();
@@ -81,5 +78,13 @@ export async function handleScheduled(env) {
     } catch (e) {
       console.error(`[Scheduled] Error syncing bucket ${name}:`, e.message);
     }
+  }
+
+  // Cleanup expired rate_limits rows to keep D1 table compact
+  try {
+    const nowSec = Math.floor(Date.now() / 1000);
+    await DB.prepare('DELETE FROM rate_limits WHERE reset_time < ?').bind(nowSec).run();
+  } catch (e) {
+    console.error('[Scheduled] Rate limit cleanup error:', e.message);
   }
 }

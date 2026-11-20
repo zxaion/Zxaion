@@ -1,4 +1,5 @@
 import { PACK_PRICES, PACKS } from '../config/packs.js';
+import { generateRecoveryCode, sha256Hex } from '../utils/userToken.js';
 
 // ================================================================
 // ENDPOINT: Credit balance
@@ -20,8 +21,6 @@ export async function handleCreditBalance({ request, DB, corsHeaders, getUserTok
 
     if (!user) {
       user = { credits: 0, lifetime: 0 };
-      // FIX: INSERT OR IGNORE — idempotent, cegah error UNIQUE constraint
-      // kalau ada 2 request bersamaan dari user baru yang sama.
       await DB.prepare(
         'INSERT OR IGNORE INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
       ).bind(userId).run();
@@ -42,6 +41,98 @@ export async function handleCreditBalance({ request, DB, corsHeaders, getUserTok
       JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
+  }
+}
+
+// ================================================================
+// ENDPOINT: Generate / rotate Recovery Code for current token
+// ================================================================
+export async function handleCreateRecoveryCode({ request, DB, corsHeaders, getUserToken }) {
+  const userId = getUserToken(request);
+  if (!userId || userId === 'anonymous') {
+    return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    await DB.prepare(
+      'INSERT OR IGNORE INTO user_credits (user_id, credits, lifetime) VALUES (?, 0, 0)'
+    ).bind(userId).run();
+
+    const recoveryCode = generateRecoveryCode();
+    const recoveryHash = await sha256Hex(recoveryCode);
+
+    await DB.prepare(
+      'UPDATE user_credits SET recovery_hash = ? WHERE user_id = ?'
+    ).bind(recoveryHash, userId).run();
+
+    return new Response(JSON.stringify({ success: true, recoveryCode }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+  } catch (e) {
+    console.error('/api/credits/recovery error:', e.message);
+    return new Response(JSON.stringify({ success: false, error: 'Failed to generate recovery code' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+// ================================================================
+// ENDPOINT: Restore account token via Recovery Code
+// ================================================================
+export async function handleRecoverAccount({ request, DB, corsHeaders, checkRateLimit }) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ success: false, error: 'Invalid request body' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const rawCode = String(body?.recoveryCode || '').trim().toUpperCase();
+  if (!/^ZX-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(rawCode)) {
+    return new Response(JSON.stringify({ success: false, error: 'Invalid recovery code format' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const ip = request.headers.get('CF-Connecting-IP') || 'recover-client';
+  if (!await checkRateLimit('recover', ip, 10, 3600)) {
+    return new Response(JSON.stringify({ success: false, error: 'Too many recovery attempts. Try again later.' }), {
+      status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const recoveryHash = await sha256Hex(rawCode);
+    const user = await DB.prepare(
+      'SELECT user_id, credits, lifetime FROM user_credits WHERE recovery_hash = ? LIMIT 1'
+    ).bind(recoveryHash).first();
+
+    if (!user) {
+      return new Response(JSON.stringify({ success: false, error: 'Recovery code not found' }), {
+        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const purchasedRows = await DB.prepare(
+      'SELECT photo_id FROM purchased_images WHERE user_id = ? LIMIT 1000'
+    ).bind(user.user_id).all();
+
+    return new Response(JSON.stringify({
+      success:   true,
+      userToken: user.user_id,
+      credits:   user.credits || 0,
+      lifetime:  !!user.lifetime,
+      purchased: purchasedRows.results.map(r => r.photo_id),
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  } catch (e) {
+    console.error('/api/credits/recover error:', e.message);
+    return new Response(JSON.stringify({ success: false, error: 'Database error' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 }
 
@@ -68,7 +159,7 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 
   const { pack, orderId } = body;
 
-  if (!pack || !orderId) {
+  if (!pack || !orderId || typeof orderId !== 'string') {
     return new Response(JSON.stringify({ success: false, error: 'Missing pack or orderId' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -83,10 +174,16 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 
   try {
     const existingPayment = await DB.prepare(
-      'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1'
+      'SELECT user_id, status FROM payment_orders WHERE order_id = ? LIMIT 1'
     ).bind(orderId).first();
 
     if (existingPayment) {
+      if (existingPayment.user_id && existingPayment.user_id !== userId) {
+        return new Response(JSON.stringify({
+          success: false,
+          error:   'Order belongs to a different user',
+        }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
       if (existingPayment.status === 'completed') {
         const user = await DB.prepare(
           'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
@@ -94,7 +191,7 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
         return new Response(JSON.stringify({
           success:    true,
           message:    'Order already processed',
-          newBalance: user?.credits  || 0,
+          newBalance: user?.credits || 0,
           lifetime:   !!user?.lifetime,
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
@@ -105,8 +202,11 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 
     if (!orderDetails) {
       await DB.prepare(`
-        INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
+        INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
         VALUES (?, ?, ?, ?, ?, 'failed', ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status        = CASE WHEN payment_orders.status = 'completed' THEN 'completed' ELSE 'failed' END,
+          error_message = CASE WHEN payment_orders.status = 'completed' THEN payment_orders.error_message ELSE excluded.error_message END
       `).bind(`order:${orderId}`, userId, orderId, pack, PACK_PRICES[pack], 'Order not found in PayPal').run();
 
       return new Response(JSON.stringify({ success: false, error: 'PayPal order not found' }), {
@@ -116,8 +216,11 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 
     if (orderDetails.status !== 'COMPLETED') {
       await DB.prepare(`
-        INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
+        INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
         VALUES (?, ?, ?, ?, ?, 'failed', ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status        = CASE WHEN payment_orders.status = 'completed' THEN 'completed' ELSE 'failed' END,
+          error_message = CASE WHEN payment_orders.status = 'completed' THEN payment_orders.error_message ELSE excluded.error_message END
       `).bind(
         `order:${orderId}`, userId, orderId, pack, PACK_PRICES[pack],
         `Order status is ${orderDetails.status}, not COMPLETED`
@@ -129,37 +232,66 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
       }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    let verifiedUserId = userId;
-    let verifiedAmount = null;
+    const purchaseUnit  = orderDetails.purchase_units?.[0];
+    const capture       = purchaseUnit?.payments?.captures?.[0];
+    const orderCustomId = purchaseUnit?.custom_id || null;
 
-    if (orderDetails.purchase_units?.length > 0) {
-      const purchaseUnit = orderDetails.purchase_units[0];
-      if (purchaseUnit.custom_id) verifiedUserId = purchaseUnit.custom_id;
-      if (purchaseUnit.payments?.captures?.length > 0) {
-        verifiedAmount = parseFloat(purchaseUnit.payments.captures[0].amount?.value || '0');
-      }
+    if (orderCustomId && orderCustomId !== userId) {
+      return new Response(JSON.stringify({
+        success: false,
+        error:   'Order user mismatch',
+      }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    if (verifiedAmount !== null) {
-      const roundedAmount  = Math.round(verifiedAmount * 100) / 100;
-      const expectedAmount = PACK_PRICES[pack];
-      if (roundedAmount !== expectedAmount) {
-        await DB.prepare(`
-          INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
-          VALUES (?, ?, ?, ?, ?, 'failed', ?)
-        `).bind(
-          `order:${orderId}`, verifiedUserId, orderId, pack, roundedAmount,
-          `Amount mismatch: expected $${expectedAmount}, got $${roundedAmount}`
-        ).run();
+    const verifiedUserId   = orderCustomId || userId;
+    const verifiedAmount   = capture?.amount?.value !== undefined ? parseFloat(capture.amount.value) : null;
+    const verifiedCurrency = capture?.amount?.currency_code || null;
+    const captureStatus    = capture?.status || null;
 
-        return new Response(JSON.stringify({
-          success: false,
-          error:   `Amount mismatch. Expected $${expectedAmount}, received $${roundedAmount}.`,
-        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
+    if (
+      verifiedAmount === null ||
+      !Number.isFinite(verifiedAmount) ||
+      verifiedCurrency !== 'USD' ||
+      captureStatus !== 'COMPLETED'
+    ) {
+      await DB.prepare(`
+        INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
+        VALUES (?, ?, ?, ?, ?, 'failed', ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status        = CASE WHEN payment_orders.status = 'completed' THEN 'completed' ELSE 'failed' END,
+          error_message = CASE WHEN payment_orders.status = 'completed' THEN payment_orders.error_message ELSE excluded.error_message END
+      `).bind(
+        `order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack],
+        `Missing/invalid capture details (currency=${verifiedCurrency}, status=${captureStatus})`
+      ).run();
+
+      return new Response(JSON.stringify({
+        success: false,
+        error:   'PayPal capture details missing or invalid currency.',
+      }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // FIX: ATOMIC CLAIM — pasangan dari klaim yang sama di webhook handler.
+    const actualCents   = Math.round(verifiedAmount * 100);
+    const expectedCents = Math.round(PACK_PRICES[pack] * 100);
+    if (actualCents !== expectedCents) {
+      const roundedAmount = actualCents / 100;
+      await DB.prepare(`
+        INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status, error_message)
+        VALUES (?, ?, ?, ?, ?, 'failed', ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status        = CASE WHEN payment_orders.status = 'completed' THEN 'completed' ELSE 'failed' END,
+          error_message = CASE WHEN payment_orders.status = 'completed' THEN payment_orders.error_message ELSE excluded.error_message END
+      `).bind(
+        `order:${orderId}`, verifiedUserId, orderId, pack, roundedAmount,
+        `Amount mismatch: expected $${PACK_PRICES[pack]}, got $${roundedAmount}`
+      ).run();
+
+      return new Response(JSON.stringify({
+        success: false,
+        error:   `Amount mismatch. Expected $${PACK_PRICES[pack]}, received $${roundedAmount}.`,
+      }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const claim = await DB.prepare(`
       INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status)
       VALUES (?, ?, ?, ?, ?, 'processing')
@@ -167,14 +299,19 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
     `).bind(`order:${orderId}`, verifiedUserId, orderId, pack, PACK_PRICES[pack]).run();
 
     if (!claim.meta || claim.meta.changes === 0) {
-      // Sudah diklaim proses lain (kemungkinan besar webhook PayPal datang
-      // lebih dulu). Tunggu sebentar lalu laporkan status final — JANGAN
-      // credit dua kali untuk orderId yang sama.
       await new Promise(r => setTimeout(r, 1500));
 
       const settled = await DB.prepare(
-        'SELECT status FROM payment_orders WHERE id = ?'
+        'SELECT user_id, status FROM payment_orders WHERE id = ?'
       ).bind(`order:${orderId}`).first();
+
+      if (settled?.user_id && settled.user_id !== userId) {
+        return new Response(JSON.stringify({
+          success: false,
+          error:   'Order belongs to a different user',
+        }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
       const user = await DB.prepare(
         'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
       ).bind(verifiedUserId).first();
@@ -183,7 +320,7 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
         return new Response(JSON.stringify({
           success:    true,
           message:    'Order already processed',
-          newBalance: user?.credits  || 0,
+          newBalance: user?.credits || 0,
           lifetime:   !!user?.lifetime,
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
@@ -218,7 +355,7 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 
       return new Response(JSON.stringify({
         success:    true,
-        newBalance: user?.credits  || 0,
+        newBalance: user?.credits || 0,
         lifetime:   !!user?.lifetime,
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
@@ -262,7 +399,7 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
   }
 
   const { photoId } = body;
-  if (!photoId) {
+  if (!photoId || typeof photoId !== 'string') {
     return new Response(JSON.stringify({ success: false, error: 'Missing photoId' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -315,8 +452,6 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
       }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-  // Atomic deduct — race condition safe.
-    // FIX: jumlah baris berubah ada di `meta.changes`, bukan `changes`.
     const deductResult = await DB.prepare(
       'UPDATE user_credits SET credits = credits - 10 WHERE user_id = ? AND credits >= 10'
     ).bind(userId).run();

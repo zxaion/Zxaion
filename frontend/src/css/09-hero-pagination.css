@@ -18,14 +18,80 @@
    ============================================ */
 #pagination-container button,
 #comitbase-pagination button,
-#dtreasure-pagination button {
+#dtreasure-pagination button,
+#infinite-load-more button,
+#comitbase-load-more button,
+#dtreasure-load-more button {
     transition: all 0.3s ease;
 }
 
 #pagination-container button:hover:not(:disabled),
 #comitbase-pagination button:hover:not(:disabled),
-#dtreasure-pagination button:hover:not(:disabled) {
+#dtreasure-pagination button:hover:not(:disabled),
+#infinite-load-more button:hover:not(:disabled),
+#comitbase-load-more button:hover:not(:disabled),
+#dtreasure-load-more button:hover:not(:disabled) {
     transform: translateY(-2px);
+}
+
+/* Toolbar & DTREASURE tab active/inactive states */
+.sort-btn,
+.ratio-btn {
+    background:   #f9fafb;
+    color:        #4b5563;
+    border-color: #e5e7eb;
+}
+
+.sort-btn:hover,
+.ratio-btn:hover {
+    background:   #f3f4f6;
+    color:        #111827;
+}
+
+.sort-btn.active,
+.ratio-btn.active {
+    background:   #111827;
+    color:        #ffffff;
+    border-color: #111827;
+    box-shadow:   0 4px 12px rgba(0,0,0,0.15);
+}
+
+.dark .sort-btn,
+.dark .ratio-btn {
+    background:   #1f2937;
+    color:        #d1d5db;
+    border-color: #374151;
+}
+
+.dark .sort-btn:hover,
+.dark .ratio-btn:hover {
+    background:   #374151;
+    color:        #ffffff;
+}
+
+.dark .sort-btn.active,
+.dark .ratio-btn.active {
+    background:   #ffffff;
+    color:        #111827;
+    border-color: #ffffff;
+}
+
+.dtreasure-tab-btn {
+    color: #4b5563;
+}
+
+.dtreasure-tab-btn.active {
+    background: linear-gradient(135deg, #f59e0b, #ea580c);
+    color:      #ffffff;
+    box-shadow: 0 4px 12px rgba(245,158,11,0.3);
+}
+
+.dark .dtreasure-tab-btn {
+    color: #9ca3af;
+}
+
+.dark .dtreasure-tab-btn.active {
+    color: #ffffff;
 }
 
 /* ============================================

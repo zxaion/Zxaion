@@ -3,7 +3,7 @@
  * Depends on: ui (base.js), state, elements, api, window.headerBackgrounds
  */
 Object.assign(ui, {
-    changeCategory(category) {
+    changeCategory(category, { scroll = true } = {}) {
         if (!category) return;
 
         state.currentCategory   = category;
@@ -25,28 +25,27 @@ Object.assign(ui, {
         if (elements.dtreasureSection)    elements.dtreasureSection.classList.add('hidden');
         if (elements.galleryContainer)    elements.galleryContainer.classList.add('hidden');
         if (elements.paginationContainer) elements.paginationContainer.classList.add('hidden');
+        if (elements.infiniteLoadMore)    elements.infiniteLoadMore.classList.add('hidden');
+        if (typeof this.invalidateMainSortCache === 'function') this.invalidateMainSortCache();
 
-        // Ranking carousel hanya di Home
         const rankingSection = document.getElementById('ranking-carousel-section');
         if (rankingSection) rankingSection.classList.toggle('hidden', category !== 'All');
 
-        // Bersihkan timer auto-refresh saat ganti kategori
         if (_carouselRefreshTimer) {
             clearInterval(_carouselRefreshTimer);
             _carouselRefreshTimer = null;
         }
 
         if (category === 'All') {
+            state.sortBy = 'random';
+            this.showToolbar();
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
-            state.filteredPhotos = utils.shuffleArray(
-                state.allPhotos.filter(p => p.category && p.category.toLowerCase() === 'anime')
-            );
+            state.filteredPhotos = state.allPhotos.filter(p => p.category && p.category.toLowerCase() === 'anime');
             this.renderGallery();
 
-            // Render carousel, lalu auto-refresh setiap 2 menit
             this.renderTopRankingCarousel().catch(e => console.error('renderTopRankingCarousel error:', e));
             _carouselRefreshTimer = setInterval(() => {
-                if (state.currentCategory === 'All') {
+                if (state.currentCategory === 'All' && !state.searchQuery) {
                     ui.renderTopRankingCarousel().catch(() => {});
                 } else {
                     clearInterval(_carouselRefreshTimer);
@@ -55,18 +54,25 @@ Object.assign(ui, {
             }, 120_000);
 
         } else if (category === 'Anime') {
+            this.hideToolbar();
             if (elements.animeCollections) elements.animeCollections.classList.remove('hidden');
             this.renderAnimeCollections();
 
         } else if (category === 'COMITBASE') {
+            state.sortBy = 'latest';
+            this.showToolbar();
             if (elements.comitbaseSection) elements.comitbaseSection.classList.remove('hidden');
             this.renderComitbaseGallery();
 
         } else if (category === 'DTREASURE') {
+            state.sortBy = 'latest';
+            this.showToolbar();
             if (elements.dtreasureSection) elements.dtreasureSection.classList.remove('hidden');
             this.renderDtreasureGallery();
 
         } else {
+            state.sortBy = 'latest';
+            this.showToolbar();
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
             state.filteredPhotos = state.allPhotos.filter(photo =>
                 photo.category && photo.category.toLowerCase() === category.toLowerCase()
@@ -75,7 +81,9 @@ Object.assign(ui, {
         }
 
         this.updateHeroSection(category);
-        document.getElementById('page-hero')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (scroll) {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
     },
 
     updateHeroSection(category) {
@@ -118,6 +126,12 @@ Object.assign(ui, {
             if (elements.dtreasureSection) elements.dtreasureSection.classList.add('hidden');
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
 
+            const rankingSection = document.getElementById('ranking-carousel-section');
+            if (rankingSection) rankingSection.classList.add('hidden');
+
+            const actions = document.getElementById('hero-actions');
+            if (actions) actions.innerHTML = '';
+
             const mainMatches = state.allPhotos.filter(photo =>
                 (photo.title        && photo.title.toLowerCase().includes(searchTerm)) ||
                 (photo.category     && photo.category.toLowerCase().includes(searchTerm)) ||
@@ -135,6 +149,9 @@ Object.assign(ui, {
 
             state.filteredPhotos = [...mainMatches, ...taggedComitbase, ...taggedDtreasure];
             state.currentPage    = 1;
+            state.sortBy         = 'latest';
+            if (typeof this.invalidateMainSortCache === 'function') this.invalidateMainSortCache();
+            this.showToolbar();
             this.renderGallery();
 
             const heroTitle = document.getElementById('hero-title');

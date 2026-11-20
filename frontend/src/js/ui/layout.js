@@ -7,16 +7,15 @@
 // nav + mobile search agar category-nav tidak overlap elemen lain.
 // ============================================================
 function updateCategoryNavTop() {
-    const nav          = document.querySelector('nav');
-    const mobileSearch = document.getElementById('mobile-search-bar');
-    const catNav       = document.getElementById('category-nav');
+    const nav    = document.querySelector('nav');
+    const catNav = document.getElementById('category-nav');
     if (!catNav || !nav) return;
 
-    const navHeight    = nav.getBoundingClientRect().height;
-    const isMobile     = window.innerWidth < 768;
-    const searchHeight = (isMobile && mobileSearch)
-        ? mobileSearch.getBoundingClientRect().height
-        : 0;
+    if (window.innerWidth < 768) {
+        catNav.style.top = '';
+        return;
+    }
 
-    catNav.style.top = `${Math.ceil(navHeight + searchHeight)}px`;
+    const navHeight = nav.getBoundingClientRect().height;
+    catNav.style.top = `${Math.ceil(navHeight)}px`;
 }

@@ -5,7 +5,6 @@
 // --- PayPal Integration ---
 let paypalButtonsInstance = null;
 
-// Guard: jika SDK belum load (defer script), retry hingga 3x
 function initPayPalPurchase(packKey, price) {
     if (!window.paypal) {
         let retries = 0;
@@ -16,7 +15,7 @@ function initPayPalPurchase(packKey, price) {
                 _renderPayPalButtons(packKey, price);
             } else if (retries >= 3) {
                 clearInterval(waitForSdk);
-                alert('❌ PayPal SDK failed to load. Please check your internet connection and refresh the page.');
+                ui.showToast('PayPal SDK failed to load. Please check your connection and refresh.', 'error');
             }
         }, 800);
         return;
@@ -78,9 +77,12 @@ function _renderPayPalButtons(packKey, price) {
                         await api.fetchCreditBalance();
                         api.invalidateCache();
 
-                        alert(state.lifetime
-                            ? '✅ Lifetime Access Activated!\n\nEnjoy unlimited downloads on DTREASURE collection.'
-                            : `✅ Purchase Successful!\n\nYou now have ${result.newBalance} credits.`
+                        ui.showToast(
+                            state.lifetime
+                                ? 'Lifetime Access Activated! Enjoy unlimited DTREASURE downloads.'
+                                : `Purchase Successful! You now have ${result.newBalance} credits.`,
+                            'success',
+                            5000
                         );
 
                         const buyCreditsModal = document.getElementById('buy-credits-modal');
@@ -95,33 +97,36 @@ function _renderPayPalButtons(packKey, price) {
                     } else {
                         const errMsg  = result?.error || 'Credits could not be applied automatically';
                         const orderId = result?.orderId || capturedOrderId;
-                        alert(
-                            `⚠️ Payment Received But Auto-Credit Failed\n\n` +
-                            `Order ID: ${orderId}\n\n` +
-                            `Email zxaionxl@gmail.com with Order ID above.\n` +
-                            `Credits will be added within 24 hours.`
+                        ui.showToast(
+                            `Payment received (${errMsg}). Order ID: ${orderId}. Email zxaionxl@gmail.com for assistance.`,
+                            'warning',
+                            8000
                         );
                     }
                 } catch (error) {
                     console.error('PayPal onApprove error:', error);
-                    alert(`❌ Payment Processing Error${capturedOrderId ? '\n\nOrder ID: ' + capturedOrderId : ''}\n\n${error.message || 'An unexpected error occurred.'}`);
+                    ui.showToast(
+                        `Payment processing error${capturedOrderId ? ` (Order ID: ${capturedOrderId})` : ''}: ${error.message || 'Unexpected error'}`,
+                        'error',
+                        6000
+                    );
                 }
             },
 
-            onError:  (err) => { console.error('PayPal error:', err); alert('❌ PayPal error. Please try again.'); },
+            onError:  (err) => { console.error('PayPal error:', err); ui.showToast('PayPal error. Please try again.', 'error'); },
             onCancel: ()    => { console.log('User cancelled payment'); }
         });
 
         if (elements.paypalButtons) {
             paypalButtonsInstance.render('#paypal-buttons').catch(error => {
                 console.error('PayPal render error:', error);
-                alert('❌ Failed to load PayPal. Please refresh the page.');
+                ui.showToast('Failed to load PayPal. Please refresh the page.', 'error');
                 paypalButtonsInstance = null;
             });
         }
     } catch (error) {
         console.error('Error initializing PayPal:', error);
-        alert('❌ Failed to initialize PayPal. Please try again.');
+        ui.showToast('Failed to initialize PayPal. Please try again.', 'error');
         paypalButtonsInstance = null;
     }
 }

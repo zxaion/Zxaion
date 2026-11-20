@@ -3,7 +3,6 @@
  * Depends on: ui (base.js), state, elements, api, utils, preventTouchSave
  */
 Object.assign(ui, {
-    // Shield: protect=true → aktifkan (belum purchase), false → nonaktifkan
     applyModalShield(protect) {
         const shield = document.getElementById('modal-img-shield');
         const img    = elements.modalImg;
@@ -23,7 +22,9 @@ Object.assign(ui, {
     },
 
     unlockDtreasureThumbnail(photoId) {
-        const item = elements.dtreasureGallery?.querySelector(`.masonry-item[data-photo-id="${photoId}"]`);
+        if (!photoId) return;
+        const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
+        const item = elements.dtreasureGallery?.querySelector(`.masonry-item[data-photo-id="${safeId}"]`);
         if (!item) return;
 
         const shield = item.querySelector('.dtreasure-thumb-shield');
@@ -41,24 +42,27 @@ Object.assign(ui, {
         if (btn) btn.innerHTML = '<i class="fas fa-download"></i> Download';
     },
 
-    // FIX: Hapus fetchImageStats — pakai pre-loaded stats dari /api/list (zero extra API call).
-    // FIX: Preload gambar via Image() — modal tampil instan, gambar load di background.
-    // FIX: recordView dipanggil awal untuk optimistic DOM update.
     async openImageModal(photo) {
         if (!photo) return;
 
         state.currentImageId = photo.id;
 
-        // Optimistic DOM update + fire-and-forget ke server
+        // Optimistic update (in-memory + DOM + server)
+        photo.viewCount = (photo.viewCount || 0) + 1;
         api.recordView(photo.id);
 
-        // Pakai viewCount yang sudah di-increment oleh recordView DOM update
-        const displayViews     = (photo.viewCount     || 0);
-        const displayDownloads = (photo.downloadCount || 0);
+        const displayViews     = photo.viewCount;
+        const displayDownloads = photo.downloadCount || 0;
 
-        const imageUrl = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const imageUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        const previewUrl = utils.buildImageUrl(photo.url, {
+            w:   isDtreasure ? 600 : 1400,
+            q:   isDtreasure ? 75  : 85,
+            fit: 'scale-down',
+            fmt: 'auto',
+        });
 
-        // Shimmer placeholder saat gambar preload
         elements.modalImg.classList.add('loading-shimmer');
         elements.modalImg.style.minHeight = '200px';
         elements.modalImg.src             = '';
@@ -67,7 +71,7 @@ Object.assign(ui, {
 
         const preload   = new Image();
         preload.onload  = () => {
-            elements.modalImg.src = imageUrl;
+            elements.modalImg.src = previewUrl;
             elements.modalImg.classList.remove('loading-shimmer');
             elements.modalImg.style.minHeight = '';
             preload.onload = null;
@@ -78,30 +82,25 @@ Object.assign(ui, {
             elements.modalImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
             preload.onerror = null;
         };
-        preload.src = imageUrl;
+        preload.src = previewUrl;
 
         elements.modalTitle.textContent         = photo.title || 'Wallpaper';
         elements.modalCategory.textContent      = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
         elements.modalViewCount.textContent     = utils.formatNumber(displayViews);
         elements.modalDownloadCount.textContent = utils.formatNumber(displayDownloads);
 
-        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
         const isPurchased = state.lifetime || state.purchasedImages.has(photo.id);
 
         this.applyModalShield(isDtreasure && !isPurchased);
 
         if (isDtreasure) {
             if (isPurchased) {
-                const token       = getOrCreateUserToken();
-                const fullDlUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-                const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
-                const downloadUrl = `${fullDlUrl}?download=true&photoId=${encodeURIComponent(photo.id)}&userToken=${encodeURIComponent(token)}`;
-                elements.downloadBtn.href = downloadUrl;
-                elements.downloadBtn.setAttribute('download', filename);
-                elements.downloadBtn.onclick = () => {
-                    api.recordDownload(photo.id);
-                    const el = elements.modalDownloadCount;
-                    if (el) el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
+                // Use X-User-Token header via ui.triggerDownload instead of leaking token in URL query
+                elements.downloadBtn.removeAttribute('href');
+                elements.downloadBtn.removeAttribute('download');
+                elements.downloadBtn.onclick = (e) => {
+                    e.preventDefault();
+                    ui.triggerDownload(photo);
                 };
                 elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
             } else {
@@ -111,13 +110,22 @@ Object.assign(ui, {
                 elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
             }
         } else {
-            elements.downloadBtn.href      = imageUrl + '?download=true';
-            elements.downloadBtn.download  = photo.title || 'wallpaper';
-            elements.downloadBtn.onclick   = null;
+            elements.downloadBtn.href     = imageUrl + '?download=true';
+            elements.downloadBtn.download = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_');
+            elements.downloadBtn.onclick  = () => {
+                photo.downloadCount = (photo.downloadCount || 0) + 1;
+                api.recordDownload(photo.id);
+                const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photo.id) : photo.id;
+                document.querySelectorAll(`.download-count[data-id="${safeId}"]`).forEach(el => {
+                    el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
+                });
+                if (elements.modalDownloadCount) {
+                    elements.modalDownloadCount.textContent = utils.formatNumber(photo.downloadCount);
+                }
+            };
             elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
         }
 
-        // Tampilkan modal SEGERA — gambar selesai load di background
         elements.imageModal.classList.remove('hidden');
         elements.imageModal.classList.add('flex');
 

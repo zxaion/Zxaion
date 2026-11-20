@@ -1,5 +1,5 @@
 /**
- * services/api-credits.js — Menambah api: saldo kredit, pembelian kredit, belanja kredit.
+ * services/api-credits.js — Menambah api: saldo kredit, pembelian kredit, belanja kredit, backup/restore token.
  * Depends on: api (api-gallery.js), API_BASE, state, ui, getOrCreateUserToken
  */
 Object.assign(api, {
@@ -11,8 +11,8 @@ Object.assign(api, {
             });
             if (!res.ok) { console.error('fetchCreditBalance failed:', res.status); return; }
             const data = await res.json();
-            state.credits        = data.credits  || 0;
-            state.lifetime       = data.lifetime || false;
+            state.credits         = data.credits  || 0;
+            state.lifetime        = data.lifetime || false;
             state.purchasedImages = new Set(data.purchased || []);
             ui.updateCreditDisplay();
         } catch (e) {
@@ -58,6 +58,58 @@ Object.assign(api, {
             return res.json();
         } catch (e) {
             console.error('spendCredit network error:', e);
+            return { success: false, error: 'Network error. Please check your connection.' };
+        }
+    },
+
+    async generateRecoveryCode() {
+        const token = getOrCreateUserToken();
+        try {
+            const res = await fetch(`${API_BASE}/api/credits/recovery`, {
+                method:  'POST',
+                headers: { 'X-User-Token': token }
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || 'Failed to generate recovery code' };
+            }
+            return { success: true, recoveryCode: data.recoveryCode };
+        } catch (e) {
+            console.error('generateRecoveryCode network error:', e);
+            return { success: false, error: 'Network error. Please check your connection.' };
+        }
+    },
+
+    async recoverAccount(recoveryCode) {
+        try {
+            const res = await fetch(`${API_BASE}/api/credits/recover`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ recoveryCode: String(recoveryCode || '').trim().toUpperCase() })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success || !data.userToken) {
+                return { success: false, error: data.error || 'Recovery code not found' };
+            }
+
+            localStorage.setItem('zx_user_token', data.userToken);
+            state.credits         = data.credits || 0;
+            state.lifetime        = !!data.lifetime;
+            state.purchasedImages = new Set(data.purchased || []);
+            ui.updateCreditDisplay();
+
+            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasure === 'function') {
+                ui.renderDtreasure();
+            }
+
+            return {
+                success:   true,
+                credits:   state.credits,
+                lifetime:  state.lifetime,
+                purchased: data.purchased || [],
+            };
+        } catch (e) {
+            console.error('recoverAccount network error:', e);
             return { success: false, error: 'Network error. Please check your connection.' };
         }
     },

@@ -1,7 +1,5 @@
-
-// Membangun "context" satu request — semua variabel yang dulu ada di dalam fetch() worker.js.
-// Handler di routes/*.js menerima object ini dan mengambil yang dibutuhkan via destructuring.
-import { PAYPAL_BASE, ALLOWED_ORIGINS } from './config/constants.js';
+// Membangun "context" satu request — handler di routes/*.js menerima object ini.
+import { getPayPalBase, ALLOWED_ORIGINS } from './config/constants.js';
 import { buildCorsHeaders } from './utils/cors.js';
 import { getUserToken } from './utils/userToken.js';
 import { checkRateLimit } from './services/rateLimit.js';
@@ -16,23 +14,24 @@ export function createContext(request, env, ctx) {
   const comitbaseBucket = env.ZX_BUCKET;
   const treasureBucket  = env.TREASURE;
   const DB              = env.DB;
+  const IMAGES          = env.IMAGES || null;
 
   const PAYPAL_CLIENT_ID        = env.PAYPAL_CLIENT_ID;
   const PAYPAL_CLIENT_SECRET_ID = env.PAYPAL_CLIENT_SECRET_ID;
   const PAYPAL_WEBHOOK_ID       = env.PAYPAL_WEBHOOK_ID;
+  const PAYPAL_BASE             = getPayPalBase(env);
 
   const origin      = request.headers.get('Origin') || '';
   const corsHeaders = buildCorsHeaders(origin);
 
   return {
     request, env, ctx, url, path, method,
-    mainBucket, comitbaseBucket, treasureBucket, DB,
+    mainBucket, comitbaseBucket, treasureBucket, DB, IMAGES,
     PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET_ID, PAYPAL_WEBHOOK_ID, PAYPAL_BASE,
     ALLOWED_ORIGINS, origin, corsHeaders,
     getUserToken,
-    // helper yang butuh DB / env dibungkus supaya pemanggilan di handler tidak berubah
     checkRateLimit:       (endpoint, identifier, limit, windowSec) => checkRateLimit(DB, endpoint, identifier, limit, windowSec),
     getPayPalAccessToken: () => getPayPalAccessToken(env),
-    verifyPayPalOrder,
+    verifyPayPalOrder:    (orderId, accessToken) => verifyPayPalOrder(orderId, accessToken, PAYPAL_BASE),
   };
 }

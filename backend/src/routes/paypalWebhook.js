@@ -1,10 +1,24 @@
-import { PACK_BY_PRICE } from '../config/packs.js';
-import { PAYPAL_BASE } from '../config/constants.js';
+import { PACK_BY_CENTS } from '../config/packs.js';
+
+const TRUSTED_PAYPAL_CERT_HOSTS = new Set([
+  'api.paypal.com',
+  'api-m.paypal.com',
+  'api.sandbox.paypal.com',
+]);
+
+function isTrustedPayPalCertUrl(certUrl) {
+  try {
+    const parsed = new URL(certUrl);
+    return parsed.protocol === 'https:' && TRUSTED_PAYPAL_CERT_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
 
 // ================================================================
 // ENDPOINT: PayPal Webhook
 // ================================================================
-export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID, getPayPalAccessToken, verifyPayPalOrder }) {
+export async function handlePayPalWebhook({ request, DB, PAYPAL_WEBHOOK_ID, PAYPAL_BASE, getPayPalAccessToken, verifyPayPalOrder }) {
   try {
     const rawBody = await request.text();
     let webhookEvent;
@@ -20,24 +34,21 @@ export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID,
     const transmissionSig  = request.headers.get('paypal-transmission-sig');
     const authAlgo         = request.headers.get('paypal-auth-algo');
 
-    if (!transmissionId || !transmissionSig || !certUrl || !authAlgo) {
+    if (!transmissionId || !transmissionTime || !transmissionSig || !certUrl || !authAlgo) {
       console.error('Missing required PayPal webhook headers');
       return new Response('Unauthorized', { status: 401 });
     }
 
-    // SSRF guard — only accept certs from official PayPal domains
-    const PAYPAL_CERT_DOMAINS = [
-      'https://api.paypal.com',
-      'https://api-m.paypal.com',
-      'https://api.sandbox.paypal.com',
-    ];
-    if (!PAYPAL_CERT_DOMAINS.some(domain => certUrl.startsWith(domain))) {
+    if (!isTrustedPayPalCertUrl(certUrl)) {
       console.error('Webhook certUrl domain not trusted:', certUrl);
       return new Response('Unauthorized', { status: 401 });
     }
 
-    // FIX: Satu kali getPayPalAccessToken — reuse untuk signature verify
-    // dan order detail fetch. Cegah double OAuth round-trip.
+    if (!PAYPAL_WEBHOOK_ID) {
+      console.error('PAYPAL_WEBHOOK_ID is not configured');
+      return new Response('Webhook not configured', { status: 500 });
+    }
+
     let accessToken;
     try {
       accessToken = await getPayPalAccessToken();
@@ -75,7 +86,7 @@ export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID,
     const capturedAmount = parseFloat(webhookEvent.resource?.amount?.value || '0');
     const currencyCode   = webhookEvent.resource?.amount?.currency_code;
 
-    if (!orderId || !capturedAmount || currencyCode !== 'USD') {
+    if (!orderId || !Number.isFinite(capturedAmount) || capturedAmount <= 0 || currencyCode !== 'USD') {
       return new Response('OK', { status: 200 });
     }
 
@@ -88,8 +99,8 @@ export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID,
       return new Response('OK', { status: 200 });
     }
 
-    const roundedAmount = Math.round(capturedAmount);
-    const packData      = PACK_BY_PRICE[roundedAmount];
+    const amountCents = Math.round(capturedAmount * 100);
+    const packData    = PACK_BY_CENTS[amountCents];
 
     if (!packData) {
       console.error(`Unknown pack amount from webhook: $${capturedAmount}`);
@@ -98,7 +109,6 @@ export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID,
 
     let userId = webhookEvent.resource?.custom_id || null;
 
-    // FIX: Reuse accessToken dari signature verification — cegah double OAuth
     if (!userId && orderId) {
       try {
         const orderDetails = await verifyPayPalOrder(orderId, accessToken);
@@ -115,18 +125,15 @@ export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID,
       return new Response('OK', { status: 200 });
     }
 
-    // FIX: ATOMIC CLAIM — pasangan dari klaim yang sama di /api/credits/purchase.
-    // Siapa yang berhasil INSERT lebih dulu (id = order:<orderId> adalah PK),
-    // dialah yang boleh credit. Yang kedua dapat changes=0 dan langsung stop
-    // — mencegah double-credit untuk orderId yang sama.
+    const packDollarKey = `${amountCents / 100}$`;
     const claim = await DB.prepare(`
       INSERT INTO payment_orders (id, user_id, order_id, pack_key, amount, status)
       VALUES (?, ?, ?, ?, ?, 'processing')
       ON CONFLICT(id) DO NOTHING
-    `).bind(`order:${orderId}`, userId, orderId, String(roundedAmount), capturedAmount).run();
+    `).bind(`order:${orderId}`, userId, orderId, packDollarKey, capturedAmount).run();
 
     if (!claim.meta || claim.meta.changes === 0) {
-      console.log(`Webhook: order ${orderId} sudah diklaim/diproses sebelumnya — skip duplikasi credit`);
+      console.log(`Webhook: order ${orderId} already claimed — skipping duplicate credit`);
       return new Response('OK', { status: 200 });
     }
 
@@ -148,9 +155,7 @@ export async function handlePayPalWebhook({ request, url, DB, PAYPAL_WEBHOOK_ID,
 
       console.log(`Webhook: credited user ${userId} for order ${orderId} ($${capturedAmount})`);
     } catch (creditError) {
-      // Klaim sudah terambil tapi crediting gagal — tandai 'failed', JANGAN
-      // biarkan 'processing' permanen (PayPal akan retry webhook ini).
-      console.error(`Webhook: gagal credit user ${userId} untuk order ${orderId}:`, creditError.message);
+      console.error(`Webhook: failed to credit user ${userId} for order ${orderId}:`, creditError.message);
       await DB.prepare(
         `UPDATE payment_orders SET status = 'failed', error_message = ? WHERE id = ?`
       ).bind(creditError.message, `order:${orderId}`).run();

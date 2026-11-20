@@ -1,57 +1,172 @@
 /**
- * ui/dtreasure.js — Galeri DTREASURE (premium): render, event klik, paginasi.
- * Depends on: ui (base.js), state, elements, utils, ITEMS_PER_PAGE
+ * ui/dtreasure.js — Galeri DTREASURE (premium): All Vault & My Unlocked Library, sort & filter rasio, paginasi & infinite scroll.
+ * Depends on: ui (base.js), state, elements, utils, galleryFilters, ITEMS_PER_PAGE
  */
 Object.assign(ui, {
-    renderDtreasureGallery() {
+    _dtreasureSortKey: null,
+    _sortedDtreasureCache: null,
+
+    invalidateDtreasureSortCache() {
+        this._dtreasureSortKey = null;
+        this._sortedDtreasureCache = null;
+    },
+
+    updateDtreasureTabCounts() {
+        const tabAll = elements.dtreasureTabAll || document.getElementById('dtreasure-tab-all');
+        const tabLib = elements.dtreasureTabLibrary || document.getElementById('dtreasure-tab-library');
+        const countEl = elements.dtreasureUnlockedCount || document.getElementById('dtreasure-unlocked-count');
+
+        if (tabAll) tabAll.classList.toggle('active', state.dtreasureTab !== 'library');
+        if (tabLib) tabLib.classList.toggle('active', state.dtreasureTab === 'library');
+        if (countEl) {
+            if (state.lifetime) {
+                countEl.textContent = String(state.dtreasurePhotos.length || '∞');
+            } else {
+                const owned = state.dtreasurePhotos.filter(p => state.purchasedImages.has(p.id)).length;
+                countEl.textContent = String(owned);
+            }
+        }
+    },
+
+    getDtreasureSortedPhotos() {
+        const base = galleryFilters.filterDtreasureLibrary(state.dtreasurePhotos, {
+            tab:          state.dtreasureTab,
+            purchasedSet: state.purchasedImages,
+            lifetime:     state.lifetime,
+        });
+        const key = `${state.dtreasureTab}:${state.sortBy}:${base.length}:${base[0]?.id || ''}:${state.lifetime ? 1 : 0}`;
+        if (this._dtreasureSortKey === key && Array.isArray(this._sortedDtreasureCache)) {
+            return this._sortedDtreasureCache;
+        }
+        const sorted = galleryFilters.sortPhotosList(base, state.sortBy, utils.shuffleArray);
+        this._dtreasureSortKey = key;
+        this._sortedDtreasureCache = sorted;
+        return sorted;
+    },
+
+    getDtreasureDisplayPhotos() {
+        const sorted = this.getDtreasureSortedPhotos();
+        return galleryFilters.filterPhotosByRatio(sorted, state.aspectFilter, state.photoRatios);
+    },
+
+    renderDtreasureGallery({ append = false, previousCount = 0 } = {}) {
         if (!elements.dtreasureGallery) return;
+
+        this.updateDtreasureTabCounts();
+
+        const tabPhotos = galleryFilters.filterDtreasureLibrary(state.dtreasurePhotos, {
+            tab:          state.dtreasureTab,
+            purchasedSet: state.purchasedImages,
+            lifetime:     state.lifetime,
+        });
 
         if (state.dtreasurePhotos.length === 0) {
             elements.dtreasureGallery.innerHTML = `
-            <div class="col-span-full text-center py-20">
+            <div class="col-span-full text-center py-20" style="column-span:all;">
                 <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
                     <i class="fas fa-gem text-3xl text-gray-400"></i>
                 </div>
                 <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
             </div>`;
-            this.updateDtreasurePagination();
+            this.updateToolbarCount(0);
+            this.updateDtreasurePagination(0);
             return;
         }
 
-        const start        = (state.currentDtreasurePage - 1) * ITEMS_PER_PAGE;
-        const end          = start + ITEMS_PER_PAGE;
-        const photosToShow = state.dtreasurePhotos.slice(start, end);
+        if (state.dtreasureTab === 'library' && tabPhotos.length === 0) {
+            elements.dtreasureGallery.innerHTML = `
+            <div class="col-span-full text-center py-16 px-4 bg-white/80 dark:bg-gray-900/80 rounded-2xl border border-dashed border-amber-300 dark:border-amber-800/70" style="column-span:all;">
+                <div class="w-16 h-16 mx-auto mb-4 bg-amber-100 dark:bg-amber-900/40 rounded-full flex items-center justify-center">
+                    <i class="fas fa-unlock-keyhole text-2xl text-amber-500"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-1">Your Unlocked Library is Empty</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-5">Unlock any DTREASURE artwork using credits (or get Lifetime Pro) to access clean 4K downloads anytime here.</p>
+                <div class="flex flex-wrap items-center justify-center gap-3">
+                    <button type="button" onclick="switchDtreasureTab('all')" class="px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold shadow-md hover:from-amber-600 hover:to-orange-600 cursor-pointer">
+                        <i class="fas fa-gem mr-1.5"></i>Browse All Vault
+                    </button>
+                    <button type="button" onclick="document.getElementById('buy-credits-btn')?.click()" class="px-5 py-2.5 rounded-full bg-gray-900 text-white text-xs font-bold shadow-md hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                        <i class="fas fa-shopping-cart mr-1.5"></i>Buy Credits
+                    </button>
+                </div>
+            </div>`;
+            this.updateToolbarCount(0);
+            this.updateDtreasurePagination(0);
+            return;
+        }
 
-        elements.dtreasureGallery.innerHTML = '';
-
-        if (this._dtreasureObserver) this._dtreasureObserver.disconnect();
-        const imageObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target;
-                    if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
-                    observer.unobserve(img);
+        if (state.aspectFilter !== 'all') {
+            this.probeMissingRatios(tabPhotos, () => {
+                if (state.aspectFilter !== 'all' && state.currentCategory === 'DTREASURE') {
+                    this.renderDtreasureGallery();
                 }
             });
-        }, { rootMargin: '50px' });
-        this._dtreasureObserver = imageObserver;
+        }
 
-        // DocumentFragment — satu reflow saat append
+        const displayPhotos = this.getDtreasureDisplayPhotos();
+        this.updateToolbarCount(displayPhotos.length);
+
+        if (displayPhotos.length === 0) {
+            elements.dtreasureGallery.innerHTML = `
+            <div class="col-span-full text-center py-16 bg-white/70 dark:bg-gray-900/70 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700" style="column-span:all;">
+                <i class="fas fa-crop-simple text-3xl text-gray-400 mb-3"></i>
+                <p class="text-gray-600 dark:text-gray-300 font-semibold mb-3">No ${utils.escapeHtml(state.aspectFilter)} wallpapers found in DTREASURE yet.</p>
+                <button type="button" onclick="resetAspectFilter()" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                    Show All Ratios
+                </button>
+            </div>`;
+            this.updateDtreasurePagination(0);
+            return;
+        }
+
+        const slice = galleryFilters.getPaginationSliceInfo(
+            displayPhotos.length,
+            state.currentDtreasurePage,
+            ITEMS_PER_PAGE,
+            state.browseMode
+        );
+        state.currentDtreasurePage = slice.page;
+
+        const renderStart  = append ? Math.min(previousCount, slice.end) : slice.start;
+        const photosToShow = displayPhotos.slice(renderStart, slice.end);
+
+        if (!append) {
+            elements.dtreasureGallery.innerHTML = '';
+            if (this._dtreasureObserver) this._dtreasureObserver.disconnect();
+        }
+
+        if (!this._dtreasureObserver || !append) {
+            this._dtreasureObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const img = entry.target;
+                        if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
+                        observer.unobserve(img);
+                    }
+                });
+            }, { rootMargin: '50px' });
+        }
+
+        const imageObserver  = this._dtreasureObserver;
         const fragment       = document.createDocumentFragment();
         const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23f3f4f6%22 width=%22400%22 height=%22300%22/%3E%3C/svg%3E';
 
         photosToShow.forEach((photo, index) => {
             const item = document.createElement('div');
             item.className = 'masonry-item fade-in';
-            item.style.animationDelay = `${index * 50}ms`;
+            item.style.animationDelay = `${Math.min(index, 12) * 35}ms`;
             item.dataset.photoId = photo.id;
 
-            const fullUrl       = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+            const fullUrl       = utils.buildImageUrl(photo.url, { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' });
             const isFree        = state.lifetime || state.purchasedImages.has(photo.id);
             const buttonText    = isFree ? 'Download' : '10 Credits';
             const buttonIcon    = isFree ? 'fa-download' : 'fa-lock';
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+
+            const unlockedBadge = isFree
+                ? `<span class="dtreasure-unlocked-badge absolute top-2.5 left-2.5 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-md backdrop-blur-sm"><i class="fas fa-unlock"></i> Unlocked</span>`
+                : '';
 
             const thumbShield = isFree ? '' : `
     <div
@@ -63,6 +178,7 @@ Object.assign(ui, {
 
             item.innerHTML = `
 <div class="relative" style="line-height:0;">
+    ${unlockedBadge}
     <img
         src="${placeholderSvg}"
         data-src="${fullUrl}"
@@ -86,7 +202,10 @@ Object.assign(ui, {
 
             const img   = item.querySelector('img');
             imageObserver.observe(img);
-            img.onload  = function() { this.classList.remove('loading-shimmer'); };
+            img.onload  = function() {
+                this.classList.remove('loading-shimmer');
+                ui.recordPhotoDimensions(photo, this);
+            };
             img.onerror = function() {
                 this.classList.remove('loading-shimmer');
                 this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
@@ -96,7 +215,20 @@ Object.assign(ui, {
 
         elements.dtreasureGallery.appendChild(fragment);
         this.setupDtreasureEventListeners();
-        this.updateDtreasurePagination();
+        this.updateDtreasurePagination(displayPhotos.length);
+    },
+
+    loadMoreDtreasure() {
+        const displayPhotos = this.getDtreasureDisplayPhotos();
+        const prevSlice = galleryFilters.getPaginationSliceInfo(
+            displayPhotos.length,
+            state.currentDtreasurePage,
+            ITEMS_PER_PAGE,
+            'infinite'
+        );
+        if (!prevSlice.hasMore) return;
+        state.currentDtreasurePage++;
+        this.renderDtreasureGallery({ append: true, previousCount: prevSlice.end });
     },
 
     setupDtreasureEventListeners() {
@@ -124,19 +256,51 @@ Object.assign(ui, {
         elements.dtreasureGallery.addEventListener('click', handleClick);
     },
 
-    updateDtreasurePagination() {
-        if (!elements.dtreasurePagination) return;
-        const totalPages = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
-        if (totalPages <= 1) {
-            elements.dtreasurePagination.classList.add('hidden');
+    updateDtreasurePagination(totalOverride = null) {
+        const container = elements.dtreasurePagination || document.getElementById('dtreasure-pagination');
+        const loadMoreBox = elements.dtreasureLoadMore || document.getElementById('dtreasure-load-more');
+        const totalItems = totalOverride !== null ? totalOverride : this.getDtreasureDisplayPhotos().length;
+        const slice = galleryFilters.getPaginationSliceInfo(totalItems, state.currentDtreasurePage, ITEMS_PER_PAGE, state.browseMode);
+
+        if (totalItems === 0 || slice.totalPages <= 1) {
+            if (container) container.classList.add('hidden');
+            if (loadMoreBox) loadMoreBox.classList.add('hidden');
+            this.setupInfiniteSentinel('dtreasure-infinite-sentinel', '_dtreasureInfiniteObserver', false, () => {});
             return;
         }
-        elements.dtreasurePagination.classList.remove('hidden');
+
+        if (state.browseMode === 'infinite') {
+            if (container) container.classList.add('hidden');
+            if (loadMoreBox) {
+                loadMoreBox.classList.remove('hidden');
+                const loadedInfo = document.getElementById('dtreasure-loaded-info');
+                const loadMoreBtn = document.getElementById('dtreasure-load-more-btn');
+                if (loadedInfo) {
+                    loadedInfo.textContent = slice.hasMore
+                        ? `Showing ${slice.end} of ${slice.total}`
+                        : `All ${slice.total} items loaded`;
+                }
+                if (loadMoreBtn) {
+                    loadMoreBtn.disabled = !slice.hasMore;
+                    loadMoreBtn.classList.toggle('hidden', !slice.hasMore);
+                }
+            }
+            this.setupInfiniteSentinel('dtreasure-infinite-sentinel', '_dtreasureInfiniteObserver', slice.hasMore, () => {
+                this.loadMoreDtreasure();
+            });
+            return;
+        }
+
+        this.setupInfiniteSentinel('dtreasure-infinite-sentinel', '_dtreasureInfiniteObserver', false, () => {});
+        if (loadMoreBox) loadMoreBox.classList.add('hidden');
+        if (!container) return;
+
+        container.classList.remove('hidden');
         const pageInfo = document.getElementById('dtreasure-page-info');
-        if (pageInfo) pageInfo.textContent = `Page ${state.currentDtreasurePage} of ${totalPages}`;
+        if (pageInfo) pageInfo.textContent = `Page ${slice.page} of ${slice.totalPages}`;
         const prevBtn = document.getElementById('dtreasure-prev');
         const nextBtn = document.getElementById('dtreasure-next');
-        if (prevBtn) prevBtn.disabled = state.currentDtreasurePage === 1;
-        if (nextBtn) nextBtn.disabled = state.currentDtreasurePage >= totalPages;
+        if (prevBtn) prevBtn.disabled = slice.page <= 1;
+        if (nextBtn) nextBtn.disabled = slice.page >= slice.totalPages;
     },
 });

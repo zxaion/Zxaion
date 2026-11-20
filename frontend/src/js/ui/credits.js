@@ -7,6 +7,9 @@ Object.assign(ui, {
         if (elements.creditBalance) {
             elements.creditBalance.textContent = state.lifetime ? '∞' : utils.formatNumber(state.credits);
         }
+        if (typeof this.updateDtreasureTabCounts === 'function') {
+            this.updateDtreasureTabCounts();
+        }
     },
 
     renderCreditPacks() {

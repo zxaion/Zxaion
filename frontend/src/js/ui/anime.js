@@ -1,6 +1,6 @@
 /**
  * ui/anime.js — Kartu koleksi/album anime dan pembukaan album.
- * Depends on: ui (base.js), state, elements, utils, window.animeAlbumThumbnails
+ * Depends on: ui (base.js), state, elements, utils, API_BASE, window.animeAlbumThumbnails
  */
 Object.assign(ui, {
     renderAnimeCollections() {
@@ -15,14 +15,17 @@ Object.assign(ui, {
             card.className = 'anime-collection-card aspect-square relative cursor-pointer group fade-in';
             card.style.animationDelay = `${index * 30}ms`;
 
-            const thumbnailSrc = window.animeAlbumThumbnails?.[title] || (album?.photos[0]?.url) || `${API_BASE}/api/img/HEADER/Anime.jpg`;
+            const rawThumb     = window.animeAlbumThumbnails?.[title] || (album?.photos[0]?.url ? album.photos[0].url : '/api/img/HEADER/Anime.jpg');
+            const optimizedThumb = utils.buildImageUrl(rawThumb, { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' });
+            const safeThumb    = utils.escapeHtml(optimizedThumb);
+            const safeTitle    = utils.escapeHtml(title);
             const count        = album ? album.photos.length : 0;
 
             card.innerHTML = `
                 <div class="w-full h-full relative overflow-hidden rounded-2xl">
-                    <img src="${thumbnailSrc}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-all duration-500 group-hover:scale-110" loading="lazy" alt="${title}">
+                    <img src="${safeThumb}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-all duration-500 group-hover:scale-110" loading="lazy" alt="${safeTitle}">
                     <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-4">
-                        <h3 class="text-white font-black text-center uppercase text-sm md:text-base leading-tight drop-shadow-lg line-clamp-2">${title}</h3>
+                        <h3 class="text-white font-black text-center uppercase text-sm md:text-base leading-tight drop-shadow-lg line-clamp-2">${safeTitle}</h3>
                         <p class="text-white/70 text-center text-xs mt-1 font-semibold">${count} items</p>
                     </div>
                 </div>
@@ -67,6 +70,9 @@ Object.assign(ui, {
         }
 
         state.currentPage = 1;
+        state.sortBy      = 'latest';
+        if (typeof this.invalidateMainSortCache === 'function') this.invalidateMainSortCache();
+        this.showToolbar();
         this.renderGallery();
         elements.galleryContainer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },

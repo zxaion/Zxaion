@@ -1,33 +1,98 @@
 /**
- * events/pagination.js — Paginasi galeri/COMITBASE/DTREASURE + tombol COMIT HERE.
- * Depends on: state, elements, ui, utils, api, ITEMS_PER_PAGE, paypalButtonsInstance
+ * events/pagination.js — Paginasi, Infinite Scroll/Load More, Sort & Filter Rasio, Tab DTREASURE Library + COMIT HERE.
+ * Depends on: state, elements, ui, utils, api, galleryFilters, ITEMS_PER_PAGE
  */
 function initPaginationEvents() {
-    // Pagination
+    const rerenderActiveSection = () => {
+        if (state.currentCategory === 'COMITBASE') {
+            ui.renderComitbaseGallery();
+        } else if (state.currentCategory === 'DTREASURE') {
+            ui.renderDtreasureGallery();
+        } else {
+            ui.renderGallery();
+        }
+    };
+
+    const setBrowseMode = (mode) => {
+        state.browseMode = mode === 'infinite' ? 'infinite' : 'pagination';
+        try { localStorage.setItem('zxaion_browse_mode', state.browseMode); } catch (_) {}
+        state.resetPagination();
+        ui.syncToolbarUI();
+        rerenderActiveSection();
+    };
+
+    // Main Pagination
     document.getElementById('prev-page')?.addEventListener('click', () => {
         if (state.currentPage > 1) { state.currentPage--; ui.renderGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('next-page')?.addEventListener('click', () => {
-        const total = Math.ceil(state.filteredPhotos.length / ITEMS_PER_PAGE);
+        const total = Math.ceil(ui.getMainDisplayPhotos().length / ITEMS_PER_PAGE);
         if (state.currentPage < total) { state.currentPage++; ui.renderGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
+    document.getElementById('gallery-load-more-btn')?.addEventListener('click', () => ui.loadMoreGallery());
 
-    // COMITBASE pagination
+    // COMITBASE pagination & Load More
     document.getElementById('comitbase-prev')?.addEventListener('click', () => {
         if (state.currentComitbasePage > 1) { state.currentComitbasePage--; ui.renderComitbaseGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('comitbase-next')?.addEventListener('click', () => {
-        const total = Math.ceil(state.comitbasePhotos.length / ITEMS_PER_PAGE);
+        const total = Math.ceil(ui.getComitbaseDisplayPhotos().length / ITEMS_PER_PAGE);
         if (state.currentComitbasePage < total) { state.currentComitbasePage++; ui.renderComitbaseGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
+    document.getElementById('comitbase-load-more-btn')?.addEventListener('click', () => ui.loadMoreComitbase());
 
-    // DTREASURE pagination
+    // DTREASURE pagination & Load More
     document.getElementById('dtreasure-prev')?.addEventListener('click', () => {
         if (state.currentDtreasurePage > 1) { state.currentDtreasurePage--; ui.renderDtreasureGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('dtreasure-next')?.addEventListener('click', () => {
-        const total = Math.ceil(state.dtreasurePhotos.length / ITEMS_PER_PAGE);
+        const total = Math.ceil(ui.getDtreasureDisplayPhotos().length / ITEMS_PER_PAGE);
         if (state.currentDtreasurePage < total) { state.currentDtreasurePage++; ui.renderDtreasureGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    });
+    document.getElementById('dtreasure-load-more-btn')?.addEventListener('click', () => ui.loadMoreDtreasure());
+
+    // Sort Buttons
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sort = btn.dataset.sort || 'latest';
+            state.sortBy = sort;
+            state.resetPagination();
+            ui.invalidateMainSortCache();
+            ui.invalidateComitbaseSortCache();
+            ui.invalidateDtreasureSortCache();
+            ui.syncToolbarUI();
+            rerenderActiveSection();
+        });
+    });
+
+    // Aspect Ratio Filter Buttons
+    document.querySelectorAll('.ratio-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.aspectFilter = btn.dataset.ratio || 'all';
+            state.resetPagination();
+            ui.syncToolbarUI();
+            rerenderActiveSection();
+        });
+    });
+
+    // Browse Mode Toggle (Toolbar button + Footer switch pills)
+    document.getElementById('browse-mode-toggle')?.addEventListener('click', () => {
+        setBrowseMode(state.browseMode === 'infinite' ? 'pagination' : 'infinite');
+    });
+    document.querySelectorAll('[data-switch-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setBrowseMode(btn.dataset.switchMode);
+        });
+    });
+
+    // DTREASURE Tabs (All Vault vs My Unlocked / Library)
+    document.querySelectorAll('.dtreasure-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.dtreasureTab = btn.dataset.dtreasureTab === 'library' ? 'library' : 'all';
+            state.currentDtreasurePage = 1;
+            ui.invalidateDtreasureSortCache();
+            ui.renderDtreasureGallery();
+        });
     });
 
     // COMIT HERE

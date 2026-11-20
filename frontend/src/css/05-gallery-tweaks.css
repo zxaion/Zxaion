@@ -41,9 +41,36 @@
     }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
     .masonry-layout {
-        column-count: 1;
+        column-count: 2;
+        column-gap:   0.625rem;
+    }
+
+    .masonry-item {
+        margin-bottom: 0.625rem;
+    }
+
+    .masonry-overlay {
+        padding: 0.5rem;
+    }
+
+    .masonry-overlay .stats {
+        gap:           0.35rem;
+        font-size:     0.65rem;
+        margin-bottom: 0.35rem;
+        flex-wrap:     wrap;
+    }
+
+    .masonry-overlay .stats span {
+        padding: 0.2rem 0.45rem;
+        gap:     0.25rem;
+    }
+
+    .masonry-overlay .download-btn {
+        padding:   0.35rem 0.65rem;
+        font-size: 0.6875rem;
+        gap:       0.35rem;
     }
 }
 

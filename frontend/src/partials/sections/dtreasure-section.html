@@ -1,8 +1,17 @@
-        <!-- DTREASURE Section -->
+<!-- DTREASURE Section -->
         <div id="dtreasure-section" class="hidden w-full">
             <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
-                <div></div>
-                <div class="flex items-center gap-4">
+                <!-- DTREASURE Sub-tabs: All Vault vs My Unlocked / Library -->
+                <div class="inline-flex items-center p-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-full shadow-sm gap-1">
+                    <button type="button" id="dtreasure-tab-all" data-dtreasure-tab="all" class="dtreasure-tab-btn whitespace-nowrap px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5">
+                        <i class="fas fa-gem"></i><span>All Vault</span>
+                    </button>
+                    <button type="button" id="dtreasure-tab-library" data-dtreasure-tab="library" class="dtreasure-tab-btn whitespace-nowrap px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5">
+                        <i class="fas fa-unlock-keyhole"></i><span>My Unlocked</span>
+                        <span id="dtreasure-unlocked-count" class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">0</span>
+                    </button>
+                </div>
+                <div class="flex flex-wrap items-center gap-3 sm:gap-4">
                     <div id="credit-display" class="bg-gradient-to-r from-amber-400 to-orange-500 text-white px-5 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-500/25">
                         <i class="fas fa-coins"></i>
                         <span id="credit-balance">0</span> credits
@@ -13,13 +22,28 @@
                 </div>
             </div>
             <div id="dtreasure-gallery" class="masonry-layout relative pb-8"></div>
-            <div id="dtreasure-pagination" class="mt-2 mb-8 flex items-center justify-center gap-4">
-                <button id="dtreasure-prev" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
+            <div id="dtreasure-pagination" class="hidden mt-2 mb-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4 relative z-[1]">
+                <button id="dtreasure-prev" type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
                     <i class="fas fa-chevron-left"></i>
                 </button>
-                <span id="dtreasure-page-info" class="font-semibold text-gray-500 text-xs tracking-widest uppercase dark:text-gray-400">Page 1</span>
-                <button id="dtreasure-next" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
+                <span id="dtreasure-page-info" class="font-semibold text-gray-500 text-xs tracking-widest uppercase whitespace-nowrap dark:text-gray-400">Page 1</span>
+                <button id="dtreasure-next" type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
                     <i class="fas fa-chevron-right"></i>
                 </button>
+                <button type="button" data-switch-mode="infinite" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                    <i class="fas fa-infinity"></i> <span>Infinite</span>
+                </button>
+            </div>
+            <div id="dtreasure-load-more" class="hidden mt-2 mb-8 text-center relative z-[1]">
+                <div id="dtreasure-infinite-sentinel" class="h-1 w-full"></div>
+                <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                    <span id="dtreasure-loaded-info" class="inline-flex items-center justify-center whitespace-nowrap text-xs sm:text-sm font-semibold text-gray-600 px-3.5 py-2 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Showing 0 of 0</span>
+                    <button id="dtreasure-load-more-btn" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-full hover:from-amber-600 hover:to-orange-600 transition-all duration-300 shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                        <i class="fas fa-plus"></i> <span>Load More</span>
+                    </button>
+                    <button type="button" data-switch-mode="pagination" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                        <i class="fas fa-list-ol"></i> <span>Pages</span>
+                    </button>
+                </div>
             </div>
         </div>
