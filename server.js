@@ -61,23 +61,33 @@ export function translateCdnCgiImagePath(originalUrl) {
 
 async function bridgeWorkerRequest(req, res, env, overridePathWithQuery = null) {
   try {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.headers.host || `localhost:${PORT}`;
+    const rawProto = Array.isArray(req.headers['x-forwarded-proto'])
+      ? req.headers['x-forwarded-proto'][0]
+      : req.headers['x-forwarded-proto'];
+    const parsedProto = String(rawProto || req.protocol || 'http').split(',')[0].trim().toLowerCase();
+    const protocol = parsedProto === 'https' || parsedProto === 'http' ? parsedProto : 'http';
+
+    const rawHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+    const host = String(rawHost || `localhost:${PORT}`).split(',')[0].trim() || `localhost:${PORT}`;
     const pathAndQuery = overridePathWithQuery || req.originalUrl;
     const fullUrl = `${protocol}://${host}${pathAndQuery}`;
 
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers)) {
-      if (value === undefined) continue;
-      if (Array.isArray(value)) {
-        for (const v of value) headers.append(key, v);
-      } else {
-        headers.set(key, String(value));
+      if (value === undefined || key.startsWith(':')) continue;
+      try {
+        if (Array.isArray(value)) {
+          for (const v of value) headers.append(key, String(v));
+        } else {
+          headers.set(key, String(value));
+        }
+      } catch {
+        // Skip invalid proxy/hop-by-hop headers
       }
     }
 
     const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
-    const body = hasBody && req.body && req.body.length > 0 ? req.body : undefined;
+    const body = hasBody && Buffer.isBuffer(req.body) && req.body.length > 0 ? req.body : undefined;
 
     const webRequest = new Request(fullUrl, {
       method: req.method,
