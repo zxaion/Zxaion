@@ -1,0 +1,53 @@
+        <!-- Sort & Ratio Filter Toolbar -->
+        <div id="gallery-toolbar" class="hidden mb-5 bg-white/90 dark:bg-gray-900/90 border border-gray-200/80 dark:border-gray-800 rounded-2xl p-3 sm:p-3.5 shadow-sm backdrop-blur-md">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <!-- Sort Options -->
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mr-0.5 whitespace-nowrap">
+                        <i class="fas fa-arrow-down-wide-short mr-1"></i>Sort
+                    </span>
+                    <button type="button" data-sort="latest" class="sort-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border">
+                        <i class="fas fa-clock"></i><span>Latest</span>
+                    </button>
+                    <button type="button" data-sort="views" class="sort-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border">
+                        <i class="fas fa-eye"></i><span>Most Viewed</span>
+                    </button>
+                    <button type="button" data-sort="downloads" class="sort-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border">
+                        <i class="fas fa-download"></i><span>Most Downloaded</span>
+                    </button>
+                    <button type="button" data-sort="random" class="sort-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border">
+                        <i class="fas fa-shuffle"></i><span>Random</span>
+                    </button>
+                </div>
+
+                <!-- Aspect Ratio Filters + Browse Mode + Count -->
+                <div class="flex flex-wrap items-center justify-between lg:justify-end gap-2">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mr-0.5 whitespace-nowrap">
+                            <i class="fas fa-crop-simple mr-1"></i>Ratio
+                        </span>
+                        <button type="button" data-ratio="all" class="ratio-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border">
+                            <span>All</span>
+                        </button>
+                        <button type="button" data-ratio="portrait" class="ratio-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border" title="Portrait / Mobile Wallpapers">
+                            <i class="fas fa-mobile-screen"></i><span>Portrait</span>
+                        </button>
+                        <button type="button" data-ratio="landscape" class="ratio-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border" title="Landscape / Desktop Wallpapers">
+                            <i class="fas fa-desktop"></i><span>Landscape</span>
+                        </button>
+                        <button type="button" data-ratio="square" class="ratio-btn whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all duration-200 cursor-pointer border" title="Square Aspect Ratio">
+                            <i class="fas fa-square"></i><span>Square</span>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2 ml-auto lg:ml-1">
+                        <span id="toolbar-result-count" class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-800">0 items</span>
+                        <button type="button" id="browse-mode-toggle" class="whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700" title="Switch between Pages and Infinite Scroll">
+                            <i class="fas fa-layer-group"></i>
+                            <span id="browse-mode-label">Mode: Pages</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+4
