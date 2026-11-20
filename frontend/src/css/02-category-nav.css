@@ -1,0 +1,40 @@
+/* ============================================
+   CATEGORY BUTTONS
+   ============================================ */
+.cat-btn {
+    transition: all 0.3s ease;
+}
+
+.cat-btn.active img,
+.cat-btn.active .home-icon-wrapper {
+    box-shadow: 0 0 0 3px #fff, 0 0 0 5px #000;
+    transform:  scale(1.08);
+}
+
+.cat-btn.active span {
+    color:       #000;
+    font-weight: 700;
+}
+
+.dark .cat-btn.active span {
+    color: #fff;
+}
+
+.dark .cat-btn.active img,
+.dark .cat-btn.active .home-icon-wrapper {
+    box-shadow: 0 0 0 3px #1f2937, 0 0 0 5px #fff;
+}
+
+.cat-btn img,
+.home-icon-wrapper {
+    transition:    all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border:        2px solid transparent;
+    border-radius: 50%;
+    overflow:      hidden;
+}
+
+.cat-btn:hover img,
+.cat-btn:hover .home-icon-wrapper {
+    transform:  scale(1.05);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
