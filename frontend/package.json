@@ -1,15 +1,8 @@
 {
-  "name": "zxaion-verse",
+  "name": "zxaion-verse-frontend",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "dev": "node frontend/scripts/build.mjs && node server.js",
-    "start": "node server.js",
-    "lint": "node --check server.js && node --check backend/src/index.js && node --check backend/src/localRuntime.js && node --check backend/src/services/imageTransform.js && node --check backend/src/routes/media.js && node --check backend/tests/backend.test.js",
-    "test": "node --test backend/tests/*.test.js"
-  },
-  "dependencies": {
-    "express": "^4.21.2"
+    "build": "node scripts/build.mjs"
   }
 }

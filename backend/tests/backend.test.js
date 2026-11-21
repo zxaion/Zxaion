@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { translateCdnCgiImagePath } from '../../server.js';
+import { createApp, translateCdnCgiImagePath } from '../../server.js';
 import { parseImageMeta } from '../src/services/imageMeta.js';
 import { getPayPalBase } from '../src/config/constants.js';
 import { getUserToken, generateRecoveryCode, signToken, verifySignedToken } from '../src/utils/userToken.js';
@@ -671,3 +671,27 @@ test('galleryFilters sorts, classifies/filters aspect ratios, filters DTREASURE 
     start: 0, end: 45, page: 2, totalPages: 2, total: 45, hasMore: false, remaining: 0,
   });
 });
+
+test('server bridge handles multi-value X-Forwarded-Proto headers on /api/trending', async () => {
+  const env = await createLocalEnv();
+  const app = createApp(env);
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+
+  try {
+    const { port } = server.address();
+    const res = await fetch(`http://127.0.0.1:${port}/api/trending?limit=20`, {
+      headers: {
+        'X-Forwarded-Proto': 'https, http',
+      },
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(Array.isArray(data));
+    assert.ok(data.length > 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+

@@ -1,8 +1,3 @@
-// TABEL ROUTE — satu-satunya tempat yang perlu diedit untuk menambah/mengubah endpoint.
-// Urutan = urutan pencocokan (sama persis dengan urutan `if` di worker.js lama).
-//   method        : HTTP method (hilangkan = semua method)
-//   path          : cocok persis       (path === ...)
-//   pathPrefix(es): cocok awalan       (path.startsWith(...))
 import { handleHealth }          from './health.js';
 import { handleAdminSync }       from './admin.js';
 import { handlePayPalWebhook }   from './paypalWebhook.js';
