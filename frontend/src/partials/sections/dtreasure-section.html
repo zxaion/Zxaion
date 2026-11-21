@@ -22,17 +22,19 @@
                 </div>
             </div>
             <div id="dtreasure-gallery" class="masonry-layout relative pb-8"></div>
-            <div id="dtreasure-pagination" class="hidden mt-2 mb-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4 relative z-[1]">
-                <button id="dtreasure-prev" type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
-                    <i class="fas fa-chevron-left"></i>
-                </button>
-                <span id="dtreasure-page-info" class="font-semibold text-gray-500 text-xs tracking-widest uppercase whitespace-nowrap dark:text-gray-400">Page 1</span>
-                <button id="dtreasure-next" type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
-                    <i class="fas fa-chevron-right"></i>
-                </button>
-                <button type="button" data-switch-mode="infinite" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
-                    <i class="fas fa-infinity"></i> <span>Infinite</span>
-                </button>
+            <div id="dtreasure-pagination" class="hidden mt-4 mb-8 text-center relative z-[1]">
+                <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+                    <button id="dtreasure-prev" type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <span id="dtreasure-page-info" class="font-semibold text-gray-500 text-xs tracking-widest uppercase whitespace-nowrap dark:text-gray-400">Page 1</span>
+                    <button id="dtreasure-next" type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:border-amber-400 hover:text-amber-600 text-gray-500 transition-all duration-300 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                    <button type="button" data-switch-mode="infinite" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                        <i class="fas fa-infinity"></i> <span>Infinite</span>
+                    </button>
+                </div>
             </div>
             <div id="dtreasure-load-more" class="hidden mt-2 mb-8 text-center relative z-[1]">
                 <div id="dtreasure-infinite-sentinel" class="h-1 w-full"></div>

@@ -29,9 +29,14 @@
 
 /* ── Masonry Item ─────────────────────────────────────────── */
 .masonry-item {
+    display:         inline-block;
+    width:           100%;
+    vertical-align:  top;
+    -webkit-column-break-inside: avoid;
     break-inside:    avoid;
     margin-bottom:   1rem;
     position:        relative;
+    isolation:       isolate;
     border-radius:   16px;
     overflow:        hidden;
     background:      #f3f4f6;
@@ -67,7 +72,8 @@
 
 .masonry-overlay .stats {
     display:       flex;
-    gap:           0.75rem;
+    flex-wrap:     wrap;
+    gap:           0.5rem;
     color:         white;
     font-size:     0.75rem;
     font-weight:   600;
@@ -81,7 +87,7 @@
     gap:             0.375rem;
     background:      rgba(0,0,0,0.5);
     backdrop-filter: blur(4px);
-    padding:         0.375rem 0.75rem;
+    padding:         0.375rem 0.625rem;
     border-radius:   999px;
 }
 
@@ -90,7 +96,7 @@
     color:         #111827;
     border:        none;
     border-radius: 999px;
-    padding:       0.5rem 1rem;
+    padding:       0.5rem 0.875rem;
     font-size:     0.75rem;
     font-weight:   700;
     display:       flex;
@@ -109,10 +115,31 @@
     box-shadow:  0 10px 15px -3px rgba(0,0,0,0.1);
 }
 
+@media (max-width: 639px) {
+    .masonry-overlay {
+        padding: 0.625rem;
+    }
+
+    .masonry-overlay .stats {
+        gap:           0.375rem;
+        font-size:     0.6875rem;
+        margin-bottom: 0.375rem;
+    }
+
+    .masonry-overlay .stats span {
+        padding: 0.25rem 0.5rem;
+    }
+
+    .masonry-overlay .download-btn {
+        padding:   0.375rem 0.75rem;
+        font-size: 0.6875rem;
+    }
+}
+
 /* ── Hover — desktop only ─────────────────────────────────── */
 @media (hover: hover) {
     .masonry-item:hover {
-        transform:  translateY(-6px);
+        transform:  translateY(-4px);
         box-shadow: var(--shadow-2xl);
         z-index:    10;
     }
@@ -135,6 +162,6 @@
     }
 
     .masonry-overlay .stats {
-        opacity: 0.8;
+        opacity: 0.85;
     }
 }

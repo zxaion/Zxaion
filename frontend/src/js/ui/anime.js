@@ -6,30 +6,63 @@ Object.assign(ui, {
     renderAnimeCollections() {
         if (!elements.animeGrid) return;
         elements.animeGrid.innerHTML = '';
-        const albumTitles = ANIME_SUB_ALBUMS.filter(title => title !== 'ORIGINAL');
-        const fragment    = document.createDocumentFragment();
+
+        const knownLower = new Set(ANIME_SUB_ALBUMS.map(t => t.toLowerCase()));
+        const dynamicTitles = Object.keys(state.animeAlbums || {})
+            .filter(t => t !== 'ORIGINAL' && !knownLower.has(t.toLowerCase()));
+
+        const albumTitles = [
+            ...ANIME_SUB_ALBUMS.filter(title => title !== 'ORIGINAL'),
+            ...dynamicTitles,
+        ];
+        const fragment = document.createDocumentFragment();
+        const cardFallbackSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='480'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%23312e81'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='480' height='480'/%3E%3C/svg%3E";
 
         albumTitles.forEach((title, index) => {
             const album = state.animeAlbums[title];
             const card  = document.createElement('div');
             card.className = 'anime-collection-card aspect-square relative cursor-pointer group fade-in';
-            card.style.animationDelay = `${index * 30}ms`;
+            card.style.animationDelay = `${Math.min(index, 12) * 25}ms`;
 
-            const rawThumb     = window.animeAlbumThumbnails?.[title] || (album?.photos[0]?.url ? album.photos[0].url : '/api/img/HEADER/Anime.jpg');
-            const optimizedThumb = utils.buildImageUrl(rawThumb, { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' });
-            const safeThumb    = utils.escapeHtml(optimizedThumb);
-            const safeTitle    = utils.escapeHtml(title);
-            const count        = album ? album.photos.length : 0;
+            const configuredThumb = window.animeAlbumThumbnails?.[title] || '';
+            const firstPhotoUrl   = album?.photos?.[0]?.url || '';
+            const primaryRaw      = configuredThumb || firstPhotoUrl || '/api/img/HEADER/Anime.jpg';
+            const extraRaw        = [];
+            if (firstPhotoUrl && firstPhotoUrl !== primaryRaw) extraRaw.push(firstPhotoUrl);
+            extraRaw.push('/api/img/HEADER/Anime.jpg');
+
+            const candidates = utils.getImageFallbackCandidates(
+                primaryRaw,
+                { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' },
+                extraRaw
+            );
+
+            const safeTitle = utils.escapeHtml(title);
+            const count     = album ? album.photos.length : 0;
 
             card.innerHTML = `
                 <div class="w-full h-full relative overflow-hidden rounded-2xl">
-                    <img src="${safeThumb}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-all duration-500 group-hover:scale-110" loading="lazy" alt="${safeTitle}">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-4">
+                    <img class="anime-thumb-img w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-all duration-500 group-hover:scale-110 loading-shimmer" loading="lazy" decoding="async" alt="${safeTitle}">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-4 pointer-events-none">
                         <h3 class="text-white font-black text-center uppercase text-sm md:text-base leading-tight drop-shadow-lg line-clamp-2">${safeTitle}</h3>
                         <p class="text-white/70 text-center text-xs mt-1 font-semibold">${count} items</p>
                     </div>
                 </div>
             `;
+
+            const img = card.querySelector('img.anime-thumb-img');
+            if (img) {
+                const firstSrc = utils.attachImageFallback(img, candidates, {
+                    fallbackSvg: cardFallbackSvg,
+                    onLoadSuccess(el) { el.classList.remove('loading-shimmer'); },
+                    onFinalError(el) {
+                        el.classList.remove('loading-shimmer');
+                        el.src = cardFallbackSvg;
+                    },
+                });
+                img.src = firstSrc || cardFallbackSvg;
+            }
+
             card.addEventListener('click', () => this.openAnimeAlbum(title));
             fragment.appendChild(card);
         });
@@ -37,7 +70,7 @@ Object.assign(ui, {
         elements.animeGrid.appendChild(fragment);
     },
 
-    openAnimeAlbum(albumTitle) {
+    async openAnimeAlbum(albumTitle) {
         state.currentAnimeAlbum = albumTitle;
         const album = state.animeAlbums[albumTitle];
 
@@ -75,5 +108,28 @@ Object.assign(ui, {
         this.showToolbar();
         this.renderGallery();
         elements.galleryContainer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // Jika koleksi masih kosong di cache halaman-1 (misal total katalog > 500 & background paging masih berjalan), fetch langsung subCategory dari backend
+        if (state.filteredPhotos.length === 0) {
+            const subCandidates = album?.folderName
+                ? [album.folderName]
+                : (albumTitle === 'ORIGINAL' ? ['random'] : [albumTitle, albumTitle.toLowerCase()]);
+            for (const sub of subCandidates) {
+                try {
+                    const res = await fetch(`${API_BASE}/api/list?category=Anime&subCategory=${encodeURIComponent(sub)}&limit=500`);
+                    if (!res.ok) continue;
+                    const fetched = await res.json();
+                    if (Array.isArray(fetched) && fetched.length > 0 && state.currentAnimeAlbum === albumTitle && state.currentCategory === 'Anime') {
+                        state.filteredPhotos = fetched;
+                        if (heroDesc) heroDesc.textContent = `${fetched.length} high quality wallpapers`;
+                        this.invalidateMainSortCache();
+                        this.renderGallery();
+                        break;
+                    }
+                } catch {
+                    // abaikan error jaringan sementara
+                }
+            }
+        }
     },
 });

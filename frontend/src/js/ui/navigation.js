@@ -107,7 +107,8 @@ Object.assign(ui, {
 
         const hero = document.getElementById('page-hero');
         if (hero && window.headerBackgrounds?.[category]) {
-            hero.style.backgroundImage = `url('${window.headerBackgrounds[category]}')`;
+            const safeBgUrl = utils.encodeImageUrlPath(window.headerBackgrounds[category]);
+            hero.style.backgroundImage = `url('${safeBgUrl}')`;
         }
 
         const actions = document.getElementById('hero-actions');

@@ -2,10 +2,10 @@
          DONATION MODAL
          ═══════════════════════════════════════════ -->
     <div id="donation-modal" class="fixed inset-0 z-[120] hidden items-center justify-center p-4 modal-backdrop">
-        <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
-            <div class="relative bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 p-6 md:p-8">
-                <div class="absolute inset-0 bg-black/10"></div>
-                <button id="close-donation" class="absolute top-4 right-4 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl dark:bg-gray-900 dark:border dark:border-gray-800">
+            <div class="relative shrink-0 bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 p-6 md:p-8">
+                <div class="absolute inset-0 bg-black/10 pointer-events-none"></div>
+                <button id="close-donation" type="button" aria-label="Close Donation modal" class="absolute top-4 right-4 z-20 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm">
                     <i class="fas fa-times"></i>
                 </button>
                 <div class="relative z-10 text-center">
@@ -16,7 +16,7 @@
                     <p class="text-white/90 text-sm md:text-base">Your support helps us create more amazing content</p>
                 </div>
             </div>
-            <div class="p-6 md:p-8 overflow-y-auto max-h-[60vh]">
+            <div class="p-6 md:p-8 flex-1 min-h-0 overflow-y-auto">
                 <!-- Primary Donation -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                     <a href="https://paypal.me/WANTO198" target="_blank" rel="noopener noreferrer" class="group relative overflow-hidden bg-[#003087] text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 hover:scale-[1.02]">

@@ -32,9 +32,8 @@ Object.assign(ui, {
                     if (entry.isIntersecting) {
                         const img = entry.target;
                         if (img.dataset.src) {
-                            img.src         = img.dataset.src;
+                            img.src = img.dataset.src;
                             delete img.dataset.src;
-                            img.onerror = () => { img.style.opacity = '0.2'; };
                         }
                         observer.unobserve(img);
                     }
@@ -43,7 +42,8 @@ Object.assign(ui, {
             : null;
 
         photos.forEach((photo, index) => {
-            const fullUrl    = utils.buildImageUrl(photo.url, { w: 360, h: 640, q: 80, fit: 'cover', fmt: 'auto' });
+            const candidates = utils.getImageFallbackCandidates(photo.url, { w: 360, h: 640, q: 80, fit: 'cover', fmt: 'auto' });
+            const fullUrl    = candidates[0] || '';
             const rankColors = ['from-amber-400 to-yellow-500', 'from-gray-300 to-gray-400', 'from-amber-700 to-amber-800'];
             const rankColor  = index < 3 ? rankColors[index] : 'from-gray-700 to-gray-800';
             const rankLabel  = index < 3 ? ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'][index] : `#${index + 1}`;
@@ -57,7 +57,7 @@ Object.assign(ui, {
 
             card.innerHTML =
                 '<div class="relative w-full" style="aspect-ratio:9/16;">' +
-                    '<img src="' + placeholder + '" data-src="' + fullUrl + '" alt="' + utils.escapeHtml(photo.title) + '" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-300 ranking-lazy-img" loading="lazy" decoding="async" draggable="false">' +
+                    '<img src="' + placeholder + '" data-src="' + utils.escapeHtml(fullUrl) + '" alt="' + utils.escapeHtml(photo.title) + '" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-300 ranking-lazy-img" loading="lazy" decoding="async" draggable="false">' +
                     '<div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent pointer-events-none"></div>' +
                     '<div class="absolute top-2 left-2 bg-gradient-to-br ' + rankColor + ' rounded-full w-8 h-8 flex items-center justify-center shadow-lg ' + (isMedal ? 'text-base' : 'text-white text-xs font-black') + '">' + rankLabel + '</div>' +
                     '<div class="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1">' +
@@ -75,6 +75,9 @@ Object.assign(ui, {
 
             const img = card.querySelector('img.ranking-lazy-img');
             if (img) {
+                utils.attachImageFallback(img, candidates, {
+                    onFinalError(el) { el.style.opacity = '0.2'; },
+                });
                 if (sharedObserver) sharedObserver.observe(img);
                 else if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
             }

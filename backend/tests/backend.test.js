@@ -566,7 +566,7 @@ test('getCloudflareImageUrl builds valid /cdn-cgi/image URLs and preserves non-t
   const here = dirname(fileURLToPath(import.meta.url));
   const utilsSrc = readFileSync(join(here, '../../frontend/src/js/core/utils.js'), 'utf8');
 
-  const sandbox = { API_BASE: '' };
+  const sandbox = { API_BASE: '', URL, URLSearchParams };
   vm.runInNewContext(utilsSrc, sandbox);
   const { getCloudflareImageUrl } = sandbox;
 
@@ -592,12 +592,77 @@ test('getCloudflareImageUrl builds valid /cdn-cgi/image URLs and preserves non-t
   );
 
   // With external API_BASE
-  const prodSandbox = { API_BASE: 'https://ai.zxaionverse.workers.dev' };
+  const prodSandbox = { API_BASE: 'https://ai.zxaionverse.workers.dev', URL, URLSearchParams };
   vm.runInNewContext(utilsSrc, prodSandbox);
   assert.equal(
     prodSandbox.getCloudflareImageUrl('/api/img/pic.jpg', { width: 800, format: 'auto' }),
     '/cdn-cgi/image/width=800,format=auto/https://ai.zxaionverse.workers.dev/api/img/pic.jpg'
   );
+});
+
+test('image URL encoding and multi-stage fallback helpers construct safe Worker and direct fallback queues', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const utilsSrc = readFileSync(join(here, '../../frontend/src/js/core/utils.js'), 'utf8');
+
+  const sandbox = { API_BASE: 'https://ai.zxaionverse.workers.dev', URL, URLSearchParams };
+  vm.runInNewContext(utilsSrc, sandbox);
+  const {
+    encodeImageUrlPath,
+    buildWorkerTransformUrl,
+    getImageFallbackCandidates,
+    attachImageFallback,
+  } = sandbox;
+
+  // Spaces get safely percent-encoded and API_BASE is prepended to /api/* paths
+  assert.equal(
+    encodeImageUrlPath('/api/img/HEADER/One piece.jpg'),
+    'https://ai.zxaionverse.workers.dev/api/img/HEADER/One%20piece.jpg'
+  );
+  // Already-encoded %2F / %20 segments are not double-encoded
+  assert.equal(
+    encodeImageUrlPath('/api/img/ANIME%2FOshi%20no%20ko/pic%201.jpg'),
+    'https://ai.zxaionverse.workers.dev/api/img/ANIME%2FOshi%20no%20ko/pic%201.jpg'
+  );
+
+  // Worker built-in IMAGES transform URL
+  assert.equal(
+    buildWorkerTransformUrl('/api/img/HEADER/Anime.jpg', { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' }),
+    'https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg?w=480&h=480&q=80&fit=cover&fmt=auto'
+  );
+
+  // Multi-stage candidate queue: /cdn-cgi/image -> Worker transform -> raw Worker URL -> extras (deduplicated)
+  const candidates = getImageFallbackCandidates(
+    '/api/img/HEADER/Demon slayer.jpg',
+    { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' },
+    ['/api/img/ANIME/Demon%20slayer/tanjiro.jpg', '/api/img/HEADER/Demon slayer.jpg']
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(candidates)), [
+    '/cdn-cgi/image/width=480,height=480,quality=80,fit=cover,format=auto/https://ai.zxaionverse.workers.dev/api/img/HEADER/Demon%20slayer.jpg',
+    'https://ai.zxaionverse.workers.dev/api/img/HEADER/Demon%20slayer.jpg?w=480&h=480&q=80&fit=cover&fmt=auto',
+    'https://ai.zxaionverse.workers.dev/api/img/HEADER/Demon%20slayer.jpg',
+    '/cdn-cgi/image/width=480,height=480,quality=80,fit=cover,format=auto/https://ai.zxaionverse.workers.dev/api/img/ANIME/Demon%20slayer/tanjiro.jpg',
+    'https://ai.zxaionverse.workers.dev/api/img/ANIME/Demon%20slayer/tanjiro.jpg?w=480&h=480&q=80&fit=cover&fmt=auto',
+    'https://ai.zxaionverse.workers.dev/api/img/ANIME/Demon%20slayer/tanjiro.jpg',
+  ]);
+
+  // attachImageFallback advances through candidates on error and triggers fallbackSvg at the end
+  let finalErrorCalled = false;
+  const fakeImg = { src: '' };
+  const first = attachImageFallback(fakeImg, ['https://a.test/1.jpg', 'https://a.test/2.jpg'], {
+    fallbackSvg: 'data:image/svg+xml,<svg/>',
+    onFinalError(el) {
+      finalErrorCalled = true;
+      el.src = 'data:image/svg+xml,<svg/>';
+    },
+  });
+  assert.equal(first, 'https://a.test/1.jpg');
+  fakeImg.src = first;
+  fakeImg.onerror();
+  assert.equal(fakeImg.src, 'https://a.test/2.jpg');
+  fakeImg.onerror();
+  assert.equal(finalErrorCalled, true);
+  assert.equal(fakeImg.src, 'data:image/svg+xml,<svg/>');
+  assert.equal(fakeImg.onerror, null);
 });
 
 test('translateCdnCgiImagePath translates /cdn-cgi/image directives into backend query params', () => {

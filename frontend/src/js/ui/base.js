@@ -109,20 +109,23 @@ const ui = {
                 if (!photo || !photo.url) continue;
                 await new Promise((resolve) => {
                     const probe = new Image();
+                    const probeCandidates = utils.getImageFallbackCandidates(photo.url, { w: 64, q: 30, fit: 'scale-down', fmt: 'auto' });
                     const done = () => {
                         probe.onload = null;
                         probe.onerror = null;
                         resolve();
                     };
-                    probe.onload = () => {
-                        if (probe.naturalWidth > 0 && probe.naturalHeight > 0) {
-                            this.recordPhotoDimensions(photo, probe);
-                            updatedAny = true;
-                        }
-                        done();
-                    };
-                    probe.onerror = done;
-                    probe.src = utils.buildImageUrl(photo.url, { w: 64, q: 30, fit: 'scale-down', fmt: 'auto' });
+                    const firstProbeUrl = utils.attachImageFallback(probe, probeCandidates, {
+                        onLoadSuccess(el) {
+                            if (el.naturalWidth > 0 && el.naturalHeight > 0) {
+                                ui.recordPhotoDimensions(photo, el);
+                                updatedAny = true;
+                            }
+                            done();
+                        },
+                        onFinalError: done,
+                    });
+                    probe.src = firstProbeUrl;
                 });
             }
         };

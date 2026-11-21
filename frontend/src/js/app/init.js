@@ -5,6 +5,7 @@
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
     ui.initLogo();
+    ui.initCategoryAndHeaderImages();
     ui.initIcons();
     initEvents();
 

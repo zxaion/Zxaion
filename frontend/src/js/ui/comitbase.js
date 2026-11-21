@@ -106,14 +106,17 @@ Object.assign(ui, {
             item.style.animationDelay = `${Math.min(index, 12) * 35}ms`;
             item.dataset.photoId = photo.id;
 
-            const fullUrl       = utils.buildImageUrl(photo.url, { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' });
+            const transformOpts = { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' };
+            const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
+            const fullUrl       = candidates[0] || '';
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+            const errorSvg      = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
 
             item.innerHTML = `
             <img
                 src="${placeholderSvg}"
-                data-src="${fullUrl}"
+                data-src="${utils.escapeHtml(fullUrl)}"
                 alt="${utils.escapeHtml(photo.title)}"
                 loading="lazy"
                 class="loading-shimmer w-full h-auto"
@@ -129,15 +132,19 @@ Object.assign(ui, {
             </div>`;
 
             const img   = item.querySelector('img');
+            utils.attachImageFallback(img, candidates, {
+                fallbackSvg: errorSvg,
+                onLoadSuccess(el) {
+                    if (el.dataset.src) return;
+                    el.classList.remove('loading-shimmer');
+                    ui.recordPhotoDimensions(photo, el);
+                },
+                onFinalError(el) {
+                    el.classList.remove('loading-shimmer');
+                    el.src = errorSvg;
+                },
+            });
             imageObserver.observe(img);
-            img.onload  = function() {
-                this.classList.remove('loading-shimmer');
-                ui.recordPhotoDimensions(photo, this);
-            };
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
             fragment.appendChild(item);
         });
 

@@ -214,11 +214,13 @@ const api = {
                         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                         .join(' ');
 
-                    const matchedAlbum = ANIME_SUB_ALBUMS.find(album =>
-                        album.toLowerCase() === normalizedName.toLowerCase() ||
-                        normalizedName.toLowerCase().includes(album.toLowerCase()) ||
-                        album.toLowerCase().includes(normalizedName.toLowerCase())
-                    );
+                    const lowerNorm = normalizedName.toLowerCase();
+                    const matchedAlbum =
+                        ANIME_SUB_ALBUMS.find(album => album.toLowerCase() === lowerNorm) ||
+                        ANIME_SUB_ALBUMS.find(album =>
+                            lowerNorm.length >= 4 &&
+                            (lowerNorm.includes(album.toLowerCase()) || album.toLowerCase().includes(lowerNorm))
+                        );
                     albumTitle = matchedAlbum || normalizedName;
                 }
 

@@ -8,6 +8,7 @@ Object.assign(ui, {
 
         const setupLogoImage = (imgEl, textEl, url, alt) => {
             if (!imgEl) return;
+            const resolvedUrl = typeof utils !== 'undefined' ? utils.encodeImageUrlPath(url) : url;
             imgEl.onerror = function() {
                 this.onerror = null;
                 this.classList.add('hidden');
@@ -18,13 +19,59 @@ Object.assign(ui, {
                 this.onload = null;
                 if (textEl) textEl.classList.add('hidden');
             };
-            imgEl.src = url;
+            imgEl.src = resolvedUrl;
             imgEl.alt = alt || 'Logo';
             imgEl.classList.remove('hidden');
         };
 
         setupLogoImage(document.getElementById('logo-image'),        document.getElementById('logo-text'),        window.customLogo.url, window.customLogo.alt);
         setupLogoImage(document.getElementById('footer-logo-image'), document.getElementById('footer-logo-text'), window.customLogo.url, window.customLogo.alt);
+    },
+
+    initCategoryAndHeaderImages() {
+        const catImgMap = [
+            { id: 'cat-anime-img',       cat: 'Anime',       extras: ['/api/img/HEADER/Anime.jpg'] },
+            { id: 'cat-fantasy-img',     cat: 'Fantasy',     extras: ['/api/img/HEADER/Fantasy.jpg'] },
+            { id: 'cat-abstract-img',    cat: 'Abstract',    extras: ['/api/img/HEADER/Abstract.jpg'] },
+            { id: 'cat-photography-img', cat: 'Photography', extras: ['/api/img/PHOTOGRAPHY/PSX_207.jpg'] },
+            { id: 'cat-comitbase-img',   cat: 'COMITBASE',   extras: ['/api/img/HEADER/Combaseheader.jpg'] },
+            { id: 'cat-dtreasure-img',   cat: 'DTREASURE',   extras: ['/api/img/HEADER/Dtreasure.jpg', '/api/img/HEADER/Dtreasure1.jpg'] },
+            { id: 'cat-zmeme-img',       cat: 'ZMEME',       extras: ['/api/img/HEADER/Memenav.jpg', '/api/img/HEADER/Zmeme.jpg'] },
+            { id: 'cat-overlay-img',     cat: 'OVERLAY',     extras: ['/api/img/HEADER/Overlaynav.jpg', '/api/img/HEADER/Overlay.jpg'] },
+        ];
+
+        catImgMap.forEach(({ id, cat, extras }) => {
+            const img = document.getElementById(id);
+            if (!img) return;
+            const configured = window.categoryThumbnails?.[cat];
+            const currentAttr = img.getAttribute('src');
+            const candidates = [];
+            const pushUnique = (u) => {
+                if (!u) return;
+                const resolved = utils.encodeImageUrlPath(u);
+                if (resolved && !candidates.includes(resolved)) candidates.push(resolved);
+            };
+            pushUnique(configured);
+            pushUnique(currentAttr);
+            extras.forEach(pushUnique);
+
+            const fallbackSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect fill='%231f2937' width='64' height='64' rx='32'/%3E%3C/svg%3E";
+            const initialSrc = utils.attachImageFallback(img, candidates, { fallbackSvg });
+            if (initialSrc) img.src = initialSrc;
+        });
+
+        const origImg = document.getElementById('original-album-img');
+        if (origImg) {
+            const rawOrig = window.animeAlbumThumbnails?.['ORIGINAL'] || '/api/img/HEADER/Original.jpg';
+            const candidates = utils.getImageFallbackCandidates(
+                rawOrig,
+                { w: 1200, q: 80, fit: 'cover', fmt: 'auto' },
+                ['/api/img/HEADER/Original.jpg', '/api/img/HEADER/Anime.jpg']
+            );
+            const fallbackSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='400'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%231e1b4b'/%3E%3Cstop offset='100%25' stop-color='%23312e81'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='1200' height='400'/%3E%3C/svg%3E";
+            const initialSrc = utils.attachImageFallback(origImg, candidates, { fallbackSvg });
+            if (initialSrc) origImg.src = initialSrc;
+        }
     },
 
     // Mengganti FontAwesome <i> tags dengan <img> dari R2.
@@ -37,7 +84,8 @@ Object.assign(ui, {
             try {
                 document.querySelectorAll(selector).forEach(iconEl => {
                     const img         = document.createElement('img');
-                    img.src           = `${API_BASE}/api/img/${url}`;
+                    const rawIconPath = url.startsWith('http') || url.startsWith('/') ? url : `/api/img/${url}`;
+                    img.src           = typeof utils !== 'undefined' ? utils.encodeImageUrlPath(rawIconPath) : `${API_BASE}${rawIconPath}`;
                     img.alt           = '';
                     img.width         = 20;
                     img.height        = 20;

@@ -157,12 +157,15 @@ Object.assign(ui, {
             item.style.animationDelay = `${Math.min(index, 12) * 35}ms`;
             item.dataset.photoId = photo.id;
 
-            const fullUrl       = utils.buildImageUrl(photo.url, { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' });
+            const transformOpts = { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' };
+            const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
+            const fullUrl       = candidates[0] || '';
             const isFree        = state.lifetime || state.purchasedImages.has(photo.id);
             const buttonText    = isFree ? 'Download' : '10 Credits';
             const buttonIcon    = isFree ? 'fa-download' : 'fa-lock';
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+            const errorSvg      = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
 
             const unlockedBadge = isFree
                 ? `<span class="dtreasure-unlocked-badge absolute top-2.5 left-2.5 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-md backdrop-blur-sm"><i class="fas fa-unlock"></i> Unlocked</span>`
@@ -181,7 +184,7 @@ Object.assign(ui, {
     ${unlockedBadge}
     <img
         src="${placeholderSvg}"
-        data-src="${fullUrl}"
+        data-src="${utils.escapeHtml(fullUrl)}"
         alt="${utils.escapeHtml(photo.title)}"
         loading="lazy"
         class="loading-shimmer w-full h-auto select-none"
@@ -201,15 +204,19 @@ Object.assign(ui, {
 </div>`;
 
             const img   = item.querySelector('img');
+            utils.attachImageFallback(img, candidates, {
+                fallbackSvg: errorSvg,
+                onLoadSuccess(el) {
+                    if (el.dataset.src) return;
+                    el.classList.remove('loading-shimmer');
+                    ui.recordPhotoDimensions(photo, el);
+                },
+                onFinalError(el) {
+                    el.classList.remove('loading-shimmer');
+                    el.src = errorSvg;
+                },
+            });
             imageObserver.observe(img);
-            img.onload  = function() {
-                this.classList.remove('loading-shimmer');
-                ui.recordPhotoDimensions(photo, this);
-            };
-            img.onerror = function() {
-                this.classList.remove('loading-shimmer');
-                this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
-            };
             fragment.appendChild(item);
         });
 

@@ -54,9 +54,9 @@ Object.assign(ui, {
         const displayViews     = photo.viewCount;
         const displayDownloads = photo.downloadCount || 0;
 
-        const imageUrl   = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
+        const imageUrl    = utils.encodeImageUrlPath(photo.url);
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-        const previewUrl = utils.buildImageUrl(photo.url, {
+        const previewCandidates = utils.getImageFallbackCandidates(photo.url, {
             w:   isDtreasure ? 600 : 1400,
             q:   isDtreasure ? 75  : 85,
             fit: 'scale-down',
@@ -69,20 +69,24 @@ Object.assign(ui, {
         elements.modalImg.onerror         = null;
         elements.modalImg.onload          = null;
 
-        const preload   = new Image();
-        preload.onload  = () => {
-            elements.modalImg.src = previewUrl;
-            elements.modalImg.classList.remove('loading-shimmer');
-            elements.modalImg.style.minHeight = '';
-            preload.onload = null;
-        };
-        preload.onerror = () => {
-            elements.modalImg.classList.remove('loading-shimmer');
-            elements.modalImg.style.minHeight = '';
-            elements.modalImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
-            preload.onerror = null;
-        };
-        preload.src = previewUrl;
+        const preload = new Image();
+        const firstPreviewUrl = utils.attachImageFallback(preload, previewCandidates, {
+            onLoadSuccess(el) {
+                elements.modalImg.src = el.src;
+                elements.modalImg.classList.remove('loading-shimmer');
+                elements.modalImg.style.minHeight = '';
+                el.onload = null;
+                el.onerror = null;
+            },
+            onFinalError(el) {
+                elements.modalImg.classList.remove('loading-shimmer');
+                elements.modalImg.style.minHeight = '';
+                elements.modalImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
+                el.onload = null;
+                el.onerror = null;
+            },
+        });
+        preload.src = firstPreviewUrl;
 
         elements.modalTitle.textContent         = photo.title || 'Wallpaper';
         elements.modalCategory.textContent      = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
