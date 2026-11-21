@@ -1,8 +1,11 @@
+import { ensureAutoSync } from '../services/r2Sync.js';
+
 // ================================================================
 // ENDPOINT: List main gallery (supports category, subCategory, q search, pagination)
 // ================================================================
-export async function handleListMain({ url, DB, corsHeaders }) {
+export async function handleListMain({ url, env, ctx, DB, corsHeaders }) {
   try {
+    if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',  10);
     const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
     const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
@@ -74,8 +77,9 @@ export async function handleListMain({ url, DB, corsHeaders }) {
 // ================================================================
 // ENDPOINT: Anime sub-albums summary
 // ================================================================
-export async function handleAnimeAlbums({ DB, corsHeaders }) {
+export async function handleAnimeAlbums({ env, ctx, DB, corsHeaders }) {
   try {
+    if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const { results } = await DB.prepare(
       `SELECT sub_category, COUNT(*) AS count
        FROM images
@@ -102,11 +106,12 @@ export async function handleAnimeAlbums({ DB, corsHeaders }) {
 // ================================================================
 // ENDPOINT: COMITBASE list
 // ================================================================
-export async function handleListComitbase({ url, comitbaseBucket, DB, corsHeaders }) {
+export async function handleListComitbase({ url, env, ctx, comitbaseBucket, DB, corsHeaders }) {
   if (!comitbaseBucket) return new Response('[]', {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
   try {
+    if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'comitbase' });
     const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',   10);
     const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
     const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
@@ -155,11 +160,12 @@ export async function handleListComitbase({ url, comitbaseBucket, DB, corsHeader
 // ================================================================
 // ENDPOINT: DTREASURE list
 // ================================================================
-export async function handleListDtreasure({ url, treasureBucket, DB, corsHeaders }) {
+export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, corsHeaders }) {
   if (!treasureBucket) return new Response('[]', {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
   try {
+    if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'dtreasure' });
     const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',   10);
     const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
     const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
@@ -208,11 +214,12 @@ export async function handleListDtreasure({ url, treasureBucket, DB, corsHeaders
 // ================================================================
 // ENDPOINT: Top trending images
 // ================================================================
-export async function handleTrending({ url, DB, corsHeaders }) {
+export async function handleTrending({ url, env, ctx, DB, corsHeaders }) {
   const rawLimit = parseInt(url.searchParams.get('limit') ?? '20', 10);
   const limit    = Math.min(50, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
 
   try {
+    if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const { results } = await DB.prepare(`
       SELECT id, title, r2_key, bucket, category, sub_category,
              view_count, download_count,

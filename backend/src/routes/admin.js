@@ -11,8 +11,8 @@ export async function handleAdminSync({ request, env, corsHeaders }) {
     });
   }
   try {
-    await handleScheduled(env);
-    return new Response(JSON.stringify({ success: true, message: 'Sync completed' }), {
+    const stats = await handleScheduled(env);
+    return new Response(JSON.stringify({ success: true, message: 'Sync completed', stats }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e) {

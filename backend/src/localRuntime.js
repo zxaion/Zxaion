@@ -101,6 +101,25 @@ export function createMockR2Bucket(name, seedItems = []) {
         cursor: undefined,
       };
     },
+    async head(key) {
+      const entry = objects.get(key);
+      if (!entry) return null;
+      return { key: entry.key, size: entry.size, uploaded: entry.uploaded, httpEtag: entry.httpEtag };
+    },
+    async put(key, body = '', { size, uploaded, contentType } = {}) {
+      const text = typeof body === 'string' ? body : '';
+      objects.set(key, {
+        key,
+        size: size ?? (Buffer.byteLength(text) || 245760),
+        uploaded: uploaded || new Date().toISOString(),
+        httpEtag: `"${Buffer.from(key).toString('base64url').slice(0, 12)}"`,
+        contentType: contentType || 'image/jpeg',
+        bodyText: text || null,
+      });
+    },
+    async delete(key) {
+      objects.delete(key);
+    },
     async get(key) {
       const isPreview = key.startsWith('_preview/');
       const underlyingKey = isPreview ? key.slice('_preview/'.length) : key;
@@ -262,6 +281,19 @@ export function createMockD1() {
       return { meta: { changes: 1 } };
     }
 
+    if (q === 'SELECT id, size, uploaded FROM images WHERE bucket = ?') {
+      const targetBucket = params[0];
+      const results = Array.from(images.values())
+        .filter((r) => r.bucket === targetBucket)
+        .map((r) => ({ id: r.id, size: r.size, uploaded: r.uploaded }));
+      return { results };
+    }
+
+    if (q === 'DELETE FROM images WHERE id = ?') {
+      const existed = images.delete(params[0]);
+      return { meta: { changes: existed ? 1 : 0 } };
+    }
+
     if (q.startsWith('DELETE FROM images WHERE bucket = ?')) {
       const [bucket, syncStartedAt] = params;
       let changes = 0;
@@ -285,6 +317,15 @@ export function createMockD1() {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([sub_category, count]) => ({ sub_category, count }));
       return { results };
+    }
+
+    if (q === 'SELECT COUNT(*) AS total FROM images WHERE bucket = ?') {
+      const targetBucket = params[0];
+      let total = 0;
+      for (const r of images.values()) {
+        if (r.bucket === targetBucket) total++;
+      }
+      return { first: { total }, results: [{ total }] };
     }
 
     if (q.startsWith('SELECT COUNT(*) AS total FROM images')) {

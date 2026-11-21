@@ -9,7 +9,13 @@ import { createApp, translateCdnCgiImagePath } from '../../server.js';
 import { parseImageMeta } from '../src/services/imageMeta.js';
 import { getPayPalBase } from '../src/config/constants.js';
 import { getUserToken, generateRecoveryCode, signToken, verifySignedToken } from '../src/utils/userToken.js';
-import { createLocalEnv, createMockImagesBinding, createMockR2Bucket } from '../src/localRuntime.js';
+import { createLocalEnv, createMockD1, createMockImagesBinding, createMockR2Bucket } from '../src/localRuntime.js';
+import {
+  handleScheduled,
+  handleR2QueueBatch,
+  ensureAutoSync,
+  resetSyncStateForTests,
+} from '../src/services/r2Sync.js';
 import { parseTransformOptions } from '../src/services/imageTransform.js';
 import { checkRateLimit as rawCheckRateLimit } from '../src/services/rateLimit.js';
 import { handleListMain, handleAnimeAlbums } from '../src/routes/gallery.js';
@@ -759,4 +765,126 @@ test('server bridge handles multi-value X-Forwarded-Proto headers on /api/trendi
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('incremental scheduled sync skips unchanged images and detects newly added or deleted objects', async () => {
+  const env = await createLocalEnv();
+  resetSyncStateForTests();
+
+  // Second run immediately after initial sync should skip every unchanged image
+  const secondRun = await handleScheduled(env);
+  const mainSecond = secondRun.find((s) => s.bucket === 'main');
+  assert.equal(mainSecond.upserted, 0);
+  assert.equal(mainSecond.removed, 0);
+  assert.ok(mainSecond.skipped > 0);
+
+  // Add 1 brand-new image to R2 and remove 1 existing image
+  await env.Zxaion_B.put('ANIME/Bleach/ichigo_bankai_4k.jpg', 'img-data', { size: 512000 });
+  await env.Zxaion_B.delete('FANTASY/emerald_sanctuary_falls.jpg');
+
+  const thirdRun = await handleScheduled(env);
+  const mainThird = thirdRun.find((s) => s.bucket === 'main');
+  assert.equal(mainThird.upserted, 1);
+  assert.equal(mainThird.removed, 1);
+  assert.equal(mainThird.skipped, mainSecond.skipped - 1);
+});
+
+test('handleR2QueueBatch processes PutObject and DeleteObject events immediately with zero cron delay', async () => {
+  const env = await createLocalEnv();
+  resetSyncStateForTests();
+
+  const newKey = 'ANIME/Jujutsu Kaisen/gojo_hollow_purple_8k.jpg';
+  await env.Zxaion_B.put(newKey, 'bytes', { size: 777777 });
+
+  let putAcked = false;
+  let delAcked = false;
+
+  // PutObject event -> immediately appears in /api/list
+  await handleR2QueueBatch({
+    messages: [
+      {
+        body: {
+          action: 'PutObject',
+          bucket: 'zxaionverse',
+          object: { key: newKey, size: 777777 },
+          eventTime: '2026-11-21T02:00:00Z',
+        },
+        ack() { putAcked = true; },
+        retry() { throw new Error('should not retry PutObject'); },
+      },
+    ],
+  }, env);
+  assert.equal(putAcked, true);
+
+  const afterPutRes = await handleListMain({
+    url: new URL('http://localhost/api/list?category=Anime&subCategory=jujutsu%20kaisen'),
+    DB: env.DB,
+    corsHeaders,
+  });
+  const jjkItems = await afterPutRes.json();
+  assert.ok(jjkItems.some((item) => item.id === `main:${newKey}`));
+
+  // DeleteObject event -> immediately removed from /api/list
+  await handleR2QueueBatch({
+    messages: [
+      {
+        body: {
+          action: 'DeleteObject',
+          bucket: 'zxaionverse',
+          object: { key: newKey },
+        },
+        ack() { delAcked = true; },
+        retry() { throw new Error('should not retry DeleteObject'); },
+      },
+    ],
+  }, env);
+  assert.equal(delAcked, true);
+
+  const afterDelRes = await handleListMain({
+    url: new URL('http://localhost/api/list?category=Anime&subCategory=jujutsu%20kaisen'),
+    DB: env.DB,
+    corsHeaders,
+  });
+  const jjkAfterDel = await afterDelRes.json();
+  assert.equal(jjkAfterDel.some((item) => item.id === `main:${newKey}`), false);
+});
+
+test('ensureAutoSync scans empty D1 on-demand and triggers background incremental sync on subsequent requests', async () => {
+  resetSyncStateForTests();
+  const coldEnv = {
+    DB: createMockD1(),
+    Zxaion_B: createMockR2Bucket('main', [
+      { key: 'ANIME/One Piece/luffy_gear5_old.jpg' },
+    ]),
+    ZX_BUCKET: createMockR2Bucket('comitbase', []),
+    TREASURE: createMockR2Bucket('dtreasure', []),
+  };
+
+  // Cold D1 (old R2 file never scanned yet): first request scans synchronously and returns it immediately
+  const pending = [];
+  const ctx = { waitUntil: (p) => pending.push(p) };
+  const firstRes = await handleListMain({
+    url: new URL('http://localhost/api/list'),
+    env: coldEnv,
+    ctx,
+    DB: coldEnv.DB,
+    corsHeaders,
+  });
+  const firstItems = await firstRes.json();
+  assert.equal(firstItems.length, 1);
+  assert.equal(firstItems[0].id, 'main:ANIME/One Piece/luffy_gear5_old.jpg');
+
+  // New object uploaded to R2 without waiting for cron: background ensureAutoSync (cooldownMs=0) discovers it
+  await coldEnv.Zxaion_B.put('ANIME/One Piece/zoro_enma_new.jpg', 'new-bytes', { size: 333333 });
+  await ensureAutoSync({ env: coldEnv, ctx, DB: coldEnv.DB, bucketName: 'main', cooldownMs: 0 });
+  await Promise.all(pending);
+
+  const secondRes = await handleListMain({
+    url: new URL('http://localhost/api/list'),
+    DB: coldEnv.DB,
+    corsHeaders,
+  });
+  const secondItems = await secondRes.json();
+  assert.equal(secondItems.length, 2);
+});
+
 
