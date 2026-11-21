@@ -2,7 +2,6 @@
  * config/constants.js — Konfigurasi global: API_BASE, kategori, album anime, paket kredit.
  * Depends on: (tidak ada)
  */
-const API_BASE = 'https://ai.zxaionverse.workers.dev';
 // --- Configuration ---
 const API_BASE = (() => {
     if (typeof window !== 'undefined' && typeof window.__ZX_API_BASE__ === 'string') {
