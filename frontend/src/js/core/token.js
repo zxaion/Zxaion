@@ -16,3 +16,14 @@ const getOrCreateUserToken = () => {
     }
     return token;
 };
+
+async function getPublicPayerRef() {
+    const token = getOrCreateUserToken();
+    const data = new TextEncoder().encode(`zxaion-payer-v1:${token}`);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const hex = Array.from(new Uint8Array(digest))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, 32);
+    return `pub_${hex}`;
+}

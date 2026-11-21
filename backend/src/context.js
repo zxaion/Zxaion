@@ -3,7 +3,7 @@ import { getPayPalBase, ALLOWED_ORIGINS } from './config/constants.js';
 import { buildCorsHeaders } from './utils/cors.js';
 import { getUserToken } from './utils/userToken.js';
 import { checkRateLimit } from './services/rateLimit.js';
-import { getPayPalAccessToken, verifyPayPalOrder } from './services/paypal.js';
+import { getPayPalAccessToken, createPayPalOrder, verifyPayPalOrder } from './services/paypal.js';
 
 export function createContext(request, env, ctx) {
   const url    = new URL(request.url);
@@ -32,6 +32,7 @@ export function createContext(request, env, ctx) {
     getUserToken,
     checkRateLimit:       (endpoint, identifier, limit, windowSec) => checkRateLimit(DB, endpoint, identifier, limit, windowSec),
     getPayPalAccessToken: () => getPayPalAccessToken(env),
+    createPayPalOrder:    (orderInput, accessToken) => createPayPalOrder(orderInput, accessToken, PAYPAL_BASE),
     verifyPayPalOrder:    (orderId, accessToken) => verifyPayPalOrder(orderId, accessToken, PAYPAL_BASE),
   };
 }

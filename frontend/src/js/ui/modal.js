@@ -24,28 +24,39 @@ Object.assign(ui, {
     unlockDtreasureThumbnail(photoId) {
         if (!photoId) return;
         const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
-        const item = elements.dtreasureGallery?.querySelector(`.masonry-item[data-photo-id="${safeId}"]`);
-        if (!item) return;
+        [elements.dtreasureGallery, elements.galleryContainer].forEach(container => {
+            const item = container?.querySelector(`.masonry-item[data-photo-id="${safeId}"]`);
+            if (!item) return;
 
-        const shield = item.querySelector('.dtreasure-thumb-shield');
-        if (shield) shield.remove();
+            const shield = item.querySelector('.dtreasure-thumb-shield');
+            if (shield) shield.remove();
 
-        const img = item.querySelector('img');
-        if (img) {
-            img.oncontextmenu = null;
-            img.ondragstart   = null;
-            img.removeEventListener('touchstart', preventTouchSave);
-            img.style.removeProperty('-webkit-touch-callout');
-        }
+            const thumbWrap = item.querySelector('.relative');
+            if (thumbWrap && !thumbWrap.querySelector('.dtreasure-unlocked-badge')) {
+                const badge = document.createElement('span');
+                badge.className = 'dtreasure-unlocked-badge absolute top-2.5 left-2.5 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-md backdrop-blur-sm';
+                badge.innerHTML = '<i class="fas fa-unlock"></i> Unlocked';
+                thumbWrap.prepend(badge);
+            }
 
-        const btn = item.querySelector('.download-btn');
-        if (btn) btn.innerHTML = '<i class="fas fa-download"></i> Download';
+            const img = item.querySelector('img');
+            if (img) {
+                img.oncontextmenu = null;
+                img.ondragstart   = null;
+                img.removeEventListener('touchstart', preventTouchSave);
+                img.style.removeProperty('-webkit-touch-callout');
+            }
+
+            const btn = item.querySelector('.download-btn');
+            if (btn) btn.innerHTML = '<i class="fas fa-download"></i> Download';
+        });
     },
 
     async openImageModal(photo) {
         if (!photo) return;
 
-        state.currentImageId = photo.id;
+        const targetPhotoId = photo.id;
+        state.currentImageId = targetPhotoId;
 
         // Optimistic update (in-memory + DOM + server)
         photo.viewCount = (photo.viewCount || 0) + 1;
@@ -65,33 +76,45 @@ Object.assign(ui, {
 
         elements.modalImg.classList.add('loading-shimmer');
         elements.modalImg.style.minHeight = '200px';
-        elements.modalImg.src             = '';
         elements.modalImg.onerror         = null;
         elements.modalImg.onload          = null;
 
-        const preload = new Image();
-        const firstPreviewUrl = utils.attachImageFallback(preload, previewCandidates, {
+        // Load langsung ke modalImg (hindari double-download pada DTREASURE no-store dan guard klik cepat)
+        const firstPreviewUrl = utils.attachImageFallback(elements.modalImg, previewCandidates, {
             onLoadSuccess(el) {
-                elements.modalImg.src = el.src;
-                elements.modalImg.classList.remove('loading-shimmer');
-                elements.modalImg.style.minHeight = '';
+                if (state.currentImageId !== targetPhotoId) return;
+                el.classList.remove('loading-shimmer');
+                el.style.minHeight = '';
                 el.onload = null;
                 el.onerror = null;
             },
             onFinalError(el) {
-                elements.modalImg.classList.remove('loading-shimmer');
-                elements.modalImg.style.minHeight = '';
-                elements.modalImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
+                if (state.currentImageId !== targetPhotoId) return;
+                el.classList.remove('loading-shimmer');
+                el.style.minHeight = '';
+                el.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
                 el.onload = null;
                 el.onerror = null;
             },
         });
-        preload.src = firstPreviewUrl;
+        elements.modalImg.src = firstPreviewUrl;
 
         elements.modalTitle.textContent         = photo.title || 'Wallpaper';
         elements.modalCategory.textContent      = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
         elements.modalViewCount.textContent     = utils.formatNumber(displayViews);
         elements.modalDownloadCount.textContent = utils.formatNumber(displayDownloads);
+
+        if (typeof api.fetchImageStats === 'function') {
+            api.fetchImageStats(photo.id).then(fresh => {
+                if (state.currentImageId !== targetPhotoId || !fresh) return;
+                const v = Math.max(photo.viewCount || 0, fresh.views || 0);
+                const d = Math.max(photo.downloadCount || 0, fresh.downloads || 0);
+                photo.viewCount = v;
+                photo.downloadCount = d;
+                if (elements.modalViewCount) elements.modalViewCount.textContent = utils.formatNumber(v);
+                if (elements.modalDownloadCount) elements.modalDownloadCount.textContent = utils.formatNumber(d);
+            }).catch(() => {});
+        }
 
         const isPurchased = state.lifetime || state.purchasedImages.has(photo.id);
 
@@ -114,7 +137,7 @@ Object.assign(ui, {
                 elements.downloadBtn.innerHTML = '<i class="fas fa-lock mr-2"></i>10 Credits to Download';
             }
         } else {
-            elements.downloadBtn.href     = imageUrl + '?download=true';
+            elements.downloadBtn.href     = imageUrl.split('?')[0] + '?download=true';
             elements.downloadBtn.download = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_');
             elements.downloadBtn.onclick  = () => {
                 photo.downloadCount = (photo.downloadCount || 0) + 1;

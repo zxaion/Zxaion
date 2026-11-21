@@ -13,7 +13,10 @@ class AppState {
         this.allPhotos            = [];
         this.comitbasePhotos      = [];
         this.dtreasurePhotos      = [];
+        this.comitbaseError       = false;
+        this.dtreasureError       = false;
         this.animeAlbums          = {};
+        this.animeAlbumCounts     = {};
         this.filteredPhotos       = [];
         this.currentImageId       = null;
         this.credits              = 0;

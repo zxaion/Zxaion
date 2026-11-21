@@ -20,8 +20,12 @@ CREATE INDEX IF NOT EXISTS idx_images_bucket_cat_uploaded
 CREATE INDEX IF NOT EXISTS idx_images_bucket_subcat
   ON images (bucket, sub_category);
 
+CREATE INDEX IF NOT EXISTS idx_images_bucket_trending
+  ON images (bucket, category, view_count DESC, download_count DESC, uploaded DESC);
+
 CREATE TABLE IF NOT EXISTS user_credits (
   user_id       TEXT PRIMARY KEY,
+  public_id     TEXT,
   credits       INTEGER NOT NULL DEFAULT 0,
   lifetime      INTEGER NOT NULL DEFAULT 0,
   recovery_hash TEXT
@@ -29,6 +33,9 @@ CREATE TABLE IF NOT EXISTS user_credits (
 
 CREATE INDEX IF NOT EXISTS idx_user_credits_recovery
   ON user_credits (recovery_hash);
+
+CREATE INDEX IF NOT EXISTS idx_user_credits_public_id
+  ON user_credits (public_id);
 
 CREATE TABLE IF NOT EXISTS purchased_images (
   user_id      TEXT NOT NULL,
@@ -41,6 +48,7 @@ CREATE TABLE IF NOT EXISTS payment_orders (
   id            TEXT PRIMARY KEY,
   user_id       TEXT NOT NULL,
   order_id      TEXT NOT NULL UNIQUE,
+  capture_id    TEXT,
   pack_key      TEXT NOT NULL,
   amount        REAL NOT NULL,
   status        TEXT NOT NULL,
@@ -51,6 +59,9 @@ CREATE TABLE IF NOT EXISTS payment_orders (
 
 CREATE INDEX IF NOT EXISTS idx_payment_orders_order_id
   ON payment_orders (order_id);
+
+CREATE INDEX IF NOT EXISTS idx_payment_orders_capture_id
+  ON payment_orders (capture_id);
 
 CREATE TABLE IF NOT EXISTS views (
   photo_id   TEXT NOT NULL,

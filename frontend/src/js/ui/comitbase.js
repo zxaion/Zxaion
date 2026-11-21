@@ -32,13 +32,26 @@ Object.assign(ui, {
         if (!elements.comitbaseGallery) return;
 
         if (state.comitbasePhotos.length === 0) {
-            elements.comitbaseGallery.innerHTML = `
-            <div class="col-span-full text-center py-20" style="column-span:all;">
-                <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
-                    <i class="fas fa-images text-3xl text-gray-400"></i>
-                </div>
-                <p class="text-gray-500 dark:text-gray-400">No COMITBASE images yet</p>
-            </div>`;
+            if (state.comitbaseError) {
+                elements.comitbaseGallery.innerHTML = `
+                <div class="col-span-full text-center py-20" style="column-span:all;">
+                    <div class="w-20 h-20 mx-auto mb-4 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle text-3xl text-red-500"></i>
+                    </div>
+                    <p class="text-gray-700 dark:text-gray-200 font-semibold mb-4">Failed to load COMITBASE collection</p>
+                    <button type="button" data-action="retry-comitbase" class="px-5 py-2.5 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                        <i class="fas fa-sync-alt mr-1.5"></i>Try Again
+                    </button>
+                </div>`;
+            } else {
+                elements.comitbaseGallery.innerHTML = `
+                <div class="col-span-full text-center py-20" style="column-span:all;">
+                    <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                        <i class="fas fa-images text-3xl text-gray-400"></i>
+                    </div>
+                    <p class="text-gray-500 dark:text-gray-400">No COMITBASE images yet</p>
+                </div>`;
+            }
             this.updateToolbarCount(0);
             this.updateComitbasePagination(0);
             return;
@@ -60,7 +73,7 @@ Object.assign(ui, {
             <div class="col-span-full text-center py-16 bg-white/70 dark:bg-gray-900/70 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700" style="column-span:all;">
                 <i class="fas fa-crop-simple text-3xl text-gray-400 mb-3"></i>
                 <p class="text-gray-600 dark:text-gray-300 font-semibold mb-3">No ${utils.escapeHtml(state.aspectFilter)} wallpapers found in COMITBASE yet.</p>
-                <button type="button" onclick="resetAspectFilter()" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                <button type="button" data-action="reset-aspect-filter" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
                     Show All Ratios
                 </button>
             </div>`;
@@ -109,6 +122,7 @@ Object.assign(ui, {
             const transformOpts = { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' };
             const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
             const fullUrl       = candidates[0] || '';
+            const safePhotoId   = utils.escapeHtml(photo.id);
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
             const errorSvg      = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
@@ -123,8 +137,8 @@ Object.assign(ui, {
                 decoding="async">
             <div class="masonry-overlay">
                 <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">${viewCount}</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">${downloadCount}</span></span>
+                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${safePhotoId}">${viewCount}</span></span>
+                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${safePhotoId}">${downloadCount}</span></span>
                 </div>
                 <button class="download-btn" type="button">
                     <i class="fas fa-download"></i> Download

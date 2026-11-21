@@ -8,8 +8,13 @@ import { dirname, join } from 'node:path';
 import { createApp, translateCdnCgiImagePath } from '../../server.js';
 import { parseImageMeta } from '../src/services/imageMeta.js';
 import { getPayPalBase } from '../src/config/constants.js';
-import { getUserToken, generateRecoveryCode, signToken, verifySignedToken } from '../src/utils/userToken.js';
+import { CREDIT_PACK_DEFINITIONS } from '../src/config/packs.js';
+import { MIME_TYPES } from '../src/config/mimeTypes.js';
+import { getUserToken, generateRecoveryCode, signToken, verifySignedToken, derivePublicPayerRef } from '../src/utils/userToken.js';
 import { createLocalEnv, createMockD1, createMockImagesBinding, createMockR2Bucket } from '../src/localRuntime.js';
+import { handleRequest } from '../src/router.js';
+import { handleStatic } from '../src/routes/static.js';
+import { resolveHtmlIncludes } from '../../frontend/scripts/build.mjs';
 import {
   handleScheduled,
   handleR2QueueBatch,
@@ -20,8 +25,11 @@ import { parseTransformOptions } from '../src/services/imageTransform.js';
 import { checkRateLimit as rawCheckRateLimit } from '../src/services/rateLimit.js';
 import { handleListMain, handleAnimeAlbums } from '../src/routes/gallery.js';
 import { handleRecordView, handleRecordDownload, handleStats } from '../src/routes/stats.js';
+import { createPayPalOrder } from '../src/services/paypal.js';
 import {
   handleCreditBalance,
+  handlePreparePayer,
+  handleCreatePayPalOrder,
   handleCreateRecoveryCode,
   handleRecoverAccount,
   handleCreditPurchase,
@@ -280,9 +288,19 @@ test('credits purchase, spend, recovery code creation & account restore work end
   assert.equal(spendData.newBalance, 190);
   assert.equal(spendData.purchased, true);
 
-  // Insufficient credits for userB (0 balance)
-  await handleCreditBalance({
+  // Balance is read-only for unknown tokens (creates 0 DB rows); preparePayer registers userB with 0 balance
+  const emptyBal = await (await handleCreditBalance({
     request: makeReq('http://localhost/api/credits/balance', { headers: { 'X-User-Token': userB } }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(emptyBal.credits, 0);
+  const userBRowBefore = await env.DB.prepare('SELECT user_id FROM user_credits WHERE user_id = ?').bind(userB).first();
+  assert.equal(userBRowBefore, null);
+
+  await handlePreparePayer({
+    request: makeReq('http://localhost/api/credits/prepare', { method: 'POST', headers: { 'X-User-Token': userB } }),
     DB: env.DB,
     corsHeaders,
     getUserToken,
@@ -885,6 +903,717 @@ test('ensureAutoSync scans empty D1 on-demand and triggers background incrementa
   });
   const secondItems = await secondRes.json();
   assert.equal(secondItems.length, 2);
+});
+
+test('DTREASURE media route fails closed when _preview/ is missing, ignores query userToken, and blocks path traversal', async () => {
+  const env = await createLocalEnv();
+  const userId = 'u_paid_user_99';
+  const photoId = 'dtreasure:vault/no_preview_yet.jpg';
+  await env.DB.prepare('INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)').bind(userId, photoId).run();
+
+  // Strict R2 stub (mimics real R2 when _preview/<key> was NOT uploaded)
+  const rawTreasure = {
+    async get(key) {
+      if (key !== 'vault/no_preview_yet.jpg') return null;
+      const bytes = new TextEncoder().encode('TOP_SECRET_4K_RAW_BYTES');
+      return {
+        key,
+        size: bytes.byteLength,
+        httpEtag: '"raw4k"',
+        httpMetadata: { contentType: 'image/jpeg' },
+        body: bytes,
+        writeHttpMetadata(h) { h.set('Content-Type', 'image/jpeg'); },
+      };
+    },
+  };
+
+  // 1. Unpurchased request without _preview/ and without IMAGES binding -> MUST fail closed (403), never leak raw bytes
+  const unauthNoImages = await handleServeImage({
+    request: makeReq('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
+    url: new URL('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
+    path: '/api/dtreasure/img/vault%2Fno_preview_yet.jpg',
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: rawTreasure,
+    DB: env.DB,
+    IMAGES: null,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(unauthNoImages.status, 403);
+  const body1 = await unauthNoImages.text();
+  assert.equal(body1.includes('TOP_SECRET_4K_RAW_BYTES'), false);
+
+  // 2. Unpurchased request without _preview/ when IMAGES is present -> forces blurred <=480px preview even without query params
+  let seenTransform = null;
+  const spyImages = {
+    input(bytes) {
+      return {
+        transform(step) { seenTransform = step; return this; },
+        async output(opts) { return { response: () => new Response('BLURRED_PREVIEW', { headers: { 'Content-Type': opts.format } }) }; },
+      };
+    },
+  };
+  const unauthTransformed = await handleServeImage({
+    request: makeReq('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
+    url: new URL('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
+    path: '/api/dtreasure/img/vault%2Fno_preview_yet.jpg',
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: rawTreasure,
+    DB: env.DB,
+    IMAGES: spyImages,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(unauthTransformed.status, 200);
+  assert.ok(seenTransform && seenTransform.width <= 480 && seenTransform.blur >= 12);
+
+  // 3. Query-string ?userToken= is ignored for downloads (must send X-User-Token header)
+  const queryTokenAttempt = await handleServeImage({
+    request: makeReq(`http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg?download=true&userToken=${userId}`),
+    url: new URL(`http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg?download=true&userToken=${userId}`),
+    path: '/api/dtreasure/img/vault%2Fno_preview_yet.jpg',
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: rawTreasure,
+    DB: env.DB,
+    IMAGES: null,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(queryTokenAttempt.status, 401);
+
+  // 4. Path traversal attempt -> 400
+  const traversalAttempt = await handleServeImage({
+    request: makeReq('http://localhost/api/dtreasure/img/..%2Fsecret.jpg'),
+    url: new URL('http://localhost/api/dtreasure/img/..%2Fsecret.jpg'),
+    path: '/api/dtreasure/img/..%2Fsecret.jpg',
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: rawTreasure,
+    DB: env.DB,
+    IMAGES: null,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(traversalAttempt.status, 400);
+});
+
+test('DTREASURE payment retries reclaim failed orders, spend validates item existence, and weak tokens are rejected', async () => {
+  const env = await createLocalEnv();
+  const userId = 'u_retry_buyer_1';
+
+  // Weak short token rejected
+  assert.equal(getUserToken(makeReq('http://localhost/test', { headers: { 'X-User-Token': 'abc' } })), 'anonymous');
+
+  // Step 1: Transient PayPal null failure writes 'failed' payment_orders row
+  const firstFail = await handleCreditPurchase({
+    request: makeReq('http://localhost/api/credits/purchase', {
+      method: 'POST',
+      headers: { 'X-User-Token': userId, 'Content-Type': 'application/json' },
+      body: { pack: '5$', orderId: 'ORD-RETRY-1' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => null,
+  });
+  assert.equal(firstFail.status, 400);
+
+  // Step 2: Retry with COMPLETED PayPal verification reclaims 'failed' row and credits 200
+  const retryOk = await handleCreditPurchase({
+    request: makeReq('http://localhost/api/credits/purchase', {
+      method: 'POST',
+      headers: { 'X-User-Token': userId, 'Content-Type': 'application/json' },
+      body: { pack: '5$', orderId: 'ORD-RETRY-1' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => ({
+      status: 'COMPLETED',
+      purchase_units: [{ custom_id: userId, payments: { captures: [{ status: 'COMPLETED', amount: { value: '5.00', currency_code: 'USD' } }] } }],
+    }),
+  });
+  assert.equal(retryOk.status, 200);
+  const retryBody = await retryOk.json();
+  assert.equal(retryBody.newBalance, 200);
+
+  // Step 3: Spend on non-existent/non-DTREASURE photoId returns 404 without deducting credits
+  const bogusSpend = await handleCreditSpend({
+    request: makeReq('http://localhost/api/credits/spend', {
+      method: 'POST',
+      headers: { 'X-User-Token': userId, 'Content-Type': 'application/json' },
+      body: { photoId: 'main:ANIME/Attack on Titan/crimson_wings_4k.jpg' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(bogusSpend.status, 404);
+
+  const balanceAfter = await (await handleCreditBalance({
+    request: makeReq('http://localhost/api/credits/balance', { headers: { 'X-User-Token': userId } }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(balanceAfter.credits, 200);
+});
+
+test('public payerRef checkout, stale processing reclaim, refund/dispute revocation, and webhook 500 retry', async () => {
+  const env = await createLocalEnv();
+  const buyer = 'u_pubref_buyer_1';
+  const prepRes = await handlePreparePayer({
+    request: makeReq('http://localhost/api/credits/prepare', {
+      method: 'POST',
+      headers: { 'X-User-Token': buyer },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(prepRes.status, 200);
+  const { payerRef } = await prepRes.json();
+  assert.ok(payerRef.startsWith('pub_'));
+  assert.equal(payerRef, await derivePublicPayerRef(buyer));
+
+  // Stale (>5m) 'processing' order can be reclaimed by PayPal webhook via pub_ custom_id
+  const oldTs = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  await env.DB.prepare(`
+    INSERT INTO payment_orders (id, user_id, order_id, capture_id, pack_key, amount, status, error_message, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'processing', NULL, ?)
+    ON CONFLICT(id) DO UPDATE SET status = 'processing'
+    WHERE payment_orders.status = 'failed' OR (payment_orders.status = 'processing' AND payment_orders.created_at < ?)
+  `).bind('order:ORD-STALE-1', buyer, 'ORD-STALE-1', null, '25$', 25, oldTs, oldTs).run();
+
+  const whRes = await handlePayPalWebhook({
+    request: makeReq('http://localhost/api/paypal-webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'paypal-transmission-id': 'tx-stale',
+        'paypal-transmission-time': '2026-11-21T00:00:00Z',
+        'paypal-cert-url': 'https://api-m.paypal.com/v1/notifications/certs/CERT-1',
+        'paypal-transmission-sig': 'sig',
+        'paypal-auth-algo': 'SHA256withRSA',
+      },
+      body: {
+        event_type: 'PAYMENT.CAPTURE.COMPLETED',
+        resource: {
+          id: 'CAP-STALE-1',
+          custom_id: payerRef,
+          amount: { value: '25.00', currency_code: 'USD' },
+          supplementary_data: { related_ids: { order_id: 'ORD-STALE-1' } },
+        },
+      },
+    }),
+    DB: env.DB,
+    PAYPAL_WEBHOOK_ID: 'WH-TEST',
+    PAYPAL_BASE: 'https://api-m.paypal.com',
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => null,
+  });
+  // Without global fetch mocked, verification fails -> returns 500 (never silently 200)
+  assert.equal(whRes.status, 500);
+
+  // Mock PayPal signature verify fetch cleanly during unit test
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/verify-webhook-signature')) {
+      return new Response(JSON.stringify({ verification_status: 'SUCCESS' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    throw new Error('Unexpected fetch: ' + url);
+  };
+  try {
+    const whOk = await handlePayPalWebhook({
+      request: makeReq('http://localhost/api/paypal-webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'paypal-transmission-id': 'tx-stale-2',
+          'paypal-transmission-time': '2026-11-21T00:00:00Z',
+          'paypal-cert-url': 'https://api.paypal.com/v1/notifications/certs/CERT-1',
+          'paypal-transmission-sig': 'sig',
+          'paypal-auth-algo': 'SHA256withRSA',
+        },
+        body: {
+          event_type: 'PAYMENT.CAPTURE.COMPLETED',
+          resource: {
+            id: 'CAP-STALE-1',
+            custom_id: payerRef,
+            amount: { value: '25.00', currency_code: 'USD' },
+            supplementary_data: { related_ids: { order_id: 'ORD-STALE-1' } },
+          },
+        },
+      }),
+      DB: env.DB,
+      PAYPAL_WEBHOOK_ID: 'WH-TEST',
+      PAYPAL_BASE: 'https://api-m.paypal.com',
+      getPayPalAccessToken: async () => 'tok',
+      verifyPayPalOrder: async () => null,
+    });
+    assert.equal(whOk.status, 200);
+    const balAfterWh = await env.DB.prepare('SELECT credits FROM user_credits WHERE user_id = ?').bind(buyer).first();
+    assert.equal(balAfterWh.credits, 1750);
+
+    // Refund revokes the 1750 credits cleanly and marks order refunded
+    const whRefund = await handlePayPalWebhook({
+      request: makeReq('http://localhost/api/paypal-webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'paypal-transmission-id': 'tx-refund',
+          'paypal-transmission-time': '2026-11-21T00:05:00Z',
+          'paypal-cert-url': 'https://api.paypal.com/v1/notifications/certs/CERT-1',
+          'paypal-transmission-sig': 'sig',
+          'paypal-auth-algo': 'SHA256withRSA',
+        },
+        body: {
+          event_type: 'PAYMENT.CAPTURE.REFUNDED',
+          resource: {
+            links: [{ rel: 'up', href: 'https://api.paypal.com/v2/payments/captures/CAP-STALE-1' }],
+          },
+        },
+      }),
+      DB: env.DB,
+      PAYPAL_WEBHOOK_ID: 'WH-TEST',
+      PAYPAL_BASE: 'https://api-m.paypal.com',
+      getPayPalAccessToken: async () => 'tok',
+      verifyPayPalOrder: async () => null,
+    });
+    assert.equal(whRefund.status, 200);
+    const balAfterRefund = await env.DB.prepare('SELECT credits FROM user_credits WHERE user_id = ?').bind(buyer).first();
+    const orderAfterRefund = await env.DB.prepare('SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1').bind('ORD-STALE-1').first();
+    assert.equal(balAfterRefund.credits, 0);
+    assert.equal(orderAfterRefund.status, 'refunded');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('media download ignores client photoId query param and concurrent spend cannot double-charge', async () => {
+  const env = await createLocalEnv();
+  const buyer = 'u_concurrent_spender';
+
+  // Seed buyer with 200 credits via real handleCreditPurchase
+  await handleCreditPurchase({
+    request: makeReq('http://localhost/api/credits/purchase', {
+      method: 'POST',
+      headers: { 'X-User-Token': buyer, 'Content-Type': 'application/json' },
+      body: { pack: '5$', orderId: 'ORD-CONC-SEED' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => ({
+      status: 'COMPLETED',
+      purchase_units: [{ custom_id: await derivePublicPayerRef(buyer), payments: { captures: [{ status: 'COMPLETED', amount: { value: '5.00', currency_code: 'USD' } }] } }],
+    }),
+  });
+
+  const dtA = 'dtreasure:vault/imperial_dragon_8k.jpg';
+  const dtB = 'dtreasure:vault/eclipse_seraphim_pro.jpg';
+
+  // Parallel spend attempts for dtA must deduct only 10 credits (200 -> 190, never 180)
+  const [s1, s2] = await Promise.all([
+    handleCreditSpend({
+      request: makeReq('http://localhost/api/credits/spend', {
+        method: 'POST',
+        headers: { 'X-User-Token': buyer, 'Content-Type': 'application/json' },
+        body: { photoId: dtA },
+      }),
+      DB: env.DB,
+      corsHeaders,
+      getUserToken,
+    }),
+    handleCreditSpend({
+      request: makeReq('http://localhost/api/credits/spend', {
+        method: 'POST',
+        headers: { 'X-User-Token': buyer, 'Content-Type': 'application/json' },
+        body: { photoId: dtA },
+      }),
+      DB: env.DB,
+      corsHeaders,
+      getUserToken,
+    }),
+  ]);
+  assert.equal(s1.status, 200);
+  assert.equal(s2.status, 200);
+  const finalUser = await env.DB.prepare('SELECT credits FROM user_credits WHERE user_id = ?').bind(buyer).first();
+  assert.equal(finalUser.credits, 190);
+
+  // Attempting to download dtB while spoofing ?photoId=dtA MUST be rejected with 403
+  const spoofAttempt = await handleServeImage({
+    request: makeReq(`http://localhost/api/dtreasure/img/vault%2Feclipse_seraphim_pro.jpg?download=true&photoId=${encodeURIComponent(dtA)}`, {
+      headers: { 'X-User-Token': buyer },
+    }),
+    url: new URL(`http://localhost/api/dtreasure/img/vault%2Feclipse_seraphim_pro.jpg?download=true&photoId=${encodeURIComponent(dtA)}`),
+    path: '/api/dtreasure/img/vault%2Feclipse_seraphim_pro.jpg',
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(spoofAttempt.status, 403);
+});
+
+test('IP rate limit prevents view farming across rotating X-User-Token headers', async () => {
+  const env = await createLocalEnv();
+  const checkRateLimit = (ep, id, limit, win) => rawCheckRateLimit(env.DB, ep, id, limit, win);
+  const pending = [];
+  const ctx = { waitUntil: (p) => pending.push(p) };
+  const photoId = 'main:FANTASY/astral_citadel_dragons.jpg';
+
+  const before = await (await handleStats({
+    path: `/api/stats/${encodeURIComponent(photoId)}`,
+    DB: env.DB,
+    corsHeaders,
+  })).json();
+
+  await handleRecordView({
+    request: makeReq(`http://localhost/api/view/${encodeURIComponent(photoId)}`, {
+      method: 'POST',
+      headers: { 'X-User-Token': 'u_farm_token_1', 'CF-Connecting-IP': '203.0.113.55' },
+    }),
+    ctx,
+    path: `/api/view/${encodeURIComponent(photoId)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    checkRateLimit,
+  });
+  await handleRecordView({
+    request: makeReq(`http://localhost/api/view/${encodeURIComponent(photoId)}`, {
+      method: 'POST',
+      headers: { 'X-User-Token': 'u_farm_token_2', 'CF-Connecting-IP': '203.0.113.55' },
+    }),
+    ctx,
+    path: `/api/view/${encodeURIComponent(photoId)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    checkRateLimit,
+  });
+  await Promise.all(pending);
+
+  const after = await (await handleStats({
+    path: `/api/stats/${encodeURIComponent(photoId)}`,
+    DB: env.DB,
+    corsHeaders,
+  })).json();
+
+  assert.equal(after.views, before.views + 1);
+});
+
+test('router global error handler, static 404 for robots.txt, and ETag/version cache headers work properly', async () => {
+  const env = await createLocalEnv();
+
+  // Global try/catch wraps unexpected failures cleanly with CORS headers
+  const brokenUrlReq = makeReq('http://localhost/api/list', {
+    headers: { Origin: 'https://zxaionverse.site' },
+  });
+  const errRes = await handleRequest(brokenUrlReq, {
+    ...env,
+    DB: { prepare() { throw new Error('Simulated crash'); } },
+  }, { waitUntil() {} });
+  assert.ok([500, 200].includes(errRes.status));
+  assert.equal(errRes.headers.get('Access-Control-Allow-Origin'), 'https://zxaionverse.site');
+
+  // Unknown robots.txt / sitemap.xml must return 404 (not fallback index.html) and MIME_TYPES covers txt/xml/gif
+  assert.equal(MIME_TYPES.txt, 'text/plain; charset=utf-8');
+  assert.equal(MIME_TYPES.xml, 'application/xml; charset=utf-8');
+  assert.equal(MIME_TYPES.gif, 'image/gif');
+
+  const missingRobots = await handleStatic({
+    path: '/robots.txt',
+    mainBucket: createMockR2Bucket('frontend', [{ key: 'index.html', bodyText: '<html></html>' }]),
+    origin: 'http://localhost:3000',
+  });
+  assert.equal(missingRobots.status, 404);
+
+  // Versioned image response returns immutable Cache-Control and honors If-None-Match 304
+  const etagBucket = createMockR2Bucket('main', [
+    { key: 'FANTASY/versioned.jpg', contentType: 'image/jpeg', bodyText: 'IMG' },
+  ]);
+  const firstImgRes = await handleServeImage({
+    request: makeReq('http://localhost/api/img/FANTASY%2Fversioned.jpg?v=12345'),
+    url: new URL('http://localhost/api/img/FANTASY%2Fversioned.jpg?v=12345'),
+    path: '/api/img/FANTASY%2Fversioned.jpg',
+    mainBucket: etagBucket,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(firstImgRes.status, 200);
+  assert.match(firstImgRes.headers.get('Cache-Control') || '', /immutable/);
+  const etag = firstImgRes.headers.get('ETag');
+  assert.ok(etag);
+
+  const notModifiedRes = await handleServeImage({
+    request: makeReq('http://localhost/api/img/FANTASY%2Fversioned.jpg?v=12345', {
+      headers: { 'If-None-Match': etag },
+    }),
+    url: new URL('http://localhost/api/img/FANTASY%2Fversioned.jpg?v=12345'),
+    path: '/api/img/FANTASY%2Fversioned.jpg',
+    mainBucket: etagBucket,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(notModifiedRes.status, 304);
+});
+
+test('frontend escapeHtml quotes, Anime diacritic/hyphen normalization, CRLF includes, and single-source pack sync', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const utilsSrc = readFileSync(join(here, '../../frontend/src/js/core/utils.js'), 'utf8');
+  const constSrc = readFileSync(join(here, '../../frontend/src/js/config/constants.js'), 'utf8');
+
+  const sandbox = { URL, URLSearchParams };
+  const exportsFromVm = vm.runInNewContext(`${utilsSrc}\n${constSrc}\n({ utils, CREDIT_PACKS });`, sandbox);
+
+  // Quotes escaped safely
+  assert.equal(exportsFromVm.utils.escapeHtml('a"b\'c<d>&'), 'a&quot;b&#39;c&lt;d&gt;&amp;');
+
+  // Hyphenated and accented Anime album titles unify cleanly
+  assert.equal(exportsFromVm.utils.normalizeAlbumKey('One-Punch Man'), exportsFromVm.utils.normalizeAlbumKey('One Punch Man'));
+  assert.equal(exportsFromVm.utils.normalizeAlbumKey('Pokémon'), exportsFromVm.utils.normalizeAlbumKey('Pokemon'));
+
+  // CRLF @include support in build script
+  const builtHtml = resolveHtmlIncludes(
+    '<html>\r\n<!-- @include partials/a.html -->\r\n</html>',
+    () => '<section>OK</section>\r\n'
+  );
+  assert.equal(builtHtml, '<html>\n<section>OK</section>\n</html>');
+
+  // Backend and frontend fallback credit pack definitions stay 100% synced
+  for (const def of CREDIT_PACK_DEFINITIONS) {
+    const fe = exportsFromVm.CREDIT_PACKS[def.key];
+    assert.ok(fe, `Missing pack ${def.key} in frontend constants`);
+    assert.equal(fe.price, def.price);
+    assert.equal(fe.bonus, def.bonus);
+    assert.equal(fe.credits, def.lifetime ? 'lifetime' : def.credits);
+  }
+});
+
+test('server-side PayPal createOrder enforces pack/price, binds payerRef, blocks pack-swap, and settles created orders', async () => {
+  const env = await createLocalEnv();
+  const buyer = 'u_server_create_buyer';
+
+  // 1. Unauthenticated caller rejected
+  const unauthRes = await handleCreatePayPalOrder({
+    request: makeReq('http://localhost/api/credits/create-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { pack: '25$' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    createPayPalOrder: async () => ({ id: 'ORD-NEVER' }),
+  });
+  assert.equal(unauthRes.status, 401);
+
+  // 2. Invalid pack rejected
+  const badPackRes = await handleCreatePayPalOrder({
+    request: makeReq('http://localhost/api/credits/create-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': buyer },
+      body: { pack: '999$' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    createPayPalOrder: async () => ({ id: 'ORD-NEVER' }),
+  });
+  assert.equal(badPackRes.status, 400);
+
+  // 3. Valid pack calls PayPal Orders API with authoritative $25.00 USD + pub_ custom_id
+  const origFetch = globalThis.fetch;
+  let capturedPayPalPayload = null;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith('/v2/checkout/orders')) {
+      capturedPayPalPayload = JSON.parse(init.body);
+      return new Response(JSON.stringify({ id: 'PP-SRV-ORDER-25', status: 'CREATED' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    throw new Error('Unexpected fetch: ' + url);
+  };
+
+  let createdOrderId;
+  try {
+    const okRes = await handleCreatePayPalOrder({
+      request: makeReq('http://localhost/api/credits/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Token': buyer },
+        body: { pack: '25$', price: 0.01 }, // client tampered price must be ignored
+      }),
+      DB: env.DB,
+      corsHeaders,
+      getUserToken,
+      getPayPalAccessToken: async () => 'tok-srv',
+      createPayPalOrder: (input, tok) => createPayPalOrder(input, tok, 'https://api-m.paypal.com'),
+    });
+    assert.equal(okRes.status, 200);
+    const okData = await okRes.json();
+    assert.equal(okData.success, true);
+    assert.equal(okData.orderId, 'PP-SRV-ORDER-25');
+    assert.equal(okData.amount, 25);
+    assert.equal(okData.currency, 'USD');
+    createdOrderId = okData.orderId;
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+
+  assert.equal(capturedPayPalPayload.intent, 'CAPTURE');
+  assert.equal(capturedPayPalPayload.purchase_units[0].amount.currency_code, 'USD');
+  assert.equal(capturedPayPalPayload.purchase_units[0].amount.value, '25.00');
+  assert.equal(capturedPayPalPayload.purchase_units[0].custom_id, await derivePublicPayerRef(buyer));
+
+  // Verify DB recorded status = 'created'
+  const dbRow = await env.DB.prepare('SELECT user_id, pack_key, status FROM payment_orders WHERE order_id = ? LIMIT 1')
+    .bind(createdOrderId).first();
+  assert.equal(dbRow.user_id, buyer);
+  assert.equal(dbRow.pack_key, '25$');
+  assert.equal(dbRow.status, 'created');
+
+  // 4. Cross-user claim blocked (403) & pack-swap blocked (400)
+  const crossUser = await handleCreditPurchase({
+    request: makeReq('http://localhost/api/credits/purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': 'u_attacker_9999' },
+      body: { pack: '25$', orderId: createdOrderId },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => ({ status: 'COMPLETED' }),
+  });
+  assert.equal(crossUser.status, 403);
+
+  const packSwap = await handleCreditPurchase({
+    request: makeReq('http://localhost/api/credits/purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': buyer },
+      body: { pack: '125$', orderId: createdOrderId },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => ({ status: 'COMPLETED' }),
+  });
+  assert.equal(packSwap.status, 400);
+
+  // 5. Legitimate capture settles 'created' order and grants 1750 credits
+  const expectedPayerRef = await derivePublicPayerRef(buyer);
+  const settleOk = await handleCreditPurchase({
+    request: makeReq('http://localhost/api/credits/purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': buyer },
+      body: { pack: '25$', orderId: createdOrderId },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => ({
+      status: 'COMPLETED',
+      purchase_units: [{
+        custom_id: expectedPayerRef,
+        payments: { captures: [{ id: 'CAP-SRV-25', status: 'COMPLETED', amount: { value: '25.00', currency_code: 'USD' } }] },
+      }],
+    }),
+  });
+  assert.equal(settleOk.status, 200);
+  const settledBody = await settleOk.json();
+  assert.equal(settledBody.newBalance, 1750);
+
+  // 6. Webhook can also directly settle a 'created' order if client tab closed before /purchase
+  const buyer2 = 'u_wh_created_buyer';
+  const expectedPayerRef2 = await derivePublicPayerRef(buyer2);
+  await handleCreatePayPalOrder({
+    request: makeReq('http://localhost/api/credits/create-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': buyer2 },
+      body: { pack: '5$' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    createPayPalOrder: async () => ({ id: 'PP-WH-CREATED-5', status: 'CREATED' }),
+  });
+
+  const origWhFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/verify-webhook-signature')) {
+      return new Response(JSON.stringify({ verification_status: 'SUCCESS' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    throw new Error('Unexpected fetch: ' + url);
+  };
+  try {
+    const whRes = await handlePayPalWebhook({
+      request: makeReq('http://localhost/api/paypal/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'paypal-transmission-id': 'tx-created-1',
+          'paypal-transmission-time': '2026-11-21T04:30:00Z',
+          'paypal-cert-url': 'https://api-m.paypal.com/v1/notifications/certs/CERT-2',
+          'paypal-transmission-sig': 'sig',
+          'paypal-auth-algo': 'SHA256withRSA',
+        },
+        body: {
+          event_type: 'PAYMENT.CAPTURE.COMPLETED',
+          resource: {
+            id: 'CAP-WH-CREATED-5',
+            custom_id: expectedPayerRef2,
+            amount: { value: '5.00', currency_code: 'USD' },
+            supplementary_data: { related_ids: { order_id: 'PP-WH-CREATED-5' } },
+          },
+        },
+      }),
+      DB: env.DB,
+      PAYPAL_WEBHOOK_ID: 'WH-TEST',
+      PAYPAL_BASE: 'https://api-m.paypal.com',
+      getPayPalAccessToken: async () => 'tok',
+      verifyPayPalOrder: async () => null,
+    });
+    assert.equal(whRes.status, 200);
+    const bal2 = await env.DB.prepare('SELECT credits FROM user_credits WHERE user_id = ?').bind(buyer2).first();
+    assert.equal(bal2.credits, 200);
+  } finally {
+    globalThis.fetch = origWhFetch;
+  }
 });
 
 

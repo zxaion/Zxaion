@@ -4,20 +4,35 @@
  */
 // --- PayPal Integration ---
 let paypalButtonsInstance = null;
+let _paypalSdkWaitTimer = null;
 
 function initPayPalPurchase(packKey, price) {
+    if (_paypalSdkWaitTimer) {
+        clearInterval(_paypalSdkWaitTimer);
+        _paypalSdkWaitTimer = null;
+    }
+
     if (!window.paypal) {
+        if (elements.paypalButtonContainer) elements.paypalButtonContainer.classList.remove('hidden');
+        if (elements.paypalButtons) {
+            elements.paypalButtons.innerHTML = '<div class="py-4 text-center text-xs font-semibold text-gray-500 dark:text-gray-400"><i class="fas fa-spinner fa-spin mr-1.5"></i>Loading PayPal Checkout...</div>';
+        }
         let retries = 0;
-        const waitForSdk = setInterval(() => {
+        _paypalSdkWaitTimer = setInterval(() => {
             retries++;
             if (window.paypal) {
-                clearInterval(waitForSdk);
+                clearInterval(_paypalSdkWaitTimer);
+                _paypalSdkWaitTimer = null;
                 _renderPayPalButtons(packKey, price);
-            } else if (retries >= 3) {
-                clearInterval(waitForSdk);
+            } else if (retries >= 15) {
+                clearInterval(_paypalSdkWaitTimer);
+                _paypalSdkWaitTimer = null;
+                if (elements.paypalButtons) {
+                    elements.paypalButtons.innerHTML = '<p class="py-3 text-center text-xs text-red-500 font-semibold">PayPal SDK unavailable. Please disable blockers or refresh.</p>';
+                }
                 ui.showToast('PayPal SDK failed to load. Please check your connection and refresh.', 'error');
             }
-        }, 800);
+        }, 500);
         return;
     }
     _renderPayPalButtons(packKey, price);
@@ -36,15 +51,14 @@ function _renderPayPalButtons(packKey, price) {
         paypalButtonsInstance = paypal.Buttons({
             style: { shape: 'pill', color: 'gold', layout: 'vertical', label: 'paypal' },
 
-            createOrder: (data, actions) => {
-                const token = getOrCreateUserToken();
-                return actions.order.create({
-                    purchase_units: [{
-                        description: `ZXAION Credits: ${packKey}`,
-                        custom_id:   token,
-                        amount:      { currency_code: 'USD', value: price.toString() }
-                    }]
-                });
+            createOrder: async () => {
+                const res = await api.createOrder(packKey);
+                if (!res?.success || !res.orderId) {
+                    const msg = res?.error || 'Could not initialize secure checkout. Please try again.';
+                    ui.showToast(msg, 'error');
+                    throw new Error(msg);
+                }
+                return res.orderId;
             },
 
             onApprove: async (data, actions) => {

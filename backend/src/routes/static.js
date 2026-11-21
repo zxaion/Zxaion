@@ -36,11 +36,18 @@ export async function handleStatic({ path, mainBucket, origin }) {
     if (MIME_TYPES[servedExt]) headers.set('Content-Type', MIME_TYPES[servedExt]);
 
     if (servedExt === 'html') {
-      headers.set('X-Frame-Options',        'DENY');
-      headers.set('X-Content-Type-Options', 'nosniff');
-      headers.set('X-XSS-Protection',       '1; mode=block');
-      headers.set('Referrer-Policy',        'strict-origin-when-cross-origin');
+      headers.set('X-Frame-Options',         'DENY');
+      headers.set('X-Content-Type-Options',  'nosniff');
+      headers.set('X-XSS-Protection',        '1; mode=block');
+      headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
       headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+      headers.set('Cache-Control',           'public, max-age=60, must-revalidate');
+    } else if (servedExt === 'css' || servedExt === 'js' || servedExt === 'json') {
+      headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+    } else if (servedExt === 'txt' || servedExt === 'xml') {
+      headers.set('Cache-Control', 'public, max-age=3600');
+    } else {
+      headers.set('Cache-Control', 'public, max-age=86400');
     }
 
     return new Response(object.body, { headers });

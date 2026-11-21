@@ -43,15 +43,17 @@ Object.assign(ui, {
         catImgMap.forEach(({ id, cat, extras }) => {
             const img = document.getElementById(id);
             if (!img) return;
-            const configured = window.categoryThumbnails?.[cat];
-            const currentAttr = img.getAttribute('src');
-            const candidates = [];
-            const pushUnique = (u) => {
-                if (!u) return;
+            const configured  = window.categoryThumbnails?.[cat];
+            const fallbackAttr = img.dataset?.fallbackSrc || '';
+            const currentAttr  = img.getAttribute('src') || '';
+            const candidates   = [];
+            const pushUnique   = (u) => {
+                if (!u || u.startsWith('data:')) return;
                 const resolved = utils.encodeImageUrlPath(u);
                 if (resolved && !candidates.includes(resolved)) candidates.push(resolved);
             };
             pushUnique(configured);
+            pushUnique(fallbackAttr);
             pushUnique(currentAttr);
             extras.forEach(pushUnique);
 
@@ -62,7 +64,8 @@ Object.assign(ui, {
 
         const origImg = document.getElementById('original-album-img');
         if (origImg) {
-            const rawOrig = window.animeAlbumThumbnails?.['ORIGINAL'] || '/api/img/HEADER/Original.jpg';
+            const fallbackAttr = origImg.dataset?.fallbackSrc || '/api/img/HEADER/Original.jpg';
+            const rawOrig = window.animeAlbumThumbnails?.['ORIGINAL'] || fallbackAttr;
             const candidates = utils.getImageFallbackCandidates(
                 rawOrig,
                 { w: 1200, q: 80, fit: 'cover', fmt: 'auto' },

@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             hasDragged   = false;
             startX       = e.pageX - rankingCarousel.offsetLeft;
             scrollLeftAt = rankingCarousel.scrollLeft;
+            rankingCarousel.style.scrollBehavior = 'auto';
             rankingCarousel.style.userSelect = 'none';
             delete rankingCarousel.dataset.justDragged;
         });
@@ -63,6 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 setTimeout(() => { delete rankingCarousel.dataset.justDragged; }, 50);
             }
             isDragging = false;
+            rankingCarousel.style.removeProperty('scroll-behavior');
             rankingCarousel.style.removeProperty('user-select');
         };
         rankingCarousel.addEventListener('mouseleave', stopDrag);

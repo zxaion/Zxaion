@@ -38,7 +38,9 @@ Object.assign(ui, {
             );
 
             const safeTitle = utils.escapeHtml(title);
-            const count     = album ? album.photos.length : 0;
+            const normTitle = utils.normalizeAlbumKey(title);
+            const serverCount = state.animeAlbumCounts?.[normTitle] || 0;
+            const count = Math.max(album ? album.photos.length : 0, serverCount);
 
             card.innerHTML = `
                 <div class="w-full h-full relative overflow-hidden rounded-2xl">
@@ -74,15 +76,10 @@ Object.assign(ui, {
         state.currentAnimeAlbum = albumTitle;
         const album = state.animeAlbums[albumTitle];
 
-        if (album) {
-            state.filteredPhotos = state.allPhotos.filter(photo =>
-                photo.category && photo.category.toLowerCase() === 'anime' &&
-                photo.subCategory &&
-                photo.subCategory.toLowerCase() === album.folderName.toLowerCase()
-            );
-        } else {
-            state.filteredPhotos = [];
-        }
+        state.filteredPhotos = state.allPhotos.filter(photo =>
+            photo.category && photo.category.toLowerCase() === 'anime' &&
+            photo.subCategory && api._matchSubCategory(photo.subCategory, album?.folderName, albumTitle)
+        );
 
         if (elements.animeCollections)  elements.animeCollections.classList.add('hidden');
         if (elements.galleryContainer)  elements.galleryContainer.classList.remove('hidden');
@@ -109,11 +106,20 @@ Object.assign(ui, {
         this.renderGallery();
         elements.galleryContainer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-        // Jika koleksi masih kosong di cache halaman-1 (misal total katalog > 500 & background paging masih berjalan), fetch langsung subCategory dari backend
-        if (state.filteredPhotos.length === 0) {
-            const subCandidates = album?.folderName
-                ? [album.folderName]
-                : (albumTitle === 'ORIGINAL' ? ['random'] : [albumTitle, albumTitle.toLowerCase()]);
+        // Fetch langsung dari server jika cache lokal belum lengkap atau belum memuat sub-album ini
+        const needServerFetch = state.filteredPhotos.length === 0 || (api.imageCache?.totalMain || 0) > state.allPhotos.length;
+        if (needServerFetch) {
+            const normTarget = utils.normalizeAlbumKey(albumTitle);
+            const serverAlbumMatch = Array.isArray(api.imageCache?.animeAlbums)
+                ? api.imageCache.animeAlbums.find(a => utils.normalizeAlbumKey(a.sub_category) === normTarget)?.sub_category
+                : null;
+            const subCandidates = [...new Set([
+                album?.folderName,
+                serverAlbumMatch,
+                albumTitle === 'ORIGINAL' ? 'random' : albumTitle,
+                normTarget,
+            ].filter(Boolean))];
+
             for (const sub of subCandidates) {
                 try {
                     const res = await fetch(`${API_BASE}/api/list?category=Anime&subCategory=${encodeURIComponent(sub)}&limit=500`);

@@ -3,6 +3,10 @@
  * Depends on: state, elements, ui, utils, api, ITEMS_PER_PAGE, paypalButtonsInstance
  */
 function _cleanupPayPalModalState() {
+    if (typeof _paypalSdkWaitTimer !== 'undefined' && _paypalSdkWaitTimer) {
+        clearInterval(_paypalSdkWaitTimer);
+        _paypalSdkWaitTimer = null;
+    }
     if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
         try { paypalButtonsInstance.close(); } catch (_) {}
         paypalButtonsInstance = null;
@@ -57,5 +61,43 @@ function initGlobalEvents() {
                 }
             }
         });
+    });
+
+    // Proteksi modal-img-shield & thumbnail shield tanpa inline oncontextmenu/ondragstart (CSP ketat)
+    const preventShieldEvent = (e) => {
+        if (e.target.closest('#modal-img-shield, .dtreasure-thumb-shield')) {
+            e.preventDefault();
+        }
+    };
+    document.addEventListener('contextmenu', preventShieldEvent);
+    document.addEventListener('dragstart',   preventShieldEvent);
+
+    // Delegasi tombol UI berbasis data-action tanpa inline onclick=""
+    document.addEventListener('click', async (e) => {
+        const trigger = e.target.closest('[data-action]');
+        if (!trigger) return;
+        const action = trigger.dataset.action;
+
+        if (action === 'reset-aspect-filter') {
+            window.resetAspectFilter();
+        } else if (action === 'switch-dtreasure-tab') {
+            window.switchDtreasureTab(trigger.dataset.tab || 'all');
+        } else if (action === 'open-buy-credits') {
+            document.getElementById('buy-credits-btn')?.click();
+        } else if (action === 'open-anime-album') {
+            ui.openAnimeAlbum(trigger.dataset.album || 'ORIGINAL');
+        } else if (action === 'refresh-images') {
+            window.refreshImages();
+        } else if (action === 'change-category') {
+            ui.changeCategory(trigger.dataset.category || 'All');
+        } else if (action === 'retry-comitbase') {
+            state.comitbaseError = false;
+            await api.fetchComitbaseImages();
+            ui.renderComitbaseGallery();
+        } else if (action === 'retry-dtreasure') {
+            state.dtreasureError = false;
+            await api.fetchDtreasureImages();
+            ui.renderDtreasureGallery();
+        }
     });
 }

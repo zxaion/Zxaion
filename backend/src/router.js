@@ -22,16 +22,24 @@ export async function handleRequest(request, env, ctx) {
     return new Response(null, { headers: corsHeaders });
   }
 
-  for (const route of routes) {
-    if (!matches(route, path, method)) continue;
-    const response = await route.handler(reqCtx);
-    if (response) {
-      if (method === 'HEAD') {
-        return new Response(null, { status: response.status, headers: response.headers });
+  try {
+    for (const route of routes) {
+      if (!matches(route, path, method)) continue;
+      const response = await route.handler(reqCtx);
+      if (response) {
+        if (method === 'HEAD') {
+          return new Response(null, { status: response.status, headers: response.headers });
+        }
+        return response;
       }
-      return response;
     }
-  }
 
-  return handleStatic(reqCtx);
+    return await handleStatic(reqCtx);
+  } catch (err) {
+    console.error('Unhandled router error:', err?.message || err);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 }

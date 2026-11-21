@@ -1,5 +1,6 @@
 import { resolveAllowedOrigin } from '../utils/cors.js';
-import { parseTransformOptions, applyImageTransform } from '../services/imageTransform.js';
+import { parseTransformOptions, applyImageTransform, negotiateOutputMime } from '../services/imageTransform.js';
+import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
 
 function safeDecode(value) {
   try {
@@ -9,7 +10,13 @@ function safeDecode(value) {
   }
 }
 
-async function isUserAuthorizedForDtreasure(DB, userId, key, photoIdFromQuery) {
+function isSafeObjectKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  if (key.startsWith('/') || key.includes('..') || key.includes('\0') || key.includes('\\')) return false;
+  return true;
+}
+
+async function isUserAuthorizedForDtreasure(DB, userId, key) {
   if (!userId || userId === 'anonymous') return false;
   const userRecord = await DB.prepare(
     'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
@@ -17,7 +24,7 @@ async function isUserAuthorizedForDtreasure(DB, userId, key, photoIdFromQuery) {
 
   if (userRecord && !!userRecord.lifetime) return true;
 
-  const candidateIds = [photoIdFromQuery, `dtreasure:${key}`, key].filter(Boolean);
+  const candidateIds = [`dtreasure:${key}`, key];
   for (const candidateId of candidateIds) {
     const purchased = await DB.prepare(
       'SELECT 1 FROM purchased_images WHERE user_id = ? AND photo_id = ?'
@@ -30,7 +37,7 @@ async function isUserAuthorizedForDtreasure(DB, userId, key, photoIdFromQuery) {
 // ================================================================
 // ENDPOINT: Serve images dari R2 (main, comitbase, dtreasure) + Cloudflare Images transform
 // ================================================================
-export async function handleServeImage({ request, url, path, mainBucket, comitbaseBucket, treasureBucket, DB, IMAGES, origin, corsHeaders, getUserToken }) {
+export async function handleServeImage({ request, ctx, url, path, mainBucket, comitbaseBucket, treasureBucket, DB, IMAGES, origin, corsHeaders, getUserToken }) {
   const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
   let bucket, prefix;
@@ -46,7 +53,7 @@ export async function handleServeImage({ request, url, path, mainBucket, comitba
   }
 
   const key = safeDecode(path.slice(prefix.length));
-  if (!key) {
+  if (!isSafeObjectKey(key)) {
     return new Response(JSON.stringify({ error: 'Invalid image path' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -58,12 +65,13 @@ export async function handleServeImage({ request, url, path, mainBucket, comitba
     });
   }
 
-  const headerToken      = getUserToken(request);
-  const userId           = (headerToken && headerToken !== 'anonymous')
-    ? headerToken
-    : (url.searchParams.get('userToken') || 'anonymous');
-  const photoIdFromQuery = url.searchParams.get('photoId');
-  const isDownload       = url.searchParams.get('download') === 'true';
+  const userId     = getUserToken(request);
+  const isDownload = url.searchParams.get('download') === 'true';
+
+  if (!isDtreasure && !isDownload && request.method === 'GET') {
+    const cached = await matchEdgeCache(request);
+    if (cached) return cached;
+  }
 
   let authorizedDtreasure = false;
 
@@ -76,7 +84,7 @@ export async function handleServeImage({ request, url, path, mainBucket, comitba
 
     if (userId && userId !== 'anonymous') {
       try {
-        authorizedDtreasure = await isUserAuthorizedForDtreasure(DB, userId, key, photoIdFromQuery);
+        authorizedDtreasure = await isUserAuthorizedForDtreasure(DB, userId, key);
       } catch (e) {
         console.error('[DTREASURE] Auth check DB error:', e.message);
         if (isDownload) {
@@ -96,33 +104,62 @@ export async function handleServeImage({ request, url, path, mainBucket, comitba
   }
 
   try {
-    // For unpurchased DTREASURE previews, prefer _preview/<key> if present in R2
+    // For unpurchased DTREASURE previews, prefer dedicated watermarked _preview/<key> in R2
     let fetchedKey = key;
     let object = null;
+    let usingPreviewAsset = false;
+
     if (isDtreasure && !authorizedDtreasure) {
-      object = await bucket.get(`_preview/${key}`);
-      if (object) fetchedKey = `_preview/${key}`;
+      const previewKey = key.startsWith('_preview/') ? key : `_preview/${key}`;
+      object = await bucket.get(previewKey);
+      if (object) {
+        fetchedKey = previewKey;
+        usingPreviewAsset = true;
+      }
     }
+
     if (!object) {
       fetchedKey = key;
       object = await bucket.get(key);
     }
     if (!object) return new Response('Not found', { status: 404, headers: corsHeaders });
 
+    const hasVersionParam = Boolean(url.searchParams.get('v'));
+    const cacheHeader = isDtreasure
+      ? 'private, no-store'
+      : (hasVersionParam ? 'public, max-age=31536000, immutable' : 'public, max-age=300, must-revalidate');
+
     const headers = new Headers();
     object.writeHttpMetadata(headers);
-    headers.set('etag', object.httpEtag);
+    if (object.httpEtag) headers.set('etag', object.httpEtag);
     headers.set('Access-Control-Allow-Origin', resolveAllowedOrigin(origin));
     headers.set('Vary', 'Accept, Origin');
-    headers.set('Cache-Control',
-      isDtreasure ? 'private, no-store' : 'public, max-age=31536000, immutable');
+    headers.set('Cache-Control', cacheHeader);
 
+    const ifNoneMatch = request.headers.get('If-None-Match');
+    if (!isDtreasure && !isDownload && object.httpEtag && ifNoneMatch && ifNoneMatch === object.httpEtag) {
+      return new Response(null, { status: 304, headers });
+    }
+
+    const acceptHeader = request.headers.get('Accept') || '';
     let transformOpts = !isDownload
-      ? parseTransformOptions(url.searchParams, request.headers.get('Accept') || '')
+      ? parseTransformOptions(url.searchParams, acceptHeader)
       : null;
 
-    // Batasi resolusi preview DTREASURE yang belum dibeli agar tidak bisa di-scrape resolusi penuh
-    if (isDtreasure && !authorizedDtreasure && transformOpts) {
+    const mustProtectOriginal = isDtreasure && !authorizedDtreasure && !usingPreviewAsset;
+
+    // Force strict blurred low-res transform when unpurchased DTREASURE has no dedicated _preview/ asset
+    if (mustProtectOriginal) {
+      transformOpts = {
+        width:      Math.min(transformOpts?.width || 480, 480),
+        height:     transformOpts?.height ? Math.min(transformOpts.height, 720) : 720,
+        quality:    Math.min(transformOpts?.quality || 60, 60),
+        fit:        'scale-down',
+        blur:       Math.max(transformOpts?.blur || 12, 12),
+        outputMime: transformOpts?.outputMime || negotiateOutputMime('auto', acceptHeader),
+      };
+    } else if (isDtreasure && !authorizedDtreasure && transformOpts) {
+      // Batasi resolusi preview DTREASURE yang belum dibeli agar tidak bisa di-scrape resolusi penuh
       transformOpts = {
         ...transformOpts,
         width:   transformOpts.width ? Math.min(transformOpts.width, 600) : 600,
@@ -145,14 +182,28 @@ export async function handleServeImage({ request, url, path, mainBucket, comitba
           const transformedType = transformed.headers.get('Content-Type');
           if (transformedType) headers.set('Content-Type', transformedType);
           headers.set('X-Image-Transformed', 'cf-images');
-          return new Response(transformed.body, { headers });
+          const transformedRes = new Response(transformed.body, { headers });
+          if (!isDtreasure && !isDownload) storeEdgeCache(request, transformedRes, ctx);
+          return transformedRes;
         }
       } catch (transformErr) {
         console.warn('[IMAGES] Transform failed, falling back to original:', transformErr.message);
+        if (mustProtectOriginal) {
+          return new Response(JSON.stringify({ error: 'Preview not available; purchase required' }), {
+            status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         // Re-fetch object karena stream body sebelumnya sudah terkonsumsi oleh IMAGES.input()
         object = await bucket.get(fetchedKey);
         if (!object) return new Response('Not found', { status: 404, headers: corsHeaders });
       }
+    }
+
+    // Fail-closed: never leak unwatermarked full-res original bytes for unpurchased DTREASURE when _preview/ & transform are unavailable
+    if (mustProtectOriginal && request.method !== 'HEAD') {
+      return new Response(JSON.stringify({ error: 'Preview not available; purchase required' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     if (isDownload) {
@@ -165,7 +216,11 @@ export async function handleServeImage({ request, url, path, mainBucket, comitba
       );
     }
 
-    return new Response(request.method === 'HEAD' ? null : object.body, { headers });
+    const res = new Response(request.method === 'HEAD' ? null : object.body, { headers });
+    if (!isDtreasure && !isDownload && request.method === 'GET') {
+      storeEdgeCache(request, res, ctx);
+    }
+    return res;
   } catch (e) {
     console.error('Image serve error:', e.message);
     return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {

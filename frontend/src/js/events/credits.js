@@ -21,6 +21,10 @@ function initCreditsEvents() {
     const closeBuyCredits = document.getElementById('close-buy-credits');
     if (closeBuyCredits && buyCreditsModal) {
         closeBuyCredits.addEventListener('click', () => {
+            if (typeof _paypalSdkWaitTimer !== 'undefined' && _paypalSdkWaitTimer) {
+                clearInterval(_paypalSdkWaitTimer);
+                _paypalSdkWaitTimer = null;
+            }
             if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
                 try { paypalButtonsInstance.close(); } catch (e) { console.warn('PayPal close error:', e); }
                 paypalButtonsInstance = null;

@@ -338,7 +338,7 @@ export function createMockD1() {
       const limit = params[nextParamIdx] ?? 500;
       const offset = params[nextParamIdx + 1] ?? 0;
       const results = filtered
-        .sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || ''))
+        .sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id))
         .slice(offset, offset + limit);
       return { results };
     }
@@ -348,9 +348,14 @@ export function createMockD1() {
       const results = Array.from(images.values())
         .filter((r) => r.bucket === 'main' && r.category !== 'Header')
         .map((r) => ({ ...r, score: (r.view_count || 0) + (r.download_count || 0) }))
-        .sort((a, b) => b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || ''))
+        .sort((a, b) => b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id))
         .slice(0, limit);
       return { results };
+    }
+
+    if (q === "SELECT id FROM images WHERE id = ? AND bucket = 'dtreasure' LIMIT 1") {
+      const row = images.get(params[0]);
+      return { first: row && row.bucket === 'dtreasure' ? { id: row.id } : null };
     }
 
     if (q === 'SELECT view_count, download_count FROM images WHERE id = ?') {
@@ -427,6 +432,16 @@ export function createMockD1() {
       return { first: u ? { credits: u.credits } : null };
     }
 
+    if (q === 'SELECT user_id FROM user_credits WHERE public_id = ? LIMIT 1') {
+      const publicId = params[0];
+      for (const u of userCredits.values()) {
+        if (u.public_id && u.public_id === publicId) {
+          return { first: { user_id: u.user_id } };
+        }
+      }
+      return { first: null };
+    }
+
     if (q === 'SELECT user_id, credits, lifetime FROM user_credits WHERE recovery_hash = ? LIMIT 1') {
       const hash = params[0];
       for (const u of userCredits.values()) {
@@ -445,30 +460,43 @@ export function createMockD1() {
       return { meta: { changes: 1 } };
     }
 
+    if (q.startsWith('INSERT INTO user_credits (user_id, public_id, credits, lifetime) VALUES (?, ?, 0, 0)')) {
+      const [userId, publicId] = params;
+      const existing = userCredits.get(userId);
+      if (!existing) {
+        userCredits.set(userId, { user_id: userId, public_id: publicId || null, credits: 0, lifetime: 0, recovery_hash: null });
+      } else {
+        existing.public_id = q.includes('COALESCE(') ? (existing.public_id || publicId) : publicId;
+      }
+      return { meta: { changes: 1 } };
+    }
+
     if (q.startsWith('INSERT OR IGNORE INTO user_credits')) {
       const userId = params[0];
       if (!userCredits.has(userId)) {
-        userCredits.set(userId, { user_id: userId, credits: 0, lifetime: 0, recovery_hash: null });
+        userCredits.set(userId, { user_id: userId, public_id: null, credits: 0, lifetime: 0, recovery_hash: null });
         return { meta: { changes: 1 } };
       }
       return { meta: { changes: 0 } };
     }
 
     if (q.includes('ON CONFLICT(user_id) DO UPDATE SET lifetime = 1')) {
-      const userId = params[0];
-      const existing = userCredits.get(userId) || { user_id: userId, credits: 0, lifetime: 0, recovery_hash: null };
+      const [userId, publicId] = params;
+      const existing = userCredits.get(userId) || { user_id: userId, public_id: publicId || null, credits: 0, lifetime: 0, recovery_hash: null };
       existing.lifetime = 1;
+      existing.public_id = existing.public_id || publicId || null;
       userCredits.set(userId, existing);
       return { meta: { changes: 1 } };
     }
 
     if (q.includes('ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?')) {
-      const [userId, initialCredits, addCredits] = params;
+      const [userId, publicId, initialCredits, addCredits] = params;
       const existing = userCredits.get(userId);
       if (existing) {
         existing.credits += addCredits;
+        existing.public_id = existing.public_id || publicId || null;
       } else {
-        userCredits.set(userId, { user_id: userId, credits: initialCredits, lifetime: 0, recovery_hash: null });
+        userCredits.set(userId, { user_id: userId, public_id: publicId || null, credits: initialCredits, lifetime: 0, recovery_hash: null });
       }
       return { meta: { changes: 1 } };
     }
@@ -480,6 +508,21 @@ export function createMockD1() {
         return { meta: { changes: 1 } };
       }
       return { meta: { changes: 0 } };
+    }
+
+    if (q === 'UPDATE user_credits SET lifetime = 0 WHERE user_id = ?') {
+      const user = userCredits.get(params[0]);
+      if (!user) return { meta: { changes: 0 } };
+      user.lifetime = 0;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q === 'UPDATE user_credits SET credits = MAX(0, credits - ?) WHERE user_id = ?') {
+      const [deduct, userId] = params;
+      const user = userCredits.get(userId);
+      if (!user) return { meta: { changes: 0 } };
+      user.credits = Math.max(0, user.credits - deduct);
+      return { meta: { changes: 1 } };
     }
 
     // --- PURCHASED IMAGES ---
@@ -507,10 +550,23 @@ export function createMockD1() {
       return { meta: { changes: had ? 0 : 1 } };
     }
 
+    if (q === 'DELETE FROM purchased_images WHERE user_id = ? AND photo_id = ?') {
+      const key = `${params[0]}::${params[1]}`;
+      const deleted = purchasedImages.delete(key);
+      return { meta: { changes: deleted ? 1 : 0 } };
+    }
+
     // --- PAYMENT ORDERS ---
-    if (q === 'SELECT status FROM payment_orders WHERE order_id = ? LIMIT 1' || q === 'SELECT user_id, status FROM payment_orders WHERE order_id = ? LIMIT 1') {
+    if (q.startsWith('SELECT') && q.includes('FROM payment_orders WHERE order_id = ? LIMIT 1')) {
       for (const order of paymentOrders.values()) {
-        if (order.order_id === params[0]) return { first: { user_id: order.user_id, status: order.status } };
+        if (order.order_id === params[0]) return { first: { ...order } };
+      }
+      return { first: null };
+    }
+
+    if (q.startsWith('SELECT') && q.includes('FROM payment_orders WHERE capture_id = ? LIMIT 1')) {
+      for (const order of paymentOrders.values()) {
+        if (order.capture_id && order.capture_id === params[0]) return { first: { ...order } };
       }
       return { first: null };
     }
@@ -520,35 +576,83 @@ export function createMockD1() {
       return { first: order ? { user_id: order.user_id, status: order.status } : null };
     }
 
+    if (q.startsWith('INSERT INTO payment_orders') && (q.includes("WHERE payment_orders.status = 'failed'") || q.includes("WHERE payment_orders.status IN ('created', 'failed')"))) {
+      const [id, user_id, order_id, capture_id, pack_key, amount, created_at, staleCutoffIso] = params;
+      const existing = paymentOrders.get(id);
+      const isStaleProcessing = existing?.status === 'processing' && existing.created_at && existing.created_at < staleCutoffIso;
+      if (existing && existing.status !== 'created' && existing.status !== 'failed' && !isStaleProcessing) {
+        return { meta: { changes: 0 } };
+      }
+      paymentOrders.set(id, {
+        id,
+        user_id,
+        order_id,
+        capture_id: capture_id || existing?.capture_id || null,
+        pack_key,
+        amount,
+        status: 'processing',
+        error_message: null,
+        created_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
     if (q.startsWith('INSERT INTO payment_orders') && q.includes('ON CONFLICT(id) DO NOTHING')) {
-      const [id, user_id, order_id, pack_key, amount] = params;
+      const [id, user_id, order_id, pack_key, amount, created_at] = params;
       if (paymentOrders.has(id)) return { meta: { changes: 0 } };
-      paymentOrders.set(id, { id, user_id, order_id, pack_key, amount, status: 'processing' });
+      const initialStatus = q.includes("'created'") ? 'created' : 'processing';
+      paymentOrders.set(id, {
+        id,
+        user_id,
+        order_id,
+        capture_id: null,
+        pack_key,
+        amount,
+        status: initialStatus,
+        error_message: null,
+        created_at: created_at || new Date().toISOString(),
+      });
       return { meta: { changes: 1 } };
     }
 
     if (q.startsWith('INSERT INTO payment_orders') && q.includes('ON CONFLICT(id) DO UPDATE')) {
-      const [id, user_id, order_id, pack_key, amount, error_message] = params;
-      const existing = paymentOrders.get(id);
-      if (existing && existing.status === 'completed') {
+      const existing = paymentOrders.get(params[0]);
+      if (existing && ['completed', 'refunded', 'reversed', 'disputed'].includes(existing.status)) {
         return { meta: { changes: 0 } };
       }
-      paymentOrders.set(id, { id, user_id, order_id, pack_key, amount, status: 'failed', error_message });
+      if (params.length === 7) {
+        const [id, user_id, order_id, capture_id, pack_key, amount, error_message] = params;
+        paymentOrders.set(id, { id, user_id, order_id, capture_id, pack_key, amount, status: 'failed', error_message, created_at: new Date().toISOString() });
+      } else {
+        const [id, user_id, order_id, pack_key, amount, error_message] = params;
+        paymentOrders.set(id, { id, user_id, order_id, capture_id: null, pack_key, amount, status: 'failed', error_message, created_at: new Date().toISOString() });
+      }
       return { meta: { changes: 1 } };
     }
 
     if (q.startsWith('INSERT OR REPLACE INTO payment_orders')) {
       const [id, user_id, order_id, pack_key, amount, error_message] = params;
-      paymentOrders.set(id, { id, user_id, order_id, pack_key, amount, status: 'failed', error_message });
+      paymentOrders.set(id, { id, user_id, order_id, pack_key, amount, status: 'failed', error_message, created_at: new Date().toISOString() });
       return { meta: { changes: 1 } };
     }
 
     if (q.startsWith("UPDATE payment_orders SET status = 'completed'")) {
-      const [completed_at, id] = params;
+      const [completed_at, capture_id, id] = params.length === 3 ? params : [params[0], null, params[1]];
       const order = paymentOrders.get(id);
       if (order) {
         order.status = 'completed';
         order.completed_at = completed_at;
+        if (capture_id) order.capture_id = capture_id;
+      }
+      return { meta: { changes: order ? 1 : 0 } };
+    }
+
+    if (q === 'UPDATE payment_orders SET status = ?, error_message = ? WHERE id = ?') {
+      const [status, error_message, id] = params;
+      const order = paymentOrders.get(id);
+      if (order) {
+        order.status = status;
+        order.error_message = error_message;
       }
       return { meta: { changes: order ? 1 : 0 } };
     }

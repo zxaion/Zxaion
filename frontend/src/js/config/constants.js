@@ -27,11 +27,40 @@ const ANIME_SUB_ALBUMS = [
     'ROMANCE ANIME', 'ISEKAI', 'ORIGINAL'
 ];
 
-const CREDIT_PACKS = {
-    '5$':   { credits: 200,  bonus: 0,    label: 'BASIC',        price: 5,   color: 'from-gray-400 to-gray-500' },
-    '25$':  { credits: 1300, bonus: 450,  label: 'STANDARD',     price: 25,  color: 'from-blue-400 to-blue-500' },
-    '45$':  { credits: 2700, bonus: 900,  label: 'PREMIUM',      price: 45,  color: 'from-violet-400 to-violet-500' },
-    '75$':  { credits: 4500, bonus: 1400, label: 'ULTIMATE',     price: 75,  color: 'from-purple-400 to-purple-500' },
-    '99$':  { credits: 7000, bonus: 2300, label: 'MEGA',         price: 99,  color: 'from-pink-400 to-rose-500' },
-    '125$': { credits: 'lifetime', bonus: 0, label: 'LIFETIME PRO', price: 125, color: 'from-amber-400 to-orange-500' }
+const _CREDIT_PACK_UI_META = {
+    '5$':   { label: 'BASIC',        color: 'from-gray-400 to-gray-500' },
+    '25$':  { label: 'STANDARD',     color: 'from-blue-400 to-blue-500' },
+    '45$':  { label: 'PREMIUM',      color: 'from-violet-400 to-violet-500' },
+    '75$':  { label: 'ULTIMATE',     color: 'from-purple-400 to-purple-500' },
+    '99$':  { label: 'MEGA',         color: 'from-pink-400 to-rose-500' },
+    '125$': { label: 'LIFETIME PRO', color: 'from-amber-400 to-orange-500' }
 };
+
+const _DEFAULT_PACK_DEFS = [
+    { key: '5$',   price: 5,   credits: 200,  bonus: 0,    lifetime: false },
+    { key: '25$',  price: 25,  credits: 1300, bonus: 450,  lifetime: false },
+    { key: '45$',  price: 45,  credits: 2700, bonus: 900,  lifetime: false },
+    { key: '75$',  price: 75,  credits: 4500, bonus: 1400, lifetime: false },
+    { key: '99$',  price: 99,  credits: 7000, bonus: 2300, lifetime: false },
+    { key: '125$', price: 125, credits: 0,    bonus: 0,    lifetime: true }
+];
+
+const _ACTIVE_PACK_DEFS = (typeof window !== 'undefined' && Array.isArray(window.__ZX_CREDIT_PACKS__))
+    ? window.__ZX_CREDIT_PACKS__
+    : _DEFAULT_PACK_DEFS;
+
+const CREDIT_PACKS = Object.fromEntries(
+    _ACTIVE_PACK_DEFS.map(def => {
+        const meta = _CREDIT_PACK_UI_META[def.key] || { label: def.key, color: 'from-gray-400 to-gray-500' };
+        return [
+            def.key,
+            {
+                credits: def.lifetime ? 'lifetime' : def.credits,
+                bonus:   def.bonus || 0,
+                label:   meta.label,
+                price:   def.price,
+                color:   meta.color,
+            }
+        ];
+    })
+);

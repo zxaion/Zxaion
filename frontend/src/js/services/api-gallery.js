@@ -28,7 +28,10 @@ const api = {
             }
 
             const PAGE_SIZE = 500;
-            const res = await fetch(`${API_BASE}/api/list?page=1&limit=${PAGE_SIZE}`);
+            const [res, albumsRes] = await Promise.all([
+                fetch(`${API_BASE}/api/list?page=1&limit=${PAGE_SIZE}`),
+                this.fetchAnimeAlbums().catch(() => null),
+            ]);
             if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
 
             const totalHeader = parseInt(res.headers.get('X-Total-Count') || '0', 10);
@@ -41,6 +44,9 @@ const api = {
             this.imageCache.timestamp = now;
 
             state.allPhotos = filtered;
+            if (Array.isArray(albumsRes)) {
+                this._applyServerAnimeCounts(albumsRes);
+            }
             this.organizeAnimeAlbums();
             ui.updateOriginalAlbumCount();
 
@@ -56,12 +62,29 @@ const api = {
         }
     },
 
+    _applyServerAnimeCounts(albums) {
+        const counts = {};
+        albums.forEach(({ sub_category, count }) => {
+            if (!sub_category) return;
+            const norm = typeof utils !== 'undefined' && typeof utils.normalizeAlbumKey === 'function'
+                ? utils.normalizeAlbumKey(sub_category)
+                : String(sub_category).toLowerCase();
+            if (!norm) return;
+            const n = Number(count) || 0;
+            counts[norm] = (counts[norm] || 0) + n;
+        });
+        state.animeAlbumCounts = counts;
+    },
+
     async _loadRemainingMainPages(pageSize, cacheStamp) {
-        const MAX_PAGES = 50;
+        // Batasi prefetch latar belakang maksimal 4 halaman (2.000 item); katalog lebih besar dilayani endpoint server (search/category/album)
+        const MAX_PREFETCH_PAGES = 4;
         let page = 2;
 
         try {
-            while (page <= MAX_PAGES && this.imageCache.timestamp === cacheStamp) {
+            while (page <= MAX_PREFETCH_PAGES && this.imageCache.timestamp === cacheStamp) {
+                await new Promise(r => setTimeout(r, 80));
+                if (this.imageCache.timestamp !== cacheStamp) break;
                 const res = await fetch(`${API_BASE}/api/list?page=${page}&limit=${pageSize}`);
                 if (!res.ok) break;
                 const data = await res.json();
@@ -70,7 +93,9 @@ const api = {
                 const nextItems = this._filterHeader(data);
                 if (this.imageCache.timestamp !== cacheStamp) break;
 
-                this.imageCache.main = (this.imageCache.main || []).concat(nextItems);
+                const seenIds = new Set((this.imageCache.main || []).map(p => p.id));
+                const freshItems = nextItems.filter(p => !seenIds.has(p.id));
+                this.imageCache.main = (this.imageCache.main || []).concat(freshItems);
                 state.allPhotos      = this.imageCache.main;
                 this.organizeAnimeAlbums();
                 ui.updateOriginalAlbumCount();
@@ -80,7 +105,7 @@ const api = {
                 } else if (!state.searchQuery && state.currentCategory !== 'COMITBASE' && state.currentCategory !== 'DTREASURE') {
                     if (state.currentCategory === 'All') {
                         const existingIds = new Set(state.filteredPhotos.map(p => p.id));
-                        const addedAnime  = nextItems.filter(p => p.category && p.category.toLowerCase() === 'anime' && !existingIds.has(p.id));
+                        const addedAnime  = freshItems.filter(p => p.category && p.category.toLowerCase() === 'anime' && !existingIds.has(p.id));
                         if (addedAnime.length > 0) {
                             state.filteredPhotos = state.filteredPhotos.concat(addedAnime);
                             if (typeof ui.updatePagination === 'function') ui.updatePagination();
@@ -90,7 +115,7 @@ const api = {
                         if (album) {
                             state.filteredPhotos = state.allPhotos.filter(photo =>
                                 photo.category && photo.category.toLowerCase() === 'anime' &&
-                                photo.subCategory && photo.subCategory.toLowerCase() === album.folderName.toLowerCase()
+                                photo.subCategory && this._matchSubCategory(photo.subCategory, album.folderName, state.currentAnimeAlbum)
                             );
                             if (typeof ui.updatePagination === 'function') ui.updatePagination();
                         }
@@ -107,6 +132,48 @@ const api = {
             }
         } catch (e) {
             console.warn('Background pagination interrupted:', e.message);
+        }
+    },
+
+    async searchCatalogServer(query) {
+        const q = String(query || '').trim();
+        if (!q) return [];
+        const enc = encodeURIComponent(q);
+        const [mainRes, comRes, dtRes] = await Promise.allSettled([
+            fetch(`${API_BASE}/api/list?q=${enc}&limit=500`),
+            fetch(`${API_BASE}/api/comitbase/list?q=${enc}&limit=500`),
+            fetch(`${API_BASE}/api/dtreasure/list?q=${enc}&limit=500`),
+        ]);
+        const merged = [];
+        const pushUnique = (items, extra = null) => {
+            if (!Array.isArray(items)) return;
+            items.forEach(item => {
+                if (!item || !item.id) return;
+                if (item.path && item.path.toLowerCase().startsWith('header/')) return;
+                merged.push(extra ? { ...item, ...extra } : item);
+            });
+        };
+        if (mainRes.status === 'fulfilled' && mainRes.value.ok) {
+            pushUnique(await mainRes.value.json().catch(() => []));
+        }
+        if (comRes.status === 'fulfilled' && comRes.value.ok) {
+            pushUnique(await comRes.value.json().catch(() => []), { searchCategory: 'COMITBASE' });
+        }
+        if (dtRes.status === 'fulfilled' && dtRes.value.ok) {
+            pushUnique(await dtRes.value.json().catch(() => []), { searchCategory: 'DTREASURE' });
+        }
+        return merged;
+    },
+
+    async fetchCategoryFromServer(category) {
+        try {
+            const catParam = category === 'All' ? 'Anime' : category;
+            const res = await fetch(`${API_BASE}/api/list?category=${encodeURIComponent(catParam)}&limit=500`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return Array.isArray(data) ? this._filterHeader(data) : null;
+        } catch {
+            return null;
         }
     },
 
@@ -138,10 +205,11 @@ const api = {
         this.imageCache.timestamp   = 0;
     },
 
-    async _fetchPaginatedBucket(endpoint, cacheKey, stateKey) {
+    async _fetchPaginatedBucket(endpoint, cacheKey, stateKey, errorKey) {
         const now = Date.now();
         if (this.imageCache[cacheKey] && (now - this.imageCache.timestamp) < 300000) {
             state[stateKey] = this.imageCache[cacheKey];
+            if (errorKey) state[errorKey] = false;
             return true;
         }
 
@@ -149,16 +217,17 @@ const api = {
         const res = await fetch(`${API_BASE}${endpoint}?page=1&limit=${PAGE_SIZE}`);
         if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
         const firstPage = await res.json();
-        if (!Array.isArray(firstPage)) return false;
+        if (!Array.isArray(firstPage)) throw new Error('Invalid bucket payload');
 
         this.imageCache[cacheKey] = firstPage;
         if (!this.imageCache.timestamp) this.imageCache.timestamp = now;
         state[stateKey] = firstPage;
+        if (errorKey) state[errorKey] = false;
 
         if (firstPage.length === PAGE_SIZE) {
             (async () => {
                 let page = 2;
-                while (page <= 50) {
+                while (page <= 4) {
                     const nextRes = await fetch(`${API_BASE}${endpoint}?page=${page}&limit=${PAGE_SIZE}`);
                     if (!nextRes.ok) break;
                     const data = await nextRes.json();
@@ -181,20 +250,57 @@ const api = {
 
     async fetchComitbaseImages() {
         try {
-            return await this._fetchPaginatedBucket('/api/comitbase/list', 'comitbase', 'comitbasePhotos');
+            state.comitbaseError = false;
+            return await this._fetchPaginatedBucket('/api/comitbase/list', 'comitbase', 'comitbasePhotos', 'comitbaseError');
         } catch (e) {
             console.error('Error fetching COMITBASE:', e);
+            state.comitbaseError = true;
             return false;
         }
     },
 
     async fetchDtreasureImages() {
         try {
-            return await this._fetchPaginatedBucket('/api/dtreasure/list', 'dtreasure', 'dtreasurePhotos');
+            state.dtreasureError = false;
+            return await this._fetchPaginatedBucket('/api/dtreasure/list', 'dtreasure', 'dtreasurePhotos', 'dtreasureError');
         } catch (e) {
             console.error('Error fetching DTREASURE:', e);
+            state.dtreasureError = true;
             return false;
         }
+    },
+
+    _resolveAlbumTitle(folderName) {
+        if (!folderName) return null;
+        const normFolder = utils.normalizeAlbumKey(folderName);
+        if (!normFolder) return null;
+        if (normFolder === 'random' || normFolder === 'original') return 'ORIGINAL';
+
+        const exact = ANIME_SUB_ALBUMS.find(album => utils.normalizeAlbumKey(album) === normFolder);
+        if (exact) return exact;
+
+        if (normFolder.length >= 4) {
+            const partial = ANIME_SUB_ALBUMS.find(album => {
+                const normAlbum = utils.normalizeAlbumKey(album);
+                return normAlbum.length >= 4 && (normFolder.includes(normAlbum) || normAlbum.includes(normFolder));
+            });
+            if (partial) return partial;
+        }
+
+        return folderName
+            .replace(/[-_]+/g, ' ')
+            .split(' ')
+            .filter(Boolean)
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+    },
+
+    _matchSubCategory(subCategory, folderName, albumTitle) {
+        if (!subCategory) return false;
+        const normSub = utils.normalizeAlbumKey(subCategory);
+        if (folderName && normSub === utils.normalizeAlbumKey(folderName)) return true;
+        if (albumTitle && utils.normalizeAlbumKey(albumTitle) === normSub) return true;
+        return this._resolveAlbumTitle(subCategory) === albumTitle;
     },
 
     organizeAnimeAlbums() {
@@ -202,27 +308,7 @@ const api = {
         state.allPhotos.forEach(photo => {
             if (photo.category && photo.category.toLowerCase() === 'anime' && photo.subCategory) {
                 const folderName = photo.subCategory;
-                let albumTitle   = null;
-
-                if (folderName.toLowerCase() === 'random') {
-                    albumTitle = 'ORIGINAL';
-                } else {
-                    const normalizedName = folderName
-                        .replace(/-/g, ' ')
-                        .replace(/_/g, ' ')
-                        .split(' ')
-                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                        .join(' ');
-
-                    const lowerNorm = normalizedName.toLowerCase();
-                    const matchedAlbum =
-                        ANIME_SUB_ALBUMS.find(album => album.toLowerCase() === lowerNorm) ||
-                        ANIME_SUB_ALBUMS.find(album =>
-                            lowerNorm.length >= 4 &&
-                            (lowerNorm.includes(album.toLowerCase()) || album.toLowerCase().includes(lowerNorm))
-                        );
-                    albumTitle = matchedAlbum || normalizedName;
-                }
+                const albumTitle = this._resolveAlbumTitle(folderName);
 
                 if (albumTitle) {
                     if (!state.animeAlbums[albumTitle]) {

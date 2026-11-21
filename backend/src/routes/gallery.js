@@ -1,10 +1,23 @@
 import { ensureAutoSync } from '../services/r2Sync.js';
+import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
+
+function buildVersionedImagePath(prefix, r2Key, row) {
+  const base = `${prefix}${encodeURIComponent(r2Key)}`;
+  const verSource = row.uploaded || row.size;
+  if (!verSource) return base;
+  const ver = String(row.uploaded ? Date.parse(row.uploaded) || row.uploaded : row.size);
+  return `${base}?v=${encodeURIComponent(ver)}`;
+}
 
 // ================================================================
 // ENDPOINT: List main gallery (supports category, subCategory, q search, pagination)
 // ================================================================
-export async function handleListMain({ url, env, ctx, DB, corsHeaders }) {
+export async function handleListMain({ request, url, env, ctx, DB, corsHeaders }) {
   try {
+    if (request) {
+      const cached = await matchEdgeCache(request);
+      if (cached) return cached;
+    }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',  10);
     const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
@@ -37,7 +50,7 @@ export async function handleListMain({ url, env, ctx, DB, corsHeaders }) {
     }
 
     const whereClause = conditions.join(' AND ');
-    const query       = `SELECT * FROM images WHERE ${whereClause} ORDER BY uploaded DESC LIMIT ? OFFSET ?`;
+    const query       = `SELECT * FROM images WHERE ${whereClause} ORDER BY uploaded DESC, id DESC LIMIT ? OFFSET ?`;
     const countQuery  = `SELECT COUNT(*) AS total FROM images WHERE ${whereClause}`;
 
     const [{ results }, countRow] = await Promise.all([
@@ -50,7 +63,7 @@ export async function handleListMain({ url, env, ctx, DB, corsHeaders }) {
       title:         row.title,
       category:      row.category,
       subCategory:   row.sub_category,
-      url:           `/api/img/${encodeURIComponent(row.r2_key)}`,
+      url:           buildVersionedImagePath('/api/img/', row.r2_key, row),
       size:          row.size,
       uploaded:      row.uploaded,
       path:          row.r2_key,
@@ -58,7 +71,7 @@ export async function handleListMain({ url, env, ctx, DB, corsHeaders }) {
       downloadCount: row.download_count || 0,
     }));
 
-    return new Response(JSON.stringify(photos), {
+    const res = new Response(JSON.stringify(photos), {
       headers: {
         ...corsHeaders,
         'Content-Type':  'application/json',
@@ -66,6 +79,8 @@ export async function handleListMain({ url, env, ctx, DB, corsHeaders }) {
         'X-Total-Count': String(countRow?.total ?? photos.length),
       },
     });
+    if (request) storeEdgeCache(request, res, ctx);
+    return res;
   } catch (e) {
     console.error('/api/list error:', e.message);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
@@ -77,8 +92,12 @@ export async function handleListMain({ url, env, ctx, DB, corsHeaders }) {
 // ================================================================
 // ENDPOINT: Anime sub-albums summary
 // ================================================================
-export async function handleAnimeAlbums({ env, ctx, DB, corsHeaders }) {
+export async function handleAnimeAlbums({ request, env, ctx, DB, corsHeaders }) {
   try {
+    if (request) {
+      const cached = await matchEdgeCache(request);
+      if (cached) return cached;
+    }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const { results } = await DB.prepare(
       `SELECT sub_category, COUNT(*) AS count
@@ -88,13 +107,15 @@ export async function handleAnimeAlbums({ env, ctx, DB, corsHeaders }) {
        ORDER BY sub_category ASC`
     ).all();
 
-    return new Response(JSON.stringify(results), {
+    const res = new Response(JSON.stringify(results), {
       headers: {
         ...corsHeaders,
         'Content-Type':  'application/json',
         'Cache-Control': 'public, max-age=120',
       },
     });
+    if (request) storeEdgeCache(request, res, ctx);
+    return res;
   } catch (e) {
     console.error('/api/anime/albums error:', e.message);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
@@ -106,11 +127,15 @@ export async function handleAnimeAlbums({ env, ctx, DB, corsHeaders }) {
 // ================================================================
 // ENDPOINT: COMITBASE list
 // ================================================================
-export async function handleListComitbase({ url, env, ctx, comitbaseBucket, DB, corsHeaders }) {
+export async function handleListComitbase({ request, url, env, ctx, comitbaseBucket, DB, corsHeaders }) {
   if (!comitbaseBucket) return new Response('[]', {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
   try {
+    if (request) {
+      const cached = await matchEdgeCache(request);
+      if (cached) return cached;
+    }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'comitbase' });
     const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',   10);
     const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
@@ -127,28 +152,30 @@ export async function handleListComitbase({ url, env, ctx, comitbaseBucket, DB, 
     }
 
     const { results } = await DB.prepare(
-      `SELECT id, title, r2_key, uploaded, view_count, download_count
+      `SELECT id, title, r2_key, size, uploaded, view_count, download_count
        FROM images WHERE ${conditions.join(' AND ')}
-       ORDER BY uploaded DESC LIMIT ? OFFSET ?`
+       ORDER BY uploaded DESC, id DESC LIMIT ? OFFSET ?`
     ).bind(...bindings, limit, offset).all();
 
     const photos = results.map(row => ({
       id:            row.id,
       title:         row.title,
       uploader:      'Community',
-      url:           `/api/comitbase/img/${encodeURIComponent(row.r2_key)}`,
+      url:           buildVersionedImagePath('/api/comitbase/img/', row.r2_key, row),
       uploaded:      row.uploaded,
       viewCount:     row.view_count     || 0,
       downloadCount: row.download_count || 0,
     }));
 
-    return new Response(JSON.stringify(photos), {
+    const res = new Response(JSON.stringify(photos), {
       headers: {
         ...corsHeaders,
         'Content-Type':  'application/json',
         'Cache-Control': 'public, max-age=60',
       },
     });
+    if (request) storeEdgeCache(request, res, ctx);
+    return res;
   } catch (e) {
     console.error('/api/comitbase/list error:', e.message);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
@@ -183,7 +210,7 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
     const { results } = await DB.prepare(
       `SELECT id, title, r2_key, uploaded, view_count, download_count
        FROM images WHERE ${conditions.join(' AND ')}
-       ORDER BY uploaded DESC LIMIT ? OFFSET ?`
+       ORDER BY uploaded DESC, id DESC LIMIT ? OFFSET ?`
     ).bind(...bindings, limit, offset).all();
 
     const photos = results.map(row => ({
@@ -214,20 +241,24 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
 // ================================================================
 // ENDPOINT: Top trending images
 // ================================================================
-export async function handleTrending({ url, env, ctx, DB, corsHeaders }) {
+export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }) {
   const rawLimit = parseInt(url.searchParams.get('limit') ?? '20', 10);
   const limit    = Math.min(50, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
 
   try {
+    if (request) {
+      const cached = await matchEdgeCache(request);
+      if (cached) return cached;
+    }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const { results } = await DB.prepare(`
-      SELECT id, title, r2_key, bucket, category, sub_category,
+      SELECT id, title, r2_key, bucket, category, sub_category, size, uploaded,
              view_count, download_count,
              (COALESCE(view_count, 0) + COALESCE(download_count, 0)) AS score
       FROM images
       WHERE bucket = 'main'
         AND category != 'Header'
-      ORDER BY score DESC, uploaded DESC
+      ORDER BY score DESC, uploaded DESC, id DESC
       LIMIT ?
     `).bind(limit).all();
 
@@ -236,19 +267,21 @@ export async function handleTrending({ url, env, ctx, DB, corsHeaders }) {
       title:         row.title,
       category:      row.category,
       subCategory:   row.sub_category,
-      url:           `/api/img/${encodeURIComponent(row.r2_key)}`,
+      url:           buildVersionedImagePath('/api/img/', row.r2_key, row),
       viewCount:     row.view_count     || 0,
       downloadCount: row.download_count || 0,
       score:         row.score          || 0,
     }));
 
-    return new Response(JSON.stringify(photos), {
+    const res = new Response(JSON.stringify(photos), {
       headers: {
         ...corsHeaders,
         'Content-Type':  'application/json',
         'Cache-Control': 'public, max-age=120',
       },
     });
+    if (request) storeEdgeCache(request, res, ctx);
+    return res;
   } catch (e) {
     console.error('/api/trending error:', e.message);
     return new Response(JSON.stringify([]), {

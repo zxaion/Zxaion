@@ -3,6 +3,8 @@
  * Depends on: ui (base.js), state, api, utils, API_BASE, getOrCreateUserToken
  */
 Object.assign(ui, {
+    _spendingPhotoIds: new Set(),
+
     async handleDownload(photo) {
         if (!photo) return;
 
@@ -14,14 +16,23 @@ Object.assign(ui, {
                 return;
             }
 
+            if (this._spendingPhotoIds.has(photo.id)) return;
+
             if (state.credits < 10) {
                 this.showToast(`Insufficient credits (Need: 10, Have: ${state.credits}). Please buy more credits.`, 'warning');
                 document.getElementById('buy-credits-btn')?.click();
                 return;
             }
 
-            const result = await api.spendCredit(photo.id);
-            if (result.success) {
+            this._spendingPhotoIds.add(photo.id);
+            let result;
+            try {
+                result = await api.spendCredit(photo.id);
+            } finally {
+                this._spendingPhotoIds.delete(photo.id);
+            }
+
+            if (result && result.success) {
                 state.credits = result.newBalance;
                 state.purchasedImages.add(photo.id);
                 ui.updateCreditDisplay();
@@ -42,7 +53,7 @@ Object.assign(ui, {
                 if (state.currentCategory === 'DTREASURE') this.renderDtreasureGallery();
                 this.triggerDownload(photo);
             } else {
-                this.showToast(result.error || 'Download failed. Please try again.', 'error');
+                this.showToast(result?.error || 'Download failed. Please try again.', 'error');
             }
         } else {
             this.triggerDownload(photo);
@@ -65,9 +76,11 @@ Object.assign(ui, {
         };
 
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-        const fullUrl     = photo.url.startsWith('http') ? photo.url : `${API_BASE}${photo.url}`;
-        const downloadUrl = `${fullUrl}?download=true&photoId=${encodeURIComponent(photo.id)}`;
-        const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + '.jpg';
+        const fullUrl     = utils.encodeImageUrlPath(photo.url).split('?')[0];
+        const downloadUrl = `${fullUrl}?download=true`;
+        const extMatch    = fullUrl.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+        const ext         = extMatch ? `.${extMatch[1].toLowerCase()}` : '.jpg';
+        const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + ext;
 
         if (isDtreasure) {
             const token        = getOrCreateUserToken();

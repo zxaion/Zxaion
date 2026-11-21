@@ -37,18 +37,25 @@ export async function handleStats({ path, DB, corsHeaders }) {
   }
 }
 
+function resolveStatsActor(request, getUserToken) {
+  const ip     = (request.headers.get('CF-Connecting-IP') || '').trim();
+  const userId = getUserToken(request);
+  const rateLimitKey = ip || userId || 'anonymous';
+  const dedupActor   = ip ? `ip:${ip}` : (userId !== 'anonymous' ? userId : 'anonymous');
+  return { rateLimitKey, dedupActor };
+}
+
 // ================================================================
-// ENDPOINT: Record unique view per user
+// ENDPOINT: Record unique view per actor/IP
 // ================================================================
 export async function handleRecordView({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
   const photoId = extractPhotoId(path, '/api/view/');
   if (!photoId) {
     return new Response(null, { status: 400, headers: corsHeaders });
   }
-  const userId  = getUserToken(request);
-  const actorId = userId !== 'anonymous' ? userId : (request.headers.get('CF-Connecting-IP') || 'anonymous');
+  const { rateLimitKey, dedupActor } = resolveStatsActor(request, getUserToken);
 
-  if (!await checkRateLimit('view', actorId, 100, 3600)) {
+  if (!await checkRateLimit('view', rateLimitKey, 100, 3600)) {
     return new Response(null, { status: 429, headers: corsHeaders });
   }
 
@@ -56,7 +63,7 @@ export async function handleRecordView({ request, ctx, path, DB, corsHeaders, ge
     try {
       const inserted = await DB.prepare(
         'INSERT OR IGNORE INTO views (photo_id, user_id) VALUES (?, ?)'
-      ).bind(photoId, actorId).run();
+      ).bind(photoId, dedupActor).run();
 
       if (inserted?.meta?.changes > 0) {
         await DB.prepare(
@@ -72,17 +79,16 @@ export async function handleRecordView({ request, ctx, path, DB, corsHeaders, ge
 }
 
 // ================================================================
-// ENDPOINT: Record unique download per user
+// ENDPOINT: Record unique download per actor/IP
 // ================================================================
 export async function handleRecordDownload({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
   const photoId = extractPhotoId(path, '/api/download/');
   if (!photoId) {
     return new Response(null, { status: 400, headers: corsHeaders });
   }
-  const userId  = getUserToken(request);
-  const actorId = userId !== 'anonymous' ? userId : (request.headers.get('CF-Connecting-IP') || 'anonymous');
+  const { rateLimitKey, dedupActor } = resolveStatsActor(request, getUserToken);
 
-  if (!await checkRateLimit('download', actorId, 50, 3600)) {
+  if (!await checkRateLimit('download', rateLimitKey, 50, 3600)) {
     return new Response(null, { status: 429, headers: corsHeaders });
   }
 
@@ -90,7 +96,7 @@ export async function handleRecordDownload({ request, ctx, path, DB, corsHeaders
     try {
       const inserted = await DB.prepare(
         'INSERT OR IGNORE INTO downloads (photo_id, user_id) VALUES (?, ?)'
-      ).bind(photoId, actorId).run();
+      ).bind(photoId, dedupActor).run();
 
       if (inserted?.meta?.changes > 0) {
         await DB.prepare(

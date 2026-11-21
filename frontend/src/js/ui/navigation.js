@@ -78,6 +78,17 @@ Object.assign(ui, {
                 photo.category && photo.category.toLowerCase() === category.toLowerCase()
             );
             this.renderGallery();
+
+            if ((api.imageCache?.totalMain || 0) > state.allPhotos.length || state.filteredPhotos.length === 0) {
+                api.fetchCategoryFromServer(category).then(serverItems => {
+                    if (!serverItems || state.currentCategory !== category || state.searchQuery) return;
+                    if (serverItems.length > state.filteredPhotos.length) {
+                        state.filteredPhotos = serverItems;
+                        this.invalidateMainSortCache();
+                        this.renderGallery();
+                    }
+                }).catch(() => {});
+            }
         }
 
         this.updateHeroSection(category);
@@ -159,6 +170,22 @@ Object.assign(ui, {
             const heroDesc  = document.getElementById('hero-desc');
             if (heroTitle) heroTitle.textContent = `Search: "${query}"`;
             if (heroDesc)  heroDesc.textContent  = `${state.filteredPhotos.length} results found`;
+
+            if ((api.imageCache?.totalMain || 0) > state.allPhotos.length && typeof api.searchCatalogServer === 'function') {
+                api.searchCatalogServer(searchTerm).then(serverMatches => {
+                    if (state.searchQuery !== searchTerm || !Array.isArray(serverMatches)) return;
+                    const mergedById = new Map(state.filteredPhotos.map(p => [p.id, p]));
+                    serverMatches.forEach(item => {
+                        if (!mergedById.has(item.id)) mergedById.set(item.id, item);
+                    });
+                    if (mergedById.size > state.filteredPhotos.length) {
+                        state.filteredPhotos = Array.from(mergedById.values());
+                        this.invalidateMainSortCache();
+                        this.renderGallery();
+                        if (heroDesc) heroDesc.textContent = `${state.filteredPhotos.length} results found`;
+                    }
+                }).catch(() => {});
+            }
         } else {
             if (elements.searchClear) elements.searchClear.classList.add('hidden');
             state.currentAnimeAlbum = null;

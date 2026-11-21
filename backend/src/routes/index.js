@@ -3,7 +3,7 @@ import { handleAdminSync }       from './admin.js';
 import { handlePayPalWebhook }   from './paypalWebhook.js';
 import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure, handleTrending } from './gallery.js';
 import { handleStats, handleRecordView, handleRecordDownload } from './stats.js';
-import { handleCreditBalance, handleCreateRecoveryCode, handleRecoverAccount, handleCreditPurchase, handleCreditSpend } from './credits.js';
+import { handleCreditBalance, handlePreparePayer, handleCreatePayPalOrder, handleCreateRecoveryCode, handleRecoverAccount, handleCreditPurchase, handleCreditSpend } from './credits.js';
 import { handleServeImage }      from './media.js';
 
 export const routes = [
@@ -25,11 +25,13 @@ export const routes = [
   { method: 'POST', pathPrefix: '/api/download/', handler: handleRecordDownload },
 
   // --- Credits & Recovery ---
-  { method: 'GET',  path: '/api/credits/balance',  handler: handleCreditBalance },
-  { method: 'POST', path: '/api/credits/recovery', handler: handleCreateRecoveryCode },
-  { method: 'POST', path: '/api/credits/recover',  handler: handleRecoverAccount },
-  { method: 'POST', path: '/api/credits/purchase', handler: handleCreditPurchase },
-  { method: 'POST', path: '/api/credits/spend',    handler: handleCreditSpend },
+  { method: 'GET',  path: '/api/credits/balance',      handler: handleCreditBalance },
+  { method: 'POST', path: '/api/credits/prepare',      handler: handlePreparePayer },
+  { method: 'POST', path: '/api/credits/create-order', handler: handleCreatePayPalOrder },
+  { method: 'POST', path: '/api/credits/recovery',     handler: handleCreateRecoveryCode },
+  { method: 'POST', path: '/api/credits/recover',      handler: handleRecoverAccount },
+  { method: 'POST', path: '/api/credits/purchase',     handler: handleCreditPurchase },
+  { method: 'POST', path: '/api/credits/spend',        handler: handleCreditSpend },
 
   // --- Media (gambar dari R2) — semua method, 3 bucket ---
   {

@@ -20,6 +20,43 @@ Object.assign(api, {
         }
     },
 
+    async preparePayer() {
+        const token = getOrCreateUserToken();
+        try {
+            const res = await fetch(`${API_BASE}/api/credits/prepare`, {
+                method:  'POST',
+                headers: { 'X-User-Token': token }
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success && typeof data.payerRef === 'string' && data.payerRef.startsWith('pub_')) {
+                return data.payerRef;
+            }
+            return null;
+        } catch (e) {
+            console.error('preparePayer failed:', e);
+            return null;
+        }
+    },
+
+    async createOrder(packKey) {
+        const token = getOrCreateUserToken();
+        try {
+            const res = await fetch(`${API_BASE}/api/credits/create-order`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+                body:    JSON.stringify({ pack: packKey })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success && typeof data.orderId === 'string' && data.orderId.trim()) {
+                return { success: true, orderId: data.orderId.trim(), error: null };
+            }
+            return { success: false, orderId: null, error: data.error || 'Could not initialize secure checkout.' };
+        } catch (e) {
+            console.error('createOrder failed:', e);
+            return { success: false, orderId: null, error: 'Network error while initializing PayPal checkout.' };
+        }
+    },
+
     async purchaseCredits(packKey, orderId) {
         const token = getOrCreateUserToken();
         try {
@@ -97,9 +134,20 @@ Object.assign(api, {
             state.lifetime        = !!data.lifetime;
             state.purchasedImages = new Set(data.purchased || []);
             ui.updateCreditDisplay();
+            if (typeof ui.invalidateDtreasureSortCache === 'function') {
+                ui.invalidateDtreasureSortCache();
+            }
 
-            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasure === 'function') {
-                ui.renderDtreasure();
+            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
+                ui.renderDtreasureGallery();
+            }
+
+            if (state.currentImageId && typeof ui.applyModalShield === 'function') {
+                const isUnlocked = state.lifetime || state.purchasedImages.has(state.currentImageId);
+                if (isUnlocked) {
+                    ui.applyModalShield(false);
+                    ui.unlockDtreasureThumbnail?.(state.currentImageId);
+                }
             }
 
             return {

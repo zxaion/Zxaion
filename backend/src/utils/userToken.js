@@ -2,7 +2,7 @@
 
 export function getUserToken(req) {
   const raw = (req.headers.get('X-User-Token') || '').trim();
-  if (!raw || raw.length > 128) return 'anonymous';
+  if (!/^[A-Za-z0-9._-]{8,128}$/.test(raw)) return 'anonymous';
   return raw;
 }
 
@@ -16,6 +16,18 @@ export async function sha256Hex(input) {
   const data   = new TextEncoder().encode(String(input));
   const digest = await crypto.subtle.digest('SHA-256', data);
   return toHex(digest);
+}
+
+export async function derivePublicPayerRef(userId) {
+  if (!userId || userId === 'anonymous') return null;
+  const digest = await sha256Hex(`payer:${userId}`);
+  return `pub_${digest.slice(0, 32)}`;
+}
+
+export async function maskTokenForLog(userId) {
+  if (!userId || userId === 'anonymous') return 'anon';
+  const digest = await sha256Hex(userId);
+  return `u_${digest.slice(0, 10)}`;
 }
 
 export function generateRecoveryCode() {

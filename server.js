@@ -49,7 +49,13 @@ export function translateCdnCgiImagePath(originalUrl) {
     const eqIdx = part.indexOf('=');
     if (eqIdx <= 0) continue;
     const key = part.slice(0, eqIdx).trim().toLowerCase();
-    const val = decodeURIComponent(part.slice(eqIdx + 1).trim());
+    const rawVal = part.slice(eqIdx + 1).trim();
+    let val = rawVal;
+    try {
+      val = decodeURIComponent(rawVal);
+    } catch {
+      val = rawVal;
+    }
     const mapped = DIRECTIVE_TO_QUERY[key];
     if (mapped && val && !targetUrl.searchParams.has(mapped)) {
       targetUrl.searchParams.set(mapped, val);

@@ -44,7 +44,7 @@ bucket_name = "d-treasures"
 [observability]
 enabled = false
 head_sampling_rate = 1
-redact_query_string = false
+redact_query_string = true
 
 [observability.logs]
 enabled = true

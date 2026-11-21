@@ -61,13 +61,26 @@ Object.assign(ui, {
         });
 
         if (state.dtreasurePhotos.length === 0) {
-            elements.dtreasureGallery.innerHTML = `
-            <div class="col-span-full text-center py-20" style="column-span:all;">
-                <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
-                    <i class="fas fa-gem text-3xl text-gray-400"></i>
-                </div>
-                <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
-            </div>`;
+            if (state.dtreasureError) {
+                elements.dtreasureGallery.innerHTML = `
+                <div class="col-span-full text-center py-20" style="column-span:all;">
+                    <div class="w-20 h-20 mx-auto mb-4 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle text-3xl text-red-500"></i>
+                    </div>
+                    <p class="text-gray-700 dark:text-gray-200 font-semibold mb-4">Failed to load DTREASURE vault</p>
+                    <button type="button" data-action="retry-dtreasure" class="px-5 py-2.5 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                        <i class="fas fa-sync-alt mr-1.5"></i>Try Again
+                    </button>
+                </div>`;
+            } else {
+                elements.dtreasureGallery.innerHTML = `
+                <div class="col-span-full text-center py-20" style="column-span:all;">
+                    <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
+                        <i class="fas fa-gem text-3xl text-gray-400"></i>
+                    </div>
+                    <p class="text-gray-500 dark:text-gray-400">No DTREASURE images yet</p>
+                </div>`;
+            }
             this.updateToolbarCount(0);
             this.updateDtreasurePagination(0);
             return;
@@ -82,10 +95,10 @@ Object.assign(ui, {
                 <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-1">Your Unlocked Library is Empty</h3>
                 <p class="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-5">Unlock any DTREASURE artwork using credits (or get Lifetime Pro) to access clean 4K downloads anytime here.</p>
                 <div class="flex flex-wrap items-center justify-center gap-3">
-                    <button type="button" onclick="switchDtreasureTab('all')" class="px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold shadow-md hover:from-amber-600 hover:to-orange-600 cursor-pointer">
+                    <button type="button" data-action="switch-dtreasure-tab" data-tab="all" class="px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold shadow-md hover:from-amber-600 hover:to-orange-600 cursor-pointer">
                         <i class="fas fa-gem mr-1.5"></i>Browse All Vault
                     </button>
-                    <button type="button" onclick="document.getElementById('buy-credits-btn')?.click()" class="px-5 py-2.5 rounded-full bg-gray-900 text-white text-xs font-bold shadow-md hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                    <button type="button" data-action="open-buy-credits" class="px-5 py-2.5 rounded-full bg-gray-900 text-white text-xs font-bold shadow-md hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
                         <i class="fas fa-shopping-cart mr-1.5"></i>Buy Credits
                     </button>
                 </div>
@@ -111,7 +124,7 @@ Object.assign(ui, {
             <div class="col-span-full text-center py-16 bg-white/70 dark:bg-gray-900/70 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700" style="column-span:all;">
                 <i class="fas fa-crop-simple text-3xl text-gray-400 mb-3"></i>
                 <p class="text-gray-600 dark:text-gray-300 font-semibold mb-3">No ${utils.escapeHtml(state.aspectFilter)} wallpapers found in DTREASURE yet.</p>
-                <button type="button" onclick="resetAspectFilter()" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                <button type="button" data-action="reset-aspect-filter" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
                     Show All Ratios
                 </button>
             </div>`;
@@ -160,6 +173,7 @@ Object.assign(ui, {
             const transformOpts = { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' };
             const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
             const fullUrl       = candidates[0] || '';
+            const safePhotoId   = utils.escapeHtml(photo.id);
             const isFree        = state.lifetime || state.purchasedImages.has(photo.id);
             const buttonText    = isFree ? 'Download' : '10 Credits';
             const buttonIcon    = isFree ? 'fa-download' : 'fa-lock';
@@ -174,8 +188,6 @@ Object.assign(ui, {
             const thumbShield = isFree ? '' : `
     <div
         class="dtreasure-thumb-shield absolute inset-0 z-[1]"
-        oncontextmenu="return false;"
-        ondragstart="return false;"
         style="-webkit-tap-highlight-color:transparent; cursor:pointer;">
     </div>`;
 
@@ -195,8 +207,8 @@ Object.assign(ui, {
 </div>
 <div class="masonry-overlay" style="z-index:2;">
     <div class="stats">
-        <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">${viewCount}</span></span>
-        <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">${downloadCount}</span></span>
+        <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${safePhotoId}">${viewCount}</span></span>
+        <span><i class="fas fa-download"></i> <span class="download-count" data-id="${safePhotoId}">${downloadCount}</span></span>
     </div>
     <button class="download-btn" type="button">
         <i class="fas ${buttonIcon}"></i> ${buttonText}

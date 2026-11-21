@@ -59,7 +59,7 @@ Object.assign(ui, {
             <div class="col-span-full text-center py-16 bg-white/70 dark:bg-gray-900/70 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700" style="column-span:all;">
                 <i class="fas fa-crop-simple text-3xl text-gray-400 mb-3"></i>
                 <p class="text-gray-600 dark:text-gray-300 font-semibold mb-3">No ${utils.escapeHtml(state.aspectFilter)} wallpapers found in this view yet.</p>
-                <button type="button" onclick="resetAspectFilter()" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
+                <button type="button" data-action="reset-aspect-filter" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
                     Show All Ratios
                 </button>
             </div>`;
@@ -105,28 +105,57 @@ Object.assign(ui, {
             item.style.animationDelay = `${Math.min(index, 12) * 35}ms`;
             item.dataset.photoId = photo.id;
 
-            const transformOpts = { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' };
+            const isDtreasure   = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+            const isFree        = !isDtreasure || state.lifetime || state.purchasedImages.has(photo.id);
+            const transformOpts = isDtreasure ? { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' } : { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' };
             const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
             const fullUrl       = candidates[0] || '';
+            const safePhotoId   = utils.escapeHtml(photo.id);
             const viewCount     = utils.formatNumber(photo.viewCount     || 0);
             const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+            const buttonText    = isFree ? 'Download' : '10 Credits';
+            const buttonIcon    = isFree ? 'fa-download' : 'fa-lock';
             const errorSvg      = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
 
+            const unlockedBadge = isDtreasure && isFree
+                ? `<span class="dtreasure-unlocked-badge absolute top-2.5 left-2.5 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-md backdrop-blur-sm"><i class="fas fa-unlock"></i> Unlocked</span>`
+                : '';
+
+            const thumbShield = isDtreasure && !isFree
+                ? `<div class="dtreasure-thumb-shield absolute inset-0 z-[1]" style="-webkit-tap-highlight-color:transparent; cursor:pointer;"></div>`
+                : '';
+
+            const imgHtml = isDtreasure
+                ? `<div class="relative" style="line-height:0;">
+                    ${unlockedBadge}
+                    <img
+                        src="${placeholderSvg}"
+                        data-src="${utils.escapeHtml(fullUrl)}"
+                        alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}"
+                        loading="lazy"
+                        class="loading-shimmer w-full h-auto select-none"
+                        decoding="async"
+                        draggable="false"
+                        style="-webkit-user-drag:none; ${isFree ? '' : '-webkit-touch-callout:none;'} user-select:none;">
+                    ${thumbShield}
+                   </div>`
+                : `<img
+                    src="${placeholderSvg}"
+                    data-src="${utils.escapeHtml(fullUrl)}"
+                    alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}"
+                    loading="lazy"
+                    class="loading-shimmer w-full h-auto"
+                    decoding="async">`;
+
             item.innerHTML = `
-            <img
-                src="${placeholderSvg}"
-                data-src="${utils.escapeHtml(fullUrl)}"
-                alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}"
-                loading="lazy"
-                class="loading-shimmer w-full h-auto"
-                decoding="async">
-            <div class="masonry-overlay">
+            ${imgHtml}
+            <div class="masonry-overlay" style="z-index:2;">
                 <div class="stats">
-                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${photo.id}">${viewCount}</span></span>
-                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${photo.id}">${downloadCount}</span></span>
+                    <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${safePhotoId}">${viewCount}</span></span>
+                    <span><i class="fas fa-download"></i> <span class="download-count" data-id="${safePhotoId}">${downloadCount}</span></span>
                 </div>
                 <button class="download-btn" type="button">
-                    <i class="fas fa-download"></i> Download
+                    <i class="fas ${buttonIcon}"></i> ${buttonText}
                 </button>
             </div>`;
 

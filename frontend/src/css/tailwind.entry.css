@@ -1,0 +1,11 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@custom-variant dark (&:where(.dark, .dark *));
+@source "../";
+
+@theme {
+  --font-sans: "Inter", sans-serif;
+  --color-primary: #000000;
+  --color-secondary: #ffffff;
+  --color-accent: #fbbf24;
+}

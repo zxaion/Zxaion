@@ -1,9 +1,9 @@
         <!-- Anime Collections -->
         <div id="anime-collections" class="hidden w-full">
             <!-- Original Album Special Card -->
-            <div id="original-album-card" class="max-w-[1600px] mx-auto mb-8 w-full min-h-[260px] md:min-h-[300px] cursor-pointer" onclick="openAnimeCollection('ORIGINAL')">
+            <div id="original-album-card" data-action="open-anime-album" data-album="ORIGINAL" class="max-w-[1600px] mx-auto mb-8 w-full min-h-[260px] md:min-h-[300px] cursor-pointer">
                 <div class="relative w-full min-h-[260px] md:min-h-[300px] rounded-3xl overflow-hidden border border-gray-200/50 shadow-2xl group transition-all duration-500 hover:shadow-3xl dark:border-gray-800/50 flex flex-col justify-center">
-                    <img id="original-album-img" src="/api/img/HEADER/Original.jpg" alt="Original Album" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700">
+                    <img id="original-album-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-fallback-src="/api/img/HEADER/Original.jpg" alt="Original Album" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700">
                     <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/45 to-black/20"></div>
                     <div class="relative z-10 flex flex-col justify-center items-center text-center px-6 py-8 sm:px-8 sm:pb-14">
                         <h3 class="text-3xl md:text-5xl font-black text-white mb-3 tracking-tighter drop-shadow-2xl">ORIGINAL ALBUM</h3>
