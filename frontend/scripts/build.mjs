@@ -46,19 +46,40 @@ function bundle(files, marker) {
   return files.map((rel) => `${marker(rel)}\n${read(rel).replace(/\r?\n*$/, '\n')}`).join('\n');
 }
 
-function buildTailwindCss() {
-  const entryPath = join(WEB, 'css', 'tailwind.entry.css');
-  const outPath   = join(DIST, '.tailwind.generated.css');
-  const cliBin    = join(REPO_ROOT, 'node_modules', '.bin', 'tailwindcss');
+function resolveTailwindExecution() {
+  const bins = process.platform === 'win32' ? ['tailwindcss.cmd', 'tailwindcss'] : ['tailwindcss'];
+  const candidates = [
+    ...bins.map(b => ({ bin: join(ROOT, 'node_modules', '.bin', b), cwd: ROOT })),
+    ...bins.map(b => ({ bin: join(REPO_ROOT, 'node_modules', '.bin', b), cwd: REPO_ROOT })),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c.bin)) return { command: c.bin, argsPrefix: [], cwd: c.cwd };
+  }
+  return {
+    command:    'npx',
+    argsPrefix: ['--yes', '@tailwindcss/cli'],
+    cwd:        existsSync(join(ROOT, 'node_modules')) ? ROOT : REPO_ROOT,
+  };
+}
 
-  if (!existsSync(cliBin)) {
-    throw new Error('Tailwind CLI binary tidak ditemukan. Jalankan npm install terlebih dahulu.');
+function buildTailwindCss() {
+  const entryPath  = join(WEB, 'css', 'tailwind.entry.css');
+  const outPath    = join(DIST, '.tailwind.generated.css');
+  const execConfig = resolveTailwindExecution();
+
+  try {
+    execFileSync(execConfig.command, [...execConfig.argsPrefix, '-i', entryPath, '-o', outPath, '--minify'], {
+      cwd:   execConfig.cwd,
+      stdio: 'pipe',
+    });
+  } catch (err) {
+    throw new Error(`Tailwind CLI build gagal: ${err.message}`);
   }
 
-  execFileSync(cliBin, ['-i', entryPath, '-o', outPath, '--minify'], {
-    cwd:   REPO_ROOT,
-    stdio: 'pipe',
-  });
+  if (!existsSync(outPath)) {
+    throw new Error('File output Tailwind CSS tidak berhasil dibuat.');
+  }
+
   const compiled = readFileSync(outPath, 'utf8');
   rmSync(outPath, { force: true });
   return compiled;
