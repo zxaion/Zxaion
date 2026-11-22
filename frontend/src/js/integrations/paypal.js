@@ -108,6 +108,26 @@ function _renderPayPalButtons(packKey, price) {
 
                         if (state.currentCategory === 'DTREASURE') ui.renderDtreasureGallery();
 
+                        // Auto-prompt backup key recovery modal so user never loses credits/purchases
+                        try {
+                            const recoveryRes = await api.generateRecoveryCode();
+                            const recCode = recoveryRes?.success ? recoveryRes.recoveryCode : null;
+                            ui.showPurchaseSuccessModal({
+                                packKey,
+                                credits: result.newBalance,
+                                lifetime: state.lifetime,
+                                recoveryCode: recCode
+                            });
+                        } catch (e) {
+                            console.error('Failed to auto-generate recovery code after purchase:', e);
+                            ui.showPurchaseSuccessModal({
+                                packKey,
+                                credits: result.newBalance,
+                                lifetime: state.lifetime,
+                                recoveryCode: null
+                            });
+                        }
+
                     } else {
                         const errMsg  = result?.error || 'Credits could not be applied automatically';
                         const orderId = result?.orderId || capturedOrderId;

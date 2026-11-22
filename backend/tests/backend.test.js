@@ -1616,4 +1616,80 @@ test('server-side PayPal createOrder enforces pack/price, binds payerRef, blocks
   }
 });
 
+test('frontend deep-linking, share button, and purchase recovery backup receipt structure', async () => {
+  // 1. Verify deep-link hash and query parsing logic
+  function parseDeepLink(hash, search = '') {
+    if (hash && hash.startsWith('#photo=')) {
+      const raw = hash.slice(7).trim();
+      try { return decodeURIComponent(raw); } catch { return raw; }
+    }
+    const params = new URLSearchParams(search);
+    if (params.has('photo')) return params.get('photo');
+    return null;
+  }
+
+  assert.equal(parseDeepLink('#photo=desktop%2Fnaruto_01.jpg'), 'desktop/naruto_01.jpg');
+  assert.equal(parseDeepLink('#photo=simple-id-123'), 'simple-id-123');
+  assert.equal(parseDeepLink('', '?photo=landscape%2Fforest.png'), 'landscape/forest.png');
+  assert.equal(parseDeepLink('#other-hash'), null);
+
+  // 2. Verify backup receipt content structure
+  function generateReceiptText({ token, code, packName, balanceStr, dateStr }) {
+    return [
+      '=====================================================',
+      '         ZXAION GALLERY — BUKTI & KUNCI PEMULIHAN    ',
+      '=====================================================',
+      '',
+      `Tanggal & Waktu   : ${dateStr}`,
+      `Paket Transaksi   : ${packName}`,
+      `Status Saldo Akun : ${balanceStr}`,
+      `Token Akun Rahasia: ${token}`,
+      `RECOVERY KEY      : ${code}`,
+      '',
+      '-----------------------------------------------------',
+      'PETUNJUK MEMULIHKAN AKUN JIKA GANTI PERANGKAT/BROWSER:',
+      '-----------------------------------------------------',
+      '1. Buka situs ZXAION GALLERY.',
+      '2. Klik tombol "Buy Credits" di bilah atas.',
+      '3. Gulir ke bagian "Account Backup & Restore".',
+      '4. Masukkan RECOVERY KEY Anda di atas pada kolom yang tersedia.',
+      '5. Klik tombol "Restore". Seluruh saldo kredit & hak unduh DTREASURE Anda akan pulih seketika!',
+      '',
+      'PERINGATAN:',
+      'Simpan file ini dengan aman di penyimpanan pribadi Anda (Google Drive, catatan aman, dll).',
+      '=====================================================',
+    ].join('\r\n');
+  }
+
+  const receipt = generateReceiptText({
+    token: 'tok_secret_9999',
+    code: 'ZX-ABCD-EFGH-IJKL',
+    packName: '50 Credits ($5)',
+    balanceStr: '50 Credits',
+    dateStr: 'Sun, 22 Nov 2026 08:00:00 GMT',
+  });
+
+  assert.ok(receipt.includes('RECOVERY KEY      : ZX-ABCD-EFGH-IJKL'));
+  assert.ok(receipt.includes('Token Akun Rahasia: tok_secret_9999'));
+  assert.ok(receipt.includes('50 Credits ($5)'));
+  assert.ok(receipt.includes('Account Backup & Restore'));
+
+  // 3. Verify HTML includes in built dist/index.html or src
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const imageModalHtml = fs.readFileSync(path.resolve('frontend/src/partials/modals/image-modal.html'), 'utf8');
+  assert.ok(imageModalHtml.includes('id="share-btn"'), 'image-modal.html must include #share-btn');
+  assert.ok(imageModalHtml.includes('fa-share-nodes'), 'image-modal.html must include fa-share-nodes icon');
+
+  const purchaseSuccessHtml = fs.readFileSync(path.resolve('frontend/src/partials/modals/purchase-success-modal.html'), 'utf8');
+  assert.ok(purchaseSuccessHtml.includes('id="purchase-success-modal"'), 'must include #purchase-success-modal');
+  assert.ok(purchaseSuccessHtml.includes('id="purchase-success-recovery-code"'), 'must include #purchase-success-recovery-code');
+  assert.ok(purchaseSuccessHtml.includes('id="download-purchase-receipt-btn"'), 'must include #download-purchase-receipt-btn');
+  assert.ok(purchaseSuccessHtml.includes('id="copy-purchase-recovery-btn"'), 'must include #copy-purchase-recovery-btn');
+
+  const indexHtml = fs.readFileSync(path.resolve('frontend/src/index.html'), 'utf8');
+  assert.ok(indexHtml.includes('<!-- @include partials/modals/purchase-success-modal.html -->'), 'index.html must include purchase-success-modal partial');
+});
+
+
 

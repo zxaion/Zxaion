@@ -23,11 +23,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const imagesOk = await api.fetchImages();
     if (imagesOk) {
         ui.changeCategory('All', { scroll: false });
+        ui.checkDeepLink();
     }
 
     await Promise.allSettled([creditsPromise, comitbasePromise, dtreasurePromise]);
     if (state.currentCategory === 'COMITBASE') ui.renderComitbaseGallery();
     if (state.currentCategory === 'DTREASURE') ui.renderDtreasureGallery();
+    if (!state.currentImageId) {
+        ui.checkDeepLink();
+    }
 
     const nav = document.querySelector('nav');
     window.addEventListener('scroll', () => {

@@ -52,11 +52,145 @@ Object.assign(ui, {
         });
     },
 
+    closeImageModal(syncHash = true) {
+        if (elements.imageModal) {
+            elements.imageModal.classList.add('hidden');
+            elements.imageModal.classList.remove('flex');
+        }
+        document.body.style.overflow = '';
+        state.currentImageId = null;
+        state.currentPhoto = null;
+        if (syncHash && window.location.hash.startsWith('#photo=')) {
+            try {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            } catch (e) {
+                console.warn('Could not reset history hash:', e);
+            }
+        }
+    },
+
+    getDeepLinkedPhotoId() {
+        const hash = window.location.hash;
+        if (hash && hash.startsWith('#photo=')) {
+            const raw = hash.slice(7).trim();
+            try {
+                return decodeURIComponent(raw);
+            } catch {
+                return raw;
+            }
+        }
+        try {
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('photo')) {
+                return params.get('photo');
+            }
+        } catch {}
+        return null;
+    },
+
+    findPhotoById(photoId) {
+        if (!photoId) return null;
+        const raw = String(photoId).trim();
+        let decoded = raw;
+        try { decoded = decodeURIComponent(raw); } catch {}
+        const matches = (p) => p && (
+            p.id === raw ||
+            p.id === decoded ||
+            p.url === raw ||
+            p.url === decoded ||
+            (p.path && (p.path === raw || p.path === decoded))
+        );
+        return state.allPhotos?.find(matches)
+            || state.comitbasePhotos?.find(matches)
+            || state.dtreasurePhotos?.find(matches)
+            || null;
+    },
+
+    openPhotoById(photoId) {
+        const photo = this.findPhotoById(photoId);
+        if (photo) {
+            this.openImageModal(photo);
+            return true;
+        }
+        return false;
+    },
+
+    checkDeepLink() {
+        const photoId = this.getDeepLinkedPhotoId();
+        if (!photoId) return false;
+        return this.openPhotoById(photoId);
+    },
+
+    handleHashChange() {
+        const photoId = this.getDeepLinkedPhotoId();
+        if (photoId) {
+            if (state.currentPhoto?.id !== photoId) {
+                this.openPhotoById(photoId);
+            }
+        } else {
+            if (elements.imageModal && !elements.imageModal.classList.contains('hidden')) {
+                this.closeImageModal(false);
+            }
+        }
+    },
+
+    async sharePhoto(photo) {
+        const target = photo || state.currentPhoto;
+        if (!target) return;
+        const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+        const pathname = window.location.pathname || '/';
+        const shareUrl = `${origin}${pathname}#photo=${encodeURIComponent(target.id)}`;
+        const title = target.title || 'ZXAION Wallpaper';
+
+        if (typeof navigator !== 'undefined' && navigator.share) {
+            try {
+                await navigator.share({
+                    title: `${title} — ZXAION GALLERY`,
+                    text: `Lihat wallpaper "${title}" di ZXAION GALLERY!`,
+                    url: shareUrl,
+                });
+                return;
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+            }
+        }
+
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(shareUrl);
+            } else {
+                const temp = document.createElement('textarea');
+                temp.value = shareUrl;
+                temp.style.position = 'fixed';
+                temp.style.opacity = '0';
+                document.body.appendChild(temp);
+                temp.select();
+                document.execCommand('copy');
+                document.body.removeChild(temp);
+            }
+            ui.showToast('Tautan wallpaper berhasil disalin!', 'success', 3000);
+        } catch (e) {
+            console.error('Share fallback copy error:', e);
+            ui.showToast('Gagal menyalin tautan wallpaper.', 'error');
+        }
+    },
+
     async openImageModal(photo) {
         if (!photo) return;
 
         const targetPhotoId = photo.id;
         state.currentImageId = targetPhotoId;
+        state.currentPhoto = photo;
+
+        // Synchronize deep link URL hash
+        const targetHash = `#photo=${encodeURIComponent(photo.id)}`;
+        if (window.location.hash !== targetHash) {
+            try {
+                history.replaceState(null, '', targetHash);
+            } catch (e) {
+                console.warn('Could not update history state:', e);
+            }
+        }
 
         // Optimistic update (in-memory + DOM + server)
         photo.viewCount = (photo.viewCount || 0) + 1;
