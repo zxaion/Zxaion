@@ -35,6 +35,17 @@ class AppState {
             }
         })();
         this.photoRatios          = {};
+        this.selectedResolution   = 'original';
+        this.adminToken           = (() => {
+            try {
+                return sessionStorage.getItem('zx_admin_token') || localStorage.getItem('zx_admin_token') || null;
+            } catch {
+                return null;
+            }
+        })();
+        this.adminData            = null;
+        this.adminActiveTab       = 'orders';
+        this.adminSearch          = '';
     }
 
     resetPagination() {

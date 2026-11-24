@@ -60,8 +60,61 @@ Object.assign(ui, {
         }
     },
 
+    selectResolution(resolutionKey) {
+        const preset = RESOLUTION_PRESETS[resolutionKey] || RESOLUTION_PRESETS.original;
+        state.selectedResolution = preset.key;
+
+        // Update active styling in modal button group
+        document.querySelectorAll('.resolution-btn').forEach(btn => {
+            const isMatch = btn.dataset.resolution === preset.key;
+            btn.classList.toggle('active', isMatch);
+            btn.classList.toggle('border-amber-500', isMatch);
+            btn.classList.toggle('bg-amber-500/10', isMatch);
+            btn.classList.toggle('border-gray-200', !isMatch);
+            btn.classList.toggle('dark:border-gray-700', !isMatch);
+            btn.classList.toggle('bg-white', !isMatch);
+            btn.classList.toggle('dark:bg-gray-800', !isMatch);
+
+            let check = btn.querySelector('.resolution-check');
+            if (isMatch && !check) {
+                const header = btn.querySelector('.flex.items-center.justify-between') || btn.querySelector('.font-bold');
+                if (header) {
+                    const i = document.createElement('i');
+                    i.className = 'fas fa-check-circle text-amber-500 text-xs resolution-check ml-1';
+                    header.appendChild(i);
+                }
+            } else if (!isMatch && check) {
+                check.remove();
+            }
+        });
+
+        const badge = document.getElementById('resolution-current-badge') || elements.resolutionBadge;
+        if (badge) {
+            badge.textContent = preset.key === 'original' ? 'Asli / 4K' : preset.tag;
+        }
+
+        const desc = document.getElementById('resolution-desc-text') || elements.resolutionDescText;
+        if (desc) {
+            desc.textContent = preset.desc;
+        }
+
+        const dlBtn = elements.downloadBtn || document.getElementById('download-btn');
+        if (dlBtn && !dlBtn.querySelector('.fa-lock')) {
+            dlBtn.innerHTML = preset.key === 'original'
+                ? '<i class="fas fa-download"></i><span>Download</span>'
+                : `<i class="fas fa-download"></i><span class="text-sm whitespace-nowrap">Download (${preset.tag})</span>`;
+        }
+    },
+
     async triggerDownload(photo) {
         if (!photo || !photo.url) return;
+
+        const presetKey = state.selectedResolution || 'original';
+        const preset = RESOLUTION_PRESETS[presetKey];
+
+        if (preset && preset.width && preset.height) {
+            return this.triggerResolutionDownload(photo, preset);
+        }
 
         const markDownloaded = () => {
             photo.downloadCount = (photo.downloadCount || 0) + 1;
@@ -138,6 +191,113 @@ Object.assign(ui, {
             document.body.appendChild(a);
             a.click();
             setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 300);
+        }
+    },
+
+    async triggerResolutionDownload(photo, preset) {
+        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        const fullUrl     = utils.encodeImageUrlPath(photo.url).split('?')[0];
+        const downloadUrl = `${fullUrl}?download=true`;
+        const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + `_${preset.tag}.jpg`;
+
+        const loadingToast = document.createElement('div');
+        loadingToast.id    = 'dl-toast';
+        loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
+        loadingToast.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Menyiapkan resolusi ${preset.tag}...`;
+        document.body.appendChild(loadingToast);
+
+        const markDownloaded = () => {
+            photo.downloadCount = (photo.downloadCount || 0) + 1;
+            api.recordDownload(photo.id);
+            const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photo.id) : photo.id;
+            document.querySelectorAll(`.download-count[data-id="${safeId}"]`).forEach(el => {
+                el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
+            });
+            if (state.currentImageId === photo.id && elements.modalDownloadCount) {
+                elements.modalDownloadCount.textContent = utils.formatNumber(photo.downloadCount);
+            }
+        };
+
+        try {
+            let imageBlob = null;
+            if (isDtreasure) {
+                const token = getOrCreateUserToken();
+                const res = await fetch(downloadUrl, {
+                    method: 'GET',
+                    headers: { 'X-User-Token': token },
+                });
+                if (!res.ok) {
+                    let errMsg = `Download failed (HTTP ${res.status})`;
+                    try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
+                    throw new Error(errMsg);
+                }
+                imageBlob = await res.blob();
+            } else {
+                const res = await fetch(downloadUrl);
+                if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+                imageBlob = await res.blob();
+            }
+
+            const img = new Image();
+            const blobUrl = URL.createObjectURL(imageBlob);
+
+            await new Promise((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error('Gagal memproses gambar untuk resolusi yang dipilih'));
+                img.src = blobUrl;
+            });
+
+            // Offscreen Canvas Crop / Fit to requested resolution
+            const canvas = document.createElement('canvas');
+            canvas.width = preset.width;
+            canvas.height = preset.height;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+
+            const targetRatio = canvas.width / canvas.height;
+            const sourceRatio = img.naturalWidth / img.naturalHeight;
+            let sw, sh, sx, sy;
+
+            if (sourceRatio > targetRatio) {
+                sh = img.naturalHeight;
+                sw = img.naturalHeight * targetRatio;
+                sx = (img.naturalWidth - sw) / 2;
+                sy = 0;
+            } else {
+                sw = img.naturalWidth;
+                sh = img.naturalWidth / targetRatio;
+                sx = 0;
+                sy = (img.naturalHeight - sh) / 2;
+            }
+
+            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+            URL.revokeObjectURL(blobUrl);
+
+            const resizedBlob = await new Promise((resolve) => {
+                canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
+            });
+
+            if (!resizedBlob) throw new Error('Gagal mengekspor resolusi');
+
+            const dlUrl = URL.createObjectURL(resizedBlob);
+            const a = document.createElement('a');
+            a.href = dlUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(dlUrl), 5000);
+
+            markDownloaded();
+            loadingToast.innerHTML = `<i class="fas fa-check-circle text-green-400"></i> Unduhan resolusi ${preset.tag} siap!`;
+            loadingToast.classList.add('bg-green-800');
+        } catch (err) {
+            console.error('Resolution download error:', err);
+            loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${utils.escapeHtml(err.message || 'Gagal memproses resolusi')}`;
+            loadingToast.classList.add('bg-red-800');
+        } finally {
+            setTimeout(() => { document.getElementById('dl-toast')?.remove(); }, 3500);
         }
     },
 });

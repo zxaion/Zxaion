@@ -27,7 +27,6 @@ function initGlobalEvents() {
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
         const modals = [
-            elements.imageModal,
             document.getElementById('donation-modal'),
             document.getElementById('zverse-modal'),
             document.getElementById('menu-modal'),

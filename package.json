@@ -6,7 +6,7 @@
     "build": "node frontend/scripts/build.mjs",
     "dev": "node frontend/scripts/build.mjs && node server.js",
     "start": "node server.js",
-    "lint": "node --check server.js && node --check frontend/scripts/build.mjs && node --check backend/src/index.js && node --check backend/src/context.js && node --check backend/src/router.js && node --check backend/src/localRuntime.js && node --check backend/src/services/paypal.js && node --check backend/src/services/imageTransform.js && node --check backend/src/routes/index.js && node --check backend/src/routes/media.js && node --check backend/src/routes/credits.js && node --check backend/src/routes/paypalWebhook.js && node --check backend/src/routes/gallery.js && node --check backend/src/routes/stats.js && node --check backend/src/routes/static.js && node --check backend/tests/backend.test.js",
+    "lint": "node --check server.js && node --check frontend/scripts/build.mjs && node --check backend/src/index.js && node --check backend/src/context.js && node --check backend/src/router.js && node --check backend/src/localRuntime.js && node --check backend/src/services/paypal.js && node --check backend/src/services/imageTransform.js && node --check backend/src/services/seo.js && node --check backend/src/routes/index.js && node --check backend/src/routes/admin.js && node --check backend/src/routes/media.js && node --check backend/src/routes/credits.js && node --check backend/src/routes/paypalWebhook.js && node --check backend/src/routes/gallery.js && node --check backend/src/routes/stats.js && node --check backend/src/routes/static.js && node --check backend/tests/backend.test.js",
     "test": "node --test backend/tests/*.test.js"
   },
   "dependencies": {

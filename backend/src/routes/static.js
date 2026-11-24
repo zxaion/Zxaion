@@ -1,11 +1,12 @@
 import { ALLOWED_ORIGINS } from '../config/constants.js';
 import { MIME_TYPES } from '../config/mimeTypes.js';
 import { CONTENT_SECURITY_POLICY } from '../config/security.js';
+import { injectOpenGraphMetadata } from '../services/seo.js';
 
 // ================================================================
 // Serve static files dari R2
 // ================================================================
-export async function handleStatic({ path, mainBucket, origin }) {
+export async function handleStatic({ path, url, mainBucket, DB, origin }) {
   try {
     let key = path === '/' ? 'index.html' : path.slice(1);
     if (key.startsWith('api/')) return new Response('Not Found', { status: 404 });
@@ -42,6 +43,22 @@ export async function handleStatic({ path, mainBucket, origin }) {
       headers.set('Referrer-Policy',         'strict-origin-when-cross-origin');
       headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY);
       headers.set('Cache-Control',           'public, max-age=60, must-revalidate');
+
+      if (url && DB && url.searchParams.has('photo')) {
+        const photoId = url.searchParams.get('photo');
+        try {
+          const photo = await DB.prepare(
+            'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
+          ).bind(photoId, photoId).first();
+          if (photo) {
+            const rawBody = typeof object.text === 'function' ? await object.text() : await new Response(object.body).text();
+            const transformed = injectOpenGraphMetadata(rawBody, photo, origin);
+            return new Response(transformed, { headers });
+          }
+        } catch (e) {
+          console.warn('[Static] OG transform error:', e.message);
+        }
+      }
     } else if (servedExt === 'css' || servedExt === 'js' || servedExt === 'json') {
       headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
     } else if (servedExt === 'txt' || servedExt === 'xml') {

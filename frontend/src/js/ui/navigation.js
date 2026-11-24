@@ -23,9 +23,14 @@ Object.assign(ui, {
         if (elements.animeCollections)    elements.animeCollections.classList.add('hidden');
         if (elements.comitbaseSection)    elements.comitbaseSection.classList.add('hidden');
         if (elements.dtreasureSection)    elements.dtreasureSection.classList.add('hidden');
+        if (elements.adminSection)        elements.adminSection.classList.add('hidden');
         if (elements.galleryContainer)    elements.galleryContainer.classList.add('hidden');
         if (elements.paginationContainer) elements.paginationContainer.classList.add('hidden');
         if (elements.infiniteLoadMore)    elements.infiniteLoadMore.classList.add('hidden');
+        const hero = document.getElementById('page-hero');
+        if (hero) hero.classList.remove('hidden');
+        const categoryNav = document.querySelector('.category-nav') || document.getElementById('category-nav');
+        if (categoryNav) categoryNav.classList.remove('hidden');
         if (typeof this.invalidateMainSortCache === 'function') this.invalidateMainSortCache();
 
         const rankingSection = document.getElementById('ranking-carousel-section');

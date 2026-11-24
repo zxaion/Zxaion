@@ -319,8 +319,12 @@ export function createMockD1() {
       return { results };
     }
 
-    if (q === 'SELECT COUNT(*) AS total FROM images WHERE bucket = ?') {
-      const targetBucket = params[0];
+    if (/^SELECT COUNT\(\*\) AS total FROM images WHERE bucket = (?:\?|'[^']+')$/i.test(q)) {
+      let targetBucket = params[0];
+      if (!targetBucket) {
+        const m = q.match(/bucket\s*=\s*'([^']+)'/i);
+        if (m) targetBucket = m[1];
+      }
       let total = 0;
       for (const r of images.values()) {
         if (r.bucket === targetBucket) total++;
@@ -361,6 +365,31 @@ export function createMockD1() {
     if (q === 'SELECT view_count, download_count FROM images WHERE id = ?') {
       const row = images.get(params[0]) || null;
       return { first: row ? { view_count: row.view_count, download_count: row.download_count } : null };
+    }
+
+    if (q === 'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?') {
+      const [idParam, keyParam] = params;
+      let match = images.get(idParam) || null;
+      if (!match && keyParam) {
+        for (const r of images.values()) {
+          if (r.id === idParam || r.r2_key === keyParam) {
+            match = r;
+            break;
+          }
+        }
+      }
+      return {
+        first: match
+          ? {
+              id: match.id,
+              title: match.title,
+              category: match.category,
+              sub_category: match.sub_category,
+              bucket: match.bucket,
+              r2_key: match.r2_key,
+            }
+          : null,
+      };
     }
 
     if (q.startsWith('UPDATE images SET view_count')) {
@@ -468,6 +497,18 @@ export function createMockD1() {
       } else {
         existing.public_id = q.includes('COALESCE(') ? (existing.public_id || publicId) : publicId;
       }
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('INSERT OR REPLACE INTO user_credits')) {
+      const [user_id, public_id, credits, lifetime, recovery_hash] = params;
+      userCredits.set(user_id, {
+        user_id,
+        public_id: public_id || null,
+        credits: Number(credits) || 0,
+        lifetime: Number(lifetime) || 0,
+        recovery_hash: recovery_hash || null,
+      });
       return { meta: { changes: 1 } };
     }
 
@@ -631,8 +672,13 @@ export function createMockD1() {
     }
 
     if (q.startsWith('INSERT OR REPLACE INTO payment_orders')) {
-      const [id, user_id, order_id, pack_key, amount, error_message] = params;
-      paymentOrders.set(id, { id, user_id, order_id, pack_key, amount, status: 'failed', error_message, created_at: new Date().toISOString() });
+      if (params.length === 7) {
+        const [id, user_id, order_id, pack_key, amount, status, created_at] = params;
+        paymentOrders.set(id, { id, user_id, order_id, capture_id: null, pack_key, amount, status, error_message: null, created_at: created_at || new Date().toISOString() });
+      } else {
+        const [id, user_id, order_id, pack_key, amount, error_message] = params;
+        paymentOrders.set(id, { id, user_id, order_id, pack_key, amount, status: 'failed', error_message, created_at: new Date().toISOString() });
+      }
       return { meta: { changes: 1 } };
     }
 
@@ -665,6 +711,40 @@ export function createMockD1() {
         order.error_message = error_message;
       }
       return { meta: { changes: order ? 1 : 0 } };
+    }
+
+    // --- ADMIN QUERIES ---
+    if (q.includes('FROM payment_orders') && q.includes('ORDER BY created_at DESC')) {
+      const limit = params[0] || 200;
+      const results = Array.from(paymentOrders.values())
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, limit);
+      return { results };
+    }
+
+    if (q.includes('FROM user_credits') && q.includes('ORDER BY credits DESC')) {
+      const limit = params[0] || 200;
+      const results = Array.from(userCredits.values())
+        .map((u) => ({
+          user_id: u.user_id,
+          public_id: u.public_id,
+          credits: u.credits,
+          lifetime: u.lifetime,
+          recovery_hash: u.recovery_hash,
+        }))
+        .sort((a, b) => b.credits - a.credits)
+        .slice(0, limit);
+      return { results };
+    }
+
+    if (q.includes('FROM purchased_images') && q.includes('GROUP BY user_id')) {
+      const counts = new Map();
+      for (const k of purchasedImages) {
+        const [uid] = k.split('::');
+        counts.set(uid, (counts.get(uid) || 0) + 1);
+      }
+      const results = Array.from(counts.entries()).map(([user_id, count]) => ({ user_id, count }));
+      return { results };
     }
 
     console.warn('[MockD1] Unhandled query:', q);

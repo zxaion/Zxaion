@@ -1,8 +1,10 @@
 import express from 'express';
+import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from './backend/src/index.js';
 import { createLocalEnv } from './backend/src/localRuntime.js';
+import { injectOpenGraphMetadata } from './backend/src/services/seo.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, 'frontend', 'dist');
@@ -149,10 +151,34 @@ export function createApp(env) {
     return bridgeWorkerRequest(req, res, env);
   });
 
+  // Dynamic OpenGraph metadata injection for deep-linked photos (?photo=<id>)
+  app.get(['/', '/index.html', '/admin'], async (req, res, next) => {
+    const photoId = req.query.photo;
+    if (!photoId || !env.DB) {
+      return next();
+    }
+    try {
+      const photo = await env.DB.prepare(
+        'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
+      ).bind(photoId, photoId).first();
+
+      if (photo) {
+        const rawHtml = readFileSync(join(DIST_DIR, 'index.html'), 'utf8');
+        const origin = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+        const transformedHtml = injectOpenGraphMetadata(rawHtml, photo, origin);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.send(transformedHtml);
+      }
+    } catch (err) {
+      console.warn('[Server] OG injection error:', err.message);
+    }
+    next();
+  });
+
   // Serve built frontend static assets
   app.use(express.static(DIST_DIR));
 
-  // SPA fallback
+  // SPA fallback (including /admin and subroutes)
   app.get('*', (_req, res) => {
     res.sendFile(join(DIST_DIR, 'index.html'));
   });

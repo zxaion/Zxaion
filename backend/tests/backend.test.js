@@ -37,6 +37,8 @@ import {
 } from '../src/routes/credits.js';
 import { handlePayPalWebhook } from '../src/routes/paypalWebhook.js';
 import { handleServeImage } from '../src/routes/media.js';
+import { validateAdminAuth, handleAdminDashboard, handleAdminRescan } from '../src/routes/admin.js';
+import { injectOpenGraphMetadata, buildPhotoCanonicalUrl, buildPhotoImageUrl } from '../src/services/seo.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
 
@@ -1690,6 +1692,140 @@ test('frontend deep-linking, share button, and purchase recovery backup receipt 
   const indexHtml = fs.readFileSync(path.resolve('frontend/src/index.html'), 'utf8');
   assert.ok(indexHtml.includes('<!-- @include partials/modals/purchase-success-modal.html -->'), 'index.html must include purchase-success-modal partial');
 });
+
+test('admin dashboard requires secret token, returns KPIs, orders breakdown, users, and 1-click R2 force-rescan', async () => {
+  const env = await createLocalEnv();
+  const validToken = env.ADMIN_TOKEN || 'local-dev-admin';
+
+  // 1. Auth validation (header, bearer, query, invalid)
+  const unauthReq = makeReq('http://localhost/api/admin/dashboard');
+  assert.equal(validateAdminAuth(unauthReq, env), false);
+  const badTokenReq = makeReq('http://localhost/api/admin/dashboard', { headers: { 'X-Admin-Token': 'wrong-token' } });
+  assert.equal(validateAdminAuth(badTokenReq, env), false);
+  const headerReq = makeReq('http://localhost/api/admin/dashboard', { headers: { 'X-Admin-Token': validToken } });
+  assert.equal(validateAdminAuth(headerReq, env), true);
+  const bearerReq = makeReq('http://localhost/api/admin/dashboard', { headers: { 'Authorization': `Bearer ${validToken}` } });
+  assert.equal(validateAdminAuth(bearerReq, env), true);
+  const queryReq = makeReq(`http://localhost/api/admin/dashboard?token=${encodeURIComponent(validToken)}`);
+  assert.equal(validateAdminAuth(queryReq, env), true);
+
+  // 2. Unauthenticated request returns 401
+  const failRes = await handleAdminDashboard({ request: unauthReq, env, corsHeaders });
+  assert.equal(failRes.status, 401);
+
+  // 3. Populate test orders and users in D1
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind('ord-1', 'u_admin_buyer_1', 'PP-ORD-1', '25$', '25.00', 'completed', '2026-11-22T10:00:00Z').run();
+
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO payment_orders (id, user_id, order_id, pack_key, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind('ord-2', 'u_admin_buyer_2', 'PP-ORD-2', '5$', '5.00', 'failed', '2026-11-22T11:00:00Z').run();
+
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO user_credits (user_id, public_id, credits, lifetime, recovery_hash) VALUES (?, ?, ?, ?, ?)'
+  ).bind('u_admin_buyer_1', 'pub_buyer_1', 1300, 0, 'hash_abc').run();
+
+  // 4. Authenticated dashboard request returns accurate metrics
+  const authRes = await handleAdminDashboard({ request: headerReq, env, corsHeaders });
+  assert.equal(authRes.status, 200);
+  const data = await authRes.json();
+
+  assert.equal(data.success, true);
+  assert.ok(data.metrics.revenue.totalGross >= 25.00);
+  assert.ok(data.metrics.revenue.completedOrders >= 1);
+  assert.ok(data.metrics.revenue.failedOrders >= 1);
+  assert.equal(data.metrics.revenue.packBreakdown['25$'], 1);
+
+  assert.ok(data.users.some(u => u.user_id === 'u_admin_buyer_1' && u.has_recovery === true));
+  assert.ok(data.orders.some(o => o.order_id === 'PP-ORD-1' && o.status === 'completed'));
+  assert.ok(data.metrics.catalog.main > 0);
+
+  // 5. Force-Rescan R2 trigger endpoint works
+  const rescanRes = await handleAdminRescan({ request: headerReq, env, corsHeaders });
+  assert.equal(rescanRes.status, 200);
+  const rescanData = await rescanRes.json();
+  assert.equal(rescanData.success, true);
+  assert.ok(Array.isArray(rescanData.stats));
+  assert.ok(rescanData.stats.some(s => s.bucket === 'main'));
+});
+
+test('dynamic OpenGraph metadata, Twitter cards, and Schema.org ImageObject injection', async () => {
+  const dummyHtml = `<!DOCTYPE html>
+<html>
+<head>
+    <title>ZXAION GALLERY</title>
+    <meta name="description" content="Old description">
+    <meta property="og:title" content="Old OG">
+</head>
+<body><h1>Gallery</h1></body>
+</html>`;
+
+  const samplePhoto = {
+    id: 'main:ANIME/Naruto/sage_mode_4k.jpg',
+    r2_key: 'ANIME/Naruto/sage_mode_4k.jpg',
+    bucket: 'main',
+    title: 'Sage Mode 4k',
+    category: 'Anime',
+    sub_category: 'naruto',
+    url: '/api/img/ANIME%2FNaruto%2Fsage_mode_4k.jpg',
+  };
+
+  const origin = 'https://zxaion.app';
+  const canonical = buildPhotoCanonicalUrl(samplePhoto.id, origin);
+  assert.equal(canonical, 'https://zxaion.app/?photo=main%3AANIME%2FNaruto%2Fsage_mode_4k.jpg');
+
+  const imageUrl = buildPhotoImageUrl(samplePhoto, origin);
+  assert.equal(imageUrl, 'https://zxaion.app/api/img/ANIME%2FNaruto%2Fsage_mode_4k.jpg');
+
+  const injected = injectOpenGraphMetadata(dummyHtml, samplePhoto, origin);
+
+  assert.ok(injected.includes('<title>Sage Mode 4k — 4K Wallpaper | ZXAION GALLERY</title>'));
+  assert.ok(injected.includes('<meta property="og:title" content="Sage Mode 4k — ZXAION GALLERY">'));
+  assert.ok(injected.includes('<meta property="og:image" content="https://zxaion.app/api/img/ANIME%2FNaruto%2Fsage_mode_4k.jpg">'));
+  assert.ok(injected.includes('<meta name="twitter:card" content="summary_large_image">'));
+  assert.ok(injected.includes('<meta name="twitter:image" content="https://zxaion.app/api/img/ANIME%2FNaruto%2Fsage_mode_4k.jpg">'));
+  assert.ok(injected.includes('<link rel="canonical" href="https://zxaion.app/?photo=main%3AANIME%2FNaruto%2Fsage_mode_4k.jpg">'));
+  assert.ok(injected.includes('"@type": "ImageObject"'));
+  assert.ok(injected.includes('"name": "Sage Mode 4k"'));
+
+  // Static route integration with ?photo=...
+  const env = await createLocalEnv();
+  await env.Zxaion_B.put('index.html', dummyHtml, { contentType: 'text/html' });
+  const staticHtml = await handleStatic({
+    path: '/',
+    url: new URL('http://localhost/?photo=main%3AFANTASY%2Fastral_citadel_dragons.jpg'),
+    mainBucket: env.Zxaion_B,
+    DB: env.DB,
+    origin: 'http://localhost:3000',
+  });
+  assert.equal(staticHtml.status, 200);
+  const transformedBody = await staticHtml.text();
+  assert.ok(transformedBody.includes('Astral Citadel Dragons'));
+  assert.ok(transformedBody.includes('og:image'));
+});
+
+test('device resolution selector presets and filename generation', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  // Verify resolution selector exists in image-modal.html
+  const imageModalHtml = fs.readFileSync(path.resolve('frontend/src/partials/modals/image-modal.html'), 'utf8');
+  assert.ok(imageModalHtml.includes('id="resolution-button-group"'), 'image-modal.html must include #resolution-button-group');
+  assert.ok(imageModalHtml.includes('data-resolution="desktop"'), 'image-modal.html must include desktop resolution');
+  assert.ok(imageModalHtml.includes('data-resolution="mobile"'), 'image-modal.html must include mobile resolution');
+  assert.ok(imageModalHtml.includes('data-resolution="tablet"'), 'image-modal.html must include tablet resolution');
+  assert.ok(imageModalHtml.includes('data-resolution="square"'), 'image-modal.html must include square resolution');
+
+  // Verify admin section markup exists
+  const adminSectionHtml = fs.readFileSync(path.resolve('frontend/src/partials/sections/admin-section.html'), 'utf8');
+  assert.ok(adminSectionHtml.includes('id="admin-rescan-btn"'), 'must include 1-click admin rescan button');
+  assert.ok(adminSectionHtml.includes('id="admin-orders-table-body"'), 'must include orders table body');
+  assert.ok(adminSectionHtml.includes('id="admin-users-table-body"'), 'must include users table body');
+  assert.ok(adminSectionHtml.includes('id="admin-metric-revenue"'), 'must include revenue KPI card');
+  assert.ok(adminSectionHtml.includes('id="admin-token-input"'), 'must include admin secret token input');
+});
+
 
 
 

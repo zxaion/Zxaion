@@ -37,6 +37,14 @@ function initModalEvents() {
         ui.sharePhoto(state.currentPhoto);
     });
 
+    // Resolution selection buttons
+    document.getElementById('resolution-button-group')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.resolution-btn');
+        if (btn && btn.dataset.resolution) {
+            ui.selectResolution(btn.dataset.resolution);
+        }
+    });
+
     // Purchase Success & Backup Key Modal
     const purchaseSuccessModal = elements.purchaseSuccessModal || document.getElementById('purchase-success-modal');
     const closePurchaseX = elements.closePurchaseSuccessX || document.getElementById('close-purchase-success-x');
@@ -74,9 +82,18 @@ function initModalEvents() {
         ui.downloadReceiptFile(state.lastRecoveryCode, state.selectedCreditPack?.key);
     });
 
-    // Deep link hashchange event listener
+    // Deep link and admin hashchange event listener
     window.addEventListener('hashchange', () => {
-        ui.handleHashChange();
+        if (window.location.hash === '#admin') {
+            ui.openAdminSection();
+        } else {
+            if (typeof ui.isAdminOpen === 'function' && ui.isAdminOpen()) {
+                elements.adminSection?.classList.add('hidden');
+                document.getElementById('page-hero')?.classList.remove('hidden');
+                document.querySelector('.category-nav')?.classList.remove('hidden');
+            }
+            ui.handleHashChange();
+        }
     });
 
     // Escape key closes modals

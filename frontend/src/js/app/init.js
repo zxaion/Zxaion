@@ -29,7 +29,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     await Promise.allSettled([creditsPromise, comitbasePromise, dtreasurePromise]);
     if (state.currentCategory === 'COMITBASE') ui.renderComitbaseGallery();
     if (state.currentCategory === 'DTREASURE') ui.renderDtreasureGallery();
-    if (!state.currentImageId) {
+    const isAdminRoute = window.location.pathname === '/admin' || window.location.hash === '#admin';
+    if (isAdminRoute) {
+        ui.openAdminSection();
+    } else if (!state.currentImageId) {
         ui.checkDeepLink();
     }
 

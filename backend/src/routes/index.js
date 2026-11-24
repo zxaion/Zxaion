@@ -1,5 +1,5 @@
 import { handleHealth }          from './health.js';
-import { handleAdminSync }       from './admin.js';
+import { handleAdminSync, handleAdminRescan, handleAdminDashboard } from './admin.js';
 import { handlePayPalWebhook }   from './paypalWebhook.js';
 import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure, handleTrending } from './gallery.js';
 import { handleStats, handleRecordView, handleRecordDownload } from './stats.js';
@@ -7,8 +7,10 @@ import { handleCreditBalance, handlePreparePayer, handleCreatePayPalOrder, handl
 import { handleServeImage }      from './media.js';
 
 export const routes = [
-  // --- System ---
+  // --- System & Admin ---
   { method: 'GET',  path: '/api/health',          handler: handleHealth },
+  { method: 'GET',  path: '/api/admin/dashboard', handler: handleAdminDashboard },
+  { method: 'POST', path: '/api/admin/rescan',    handler: handleAdminRescan },
   { method: 'POST', path: '/api/admin/sync',      handler: handleAdminSync },
   { method: 'POST', path: '/api/paypal/webhook',  handler: handlePayPalWebhook },
 

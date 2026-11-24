@@ -60,13 +60,88 @@ Object.assign(ui, {
         document.body.style.overflow = '';
         state.currentImageId = null;
         state.currentPhoto = null;
-        if (syncHash && window.location.hash.startsWith('#photo=')) {
+        this.restoreDefaultSocialMeta();
+
+        if (syncHash && (window.location.hash.startsWith('#photo=') || window.location.search.includes('photo='))) {
             try {
-                history.replaceState(null, '', window.location.pathname + window.location.search);
+                history.replaceState(null, '', window.location.pathname);
             } catch (e) {
                 console.warn('Could not reset history hash:', e);
             }
         }
+    },
+
+    updateDynamicSocialMeta(photo) {
+        if (!photo) return;
+        const title = photo.title ? `${photo.title} — ZXAION GALLERY` : 'ZXAION GALLERY';
+        const pageTitle = photo.title ? `${photo.title} — 4K Wallpaper | ZXAION GALLERY` : 'ZXAION GALLERY';
+        const category = photo.category || photo.subCategory || 'Wallpaper';
+        const desc = `Lihat dan unduh wallpaper 4K "${photo.title || 'Artwork'}" (${category}) di ZXAION GALLERY. Resolusi tinggi untuk desktop & smartphone.`;
+        const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+        const imageUrl = utils.encodeImageUrlPath(photo.url || '');
+        const fullImageUrl = imageUrl.startsWith('http') ? imageUrl : `${origin}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+        const canonicalUrl = `${origin}/?photo=${encodeURIComponent(photo.id)}`;
+
+        document.title = pageTitle;
+
+        const setMeta = (attr, key, val) => {
+            let el = document.querySelector(`meta[${attr}="${key}"]`);
+            if (!el) {
+                el = document.createElement('meta');
+                el.setAttribute(attr, key);
+                document.head.appendChild(el);
+            }
+            el.setAttribute('content', val);
+        };
+
+        setMeta('property', 'og:title', title);
+        setMeta('property', 'og:description', desc);
+        setMeta('property', 'og:image', fullImageUrl);
+        setMeta('property', 'og:url', canonicalUrl);
+        setMeta('name', 'description', desc);
+        setMeta('name', 'twitter:title', title);
+        setMeta('name', 'twitter:description', desc);
+        setMeta('name', 'twitter:image', fullImageUrl);
+
+        let schemaEl = document.getElementById('zx-schema-photo');
+        if (!schemaEl) {
+            schemaEl = document.createElement('script');
+            schemaEl.id = 'zx-schema-photo';
+            schemaEl.type = 'application/ld+json';
+            document.head.appendChild(schemaEl);
+        }
+        schemaEl.textContent = JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'ImageObject',
+            'name': photo.title || 'Wallpaper',
+            'description': desc,
+            'contentUrl': fullImageUrl,
+            'thumbnailUrl': fullImageUrl,
+            'acquireLicensePage': canonicalUrl,
+        }, null, 2);
+    },
+
+    restoreDefaultSocialMeta() {
+        document.title = 'ZXAION GALLERY';
+        const defaultDesc = 'ZXAION GALLERY — Curated 4K anime, fantasy, abstract, photography wallpapers, COMITBASE community art, and exclusive DTREASURE vault editions.';
+        const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+        const defaultImage = `${origin}/api/img/HEADER/Logo.png`;
+
+        const setMeta = (attr, key, val) => {
+            const el = document.querySelector(`meta[${attr}="${key}"]`);
+            if (el) el.setAttribute('content', val);
+        };
+
+        setMeta('property', 'og:title', 'ZXAION GALLERY');
+        setMeta('property', 'og:description', 'Curated 4K wallpapers, anime collections, community art, and exclusive DTREASURE digital vault editions.');
+        setMeta('property', 'og:image', defaultImage);
+        setMeta('name', 'description', defaultDesc);
+        setMeta('name', 'twitter:title', 'ZXAION GALLERY');
+        setMeta('name', 'twitter:description', defaultDesc);
+        setMeta('name', 'twitter:image', defaultImage);
+
+        const schemaEl = document.getElementById('zx-schema-photo');
+        if (schemaEl) schemaEl.remove();
     },
 
     getDeepLinkedPhotoId() {
@@ -138,8 +213,7 @@ Object.assign(ui, {
         const target = photo || state.currentPhoto;
         if (!target) return;
         const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
-        const pathname = window.location.pathname || '/';
-        const shareUrl = `${origin}${pathname}#photo=${encodeURIComponent(target.id)}`;
+        const shareUrl = `${origin}/?photo=${encodeURIComponent(target.id)}`;
         const title = target.title || 'ZXAION Wallpaper';
 
         if (typeof navigator !== 'undefined' && navigator.share) {
@@ -191,6 +265,9 @@ Object.assign(ui, {
                 console.warn('Could not update history state:', e);
             }
         }
+
+        // Dynamic OpenGraph, Title, & Schema.org update
+        this.updateDynamicSocialMeta(photo);
 
         // Optimistic update (in-memory + DOM + server)
         photo.viewCount = (photo.viewCount || 0) + 1;
@@ -273,7 +350,12 @@ Object.assign(ui, {
         } else {
             elements.downloadBtn.href     = imageUrl.split('?')[0] + '?download=true';
             elements.downloadBtn.download = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_');
-            elements.downloadBtn.onclick  = () => {
+            elements.downloadBtn.onclick  = (e) => {
+                if (state.selectedResolution && state.selectedResolution !== 'original') {
+                    e.preventDefault();
+                    ui.triggerDownload(photo);
+                    return;
+                }
                 photo.downloadCount = (photo.downloadCount || 0) + 1;
                 api.recordDownload(photo.id);
                 const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photo.id) : photo.id;
@@ -285,6 +367,11 @@ Object.assign(ui, {
                 }
             };
             elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+        }
+
+        // Sync resolution selector and CTA label after downloadBtn is configured
+        if (typeof this.selectResolution === 'function') {
+            this.selectResolution(state.selectedResolution || 'original');
         }
 
         elements.imageModal.classList.remove('hidden');

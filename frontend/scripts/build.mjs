@@ -46,6 +46,131 @@ function bundle(files, marker) {
   return files.map((rel) => `${marker(rel)}\n${read(rel).replace(/\r?\n*$/, '\n')}`).join('\n');
 }
 
+export function minifyCss(css) {
+  if (!css || typeof css !== 'string') return '';
+  return css
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([\{\}\:\;\,\>])\s*/g, '$1')
+    .replace(/\;(?=\})/g, '')
+    .trim();
+}
+
+export function minifyJs(code) {
+  if (!code || typeof code !== 'string') return '';
+  let out = '';
+  let i = 0;
+  const n = code.length;
+
+  while (i < n) {
+    const ch = code[i];
+    const next = code[i + 1];
+
+    if (ch === '/' && next === '/') {
+      i += 2;
+      while (i < n && code[i] !== '\n' && code[i] !== '\r') i++;
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < n && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      out += quote;
+      i++;
+      while (i < n) {
+        const c = code[i];
+        out += c;
+        if (c === '\\') {
+          i++;
+          if (i < n) out += code[i];
+        } else if (c === quote) {
+          break;
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '`') {
+      out += '`';
+      i++;
+      while (i < n) {
+        const c = code[i];
+        out += c;
+        if (c === '\\') {
+          i++;
+          if (i < n) out += code[i];
+        } else if (c === '`') {
+          break;
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '/') {
+      const prevNonWhitespace = out.trimEnd().slice(-1);
+      const isRegex = /[\(\[\{\=\,\:\;\!\&\|\?\+\-\*\/]/.test(prevNonWhitespace) || out.trimEnd().endsWith('return');
+      if (isRegex) {
+        out += '/';
+        i++;
+        while (i < n) {
+          const c = code[i];
+          out += c;
+          if (c === '\\') {
+            i++;
+            if (i < n) out += code[i];
+          } else if (c === '/') {
+            i++;
+            while (i < n && /[a-z]/i.test(code[i])) {
+              out += code[i];
+              i++;
+            }
+            break;
+          }
+          i++;
+        }
+        continue;
+      }
+    }
+
+    if (ch === ' ' || ch === '\t') {
+      const last = out.slice(-1);
+      if (last && /[a-zA-Z0-9_\$]/.test(last)) {
+        let peek = i + 1;
+        while (peek < n && (code[peek] === ' ' || code[peek] === '\t')) peek++;
+        if (peek < n && /[a-zA-Z0-9_\$]/.test(code[peek])) {
+          out += ' ';
+        }
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '\n' || ch === '\r') {
+      while (i < n && (code[i] === '\n' || code[i] === '\r' || code[i] === ' ' || code[i] === '\t')) i++;
+      const last = out.slice(-1);
+      if (last && last !== '\n' && last !== '{' && last !== ';' && last !== ',') {
+        out += '\n';
+      }
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out.trim();
+}
+
 function resolveTailwindExecution() {
   const bins = process.platform === 'win32' ? ['tailwindcss.cmd', 'tailwindcss'] : ['tailwindcss'];
   const candidates = [
@@ -99,11 +224,16 @@ export function runFrontendBuild() {
 
   const tailwindCss = buildTailwindCss();
   const customCss   = bundle(manifest.css, (f) => `/* ▸ ${f} */`);
-  const packsBanner = `// ▸ single-source credit packs (backend/src/config/packs.js)\nwindow.__ZX_CREDIT_PACKS__ = ${JSON.stringify(CREDIT_PACK_DEFINITIONS)};\n\n`;
+  const fullCss     = `${tailwindCss}\n\n${customCss}`;
+  const minifiedCss = minifyCss(fullCss);
+
+  const packsBanner = `window.__ZX_CREDIT_PACKS__=${JSON.stringify(CREDIT_PACK_DEFINITIONS)};\n`;
+  const rawJs       = packsBanner + bundle(manifest.js, () => '');
+  const minifiedJs  = minifyJs(rawJs);
 
   writeFileSync(join(DIST, 'index.html'), buildHtmlFromDisk());
-  writeFileSync(join(DIST, 'style.css'),  `/* ▸ tailwind v4 + @tailwindcss/typography */\n${tailwindCss}\n\n${customCss}`);
-  writeFileSync(join(DIST, 'script.js'),  packsBanner + bundle(manifest.js, (f) => `// ▸ ${f}`));
+  writeFileSync(join(DIST, 'style.css'),  minifiedCss);
+  writeFileSync(join(DIST, 'script.js'),  minifiedJs);
 
   const quicklink = read('quicklink.json');
   JSON.parse(quicklink);

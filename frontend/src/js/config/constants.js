@@ -64,3 +64,46 @@ const CREDIT_PACKS = Object.fromEntries(
         ];
     })
 );
+
+const RESOLUTION_PRESETS = {
+    original: {
+        key: 'original',
+        label: 'Asli / 4K UHD',
+        desc: 'File asli 4K ultra HD tanpa kompresi tambahan.',
+        width: null,
+        height: null,
+        tag: 'original'
+    },
+    desktop: {
+        key: 'desktop',
+        label: 'Desktop 1080p (1920×1080)',
+        desc: 'Disesuaikan presisi untuk monitor 16:9 Full HD.',
+        width: 1920,
+        height: 1080,
+        tag: '1920x1080'
+    },
+    mobile: {
+        key: 'mobile',
+        label: 'Smartphone (1080×2400)',
+        desc: 'Disesuaikan presisi untuk layar HP modern 9:20.',
+        width: 1080,
+        height: 2400,
+        tag: '1080x2400'
+    },
+    tablet: {
+        key: 'tablet',
+        label: 'Tablet / iPad (2048×1536)',
+        desc: 'Disesuaikan presisi untuk layar iPad/Tablet 4:3.',
+        width: 2048,
+        height: 1536,
+        tag: '2048x1536'
+    },
+    square: {
+        key: 'square',
+        label: 'Persegi 1:1 (1080×1080)',
+        desc: 'Format kotak 1:1 untuk avatar, profil, atau feed.',
+        width: 1080,
+        height: 1080,
+        tag: '1080x1080'
+    }
+};
