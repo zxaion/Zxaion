@@ -1,5 +1,6 @@
 import { PACK_BY_CENTS, PACKS, PACK_BY_PRICE } from '../config/packs.js';
 import { maskTokenForLog } from '../utils/userToken.js';
+import { appendCreditLedgerStatement, ensureAutoAccount } from '../services/accountAuth.js';
 
 const STALE_PROCESSING_MS = 5 * 60 * 1000;
 
@@ -83,6 +84,9 @@ async function handlePayPalReversalEvent({ DB, eventType, webhookEvent }) {
     : eventType === 'PAYMENT.CAPTURE.REVERSED' ? 'reversed'
     : 'disputed';
 
+  const { account } = await ensureAutoAccount(DB, { userId: order.user_id, request: null, issueSession: false });
+  const creditsDeducted = packData.lifetime ? 0 : -(packData.credits + (packData.bonus || 0));
+
   const revokeStmt = packData.lifetime
     ? DB.prepare('UPDATE user_credits SET lifetime = 0 WHERE user_id = ?').bind(order.user_id)
     : (() => {
@@ -96,7 +100,19 @@ async function handlePayPalReversalEvent({ DB, eventType, webhookEvent }) {
     'UPDATE payment_orders SET status = ?, error_message = ? WHERE id = ?'
   ).bind(targetStatus, `PayPal event: ${eventType}`, order.id);
 
-  await DB.batch([revokeStmt, orderStmt]);
+  const ledgerStmt = appendCreditLedgerStatement(DB, {
+    id: `led:rev:${order.order_id}`,
+    accountId: account?.account_id,
+    userId: order.user_id,
+    txType: targetStatus,
+    amount: creditsDeducted,
+    referenceType: 'paypal_order',
+    referenceId: order.order_id,
+    description: `Order ${targetStatus} via PayPal (${eventType})`,
+    metadata: { eventType, packKey: order.pack_key },
+  });
+
+  await DB.batch([revokeStmt, orderStmt, ledgerStmt]);
   const maskedRef = await maskTokenForLog(order.user_id);
   console.log(`Webhook: ${targetStatus} order ${order.order_id} for user ${maskedRef}`);
   return new Response('OK', { status: 200 });
@@ -259,26 +275,42 @@ export async function handlePayPalWebhook({ request, DB, PAYPAL_WEBHOOK_ID, PAYP
     }
 
     try {
+      const { account } = await ensureAutoAccount(DB, { userId, request: null, issueSession: false });
+      const totalCredits = packData.lifetime ? 0 : (packData.credits + (packData.bonus || 0));
+
       const creditStmt = packData.lifetime
         ? DB.prepare(
             `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
              VALUES (?, ?, 0, 1)
              ON CONFLICT(user_id) DO UPDATE SET lifetime = 1, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
           ).bind(userId, publicId)
-        : (() => {
-            const totalCredits = packData.credits + (packData.bonus || 0);
-            return DB.prepare(
-              `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
-               VALUES (?, ?, ?, 0)
-               ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
-            ).bind(userId, publicId, totalCredits, totalCredits);
-          })();
+        : DB.prepare(
+            `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
+             VALUES (?, ?, ?, 0)
+             ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
+          ).bind(userId, publicId, totalCredits, totalCredits);
 
+      const completedAt = new Date().toISOString();
       const completeStmt = DB.prepare(
         `UPDATE payment_orders SET status = 'completed', completed_at = ?, capture_id = COALESCE(?, capture_id) WHERE id = ?`
-      ).bind(new Date().toISOString(), captureId, `order:${orderId}`);
+      ).bind(completedAt, captureId, `order:${orderId}`);
 
-      await DB.batch([creditStmt, completeStmt]);
+      const ledgerStmt = appendCreditLedgerStatement(DB, {
+        id: `led:order:${orderId}`,
+        accountId: account?.account_id,
+        userId,
+        txType: packData.lifetime ? 'lifetime_unlock' : 'purchase',
+        amount: totalCredits,
+        referenceType: 'paypal_order',
+        referenceId: orderId,
+        description: packData.lifetime
+          ? `Lifetime DTREASURE Pass (${packDollarKey})`
+          : `Purchased ${totalCredits} credits (${packDollarKey}) via PayPal Webhook`,
+        metadata: { pack: packDollarKey, captureId, amountUsd: capturedAmount },
+        createdAt: completedAt,
+      });
+
+      await DB.batch([creditStmt, completeStmt, ledgerStmt]);
 
       const maskedRef = await maskTokenForLog(userId);
       console.log(`Webhook: credited user ${maskedRef} for order ${orderId} ($${capturedAmount})`);

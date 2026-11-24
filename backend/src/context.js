@@ -4,6 +4,7 @@ import { buildCorsHeaders } from './utils/cors.js';
 import { getUserToken } from './utils/userToken.js';
 import { checkRateLimit } from './services/rateLimit.js';
 import { getPayPalAccessToken, createPayPalOrder, verifyPayPalOrder } from './services/paypal.js';
+import { dispatchTransactionalEmail } from './services/email.js';
 
 export function createContext(request, env, ctx) {
   const url    = new URL(request.url);
@@ -31,6 +32,7 @@ export function createContext(request, env, ctx) {
     ALLOWED_ORIGINS, origin, corsHeaders,
     getUserToken,
     checkRateLimit:       (endpoint, identifier, limit, windowSec) => checkRateLimit(DB, endpoint, identifier, limit, windowSec),
+    sendEmail:            (emailOpts) => dispatchTransactionalEmail(env, emailOpts),
     getPayPalAccessToken: () => getPayPalAccessToken(env),
     createPayPalOrder:    (orderInput, accessToken) => createPayPalOrder(orderInput, accessToken, PAYPAL_BASE),
     verifyPayPalOrder:    (orderId, accessToken) => verifyPayPalOrder(orderId, accessToken, PAYPAL_BASE),

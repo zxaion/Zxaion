@@ -1,4 +1,10 @@
 import { handleScheduled } from '../services/r2Sync.js';
+import {
+  createD1Snapshot,
+  getBackupSnapshot,
+  listBackupSnapshots,
+  restoreFromSnapshot,
+} from '../services/backup.js';
 
 // ================================================================
 // Helper: Extract & Validate Admin Secret Token
@@ -155,6 +161,47 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
       };
     } catch {}
 
+    // 4. Virtual Accounts, Credit Ledger & Backup Snapshots
+    let accounts = [];
+    let ledger = [];
+    let snapshots = [];
+    let verifiedEmails = 0;
+    let passwordProtected = 0;
+
+    try {
+      const accRes = await env.DB.prepare(
+        'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, created_at, last_login_at FROM accounts ORDER BY created_at DESC LIMIT ?'
+      ).bind(250).all();
+      accounts = (accRes?.results || []).map((a) => {
+        const emailVerified = Boolean(a.email_verified);
+        const hasPassword = Boolean(a.has_password !== undefined ? a.has_password : a.password_hash);
+        if (emailVerified) verifiedEmails++;
+        if (hasPassword) passwordProtected++;
+        return {
+          account_id: a.account_id,
+          user_id: a.user_id,
+          email: a.email || null,
+          email_verified: emailVerified,
+          has_password: hasPassword,
+          display_name: a.display_name || null,
+          status: a.status || 'active',
+          created_at: a.created_at || null,
+          last_login_at: a.last_login_at || null,
+        };
+      });
+    } catch {}
+
+    try {
+      const ledRes = await env.DB.prepare(
+        'SELECT id, account_id, user_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at FROM credit_ledger ORDER BY created_at DESC LIMIT ?'
+      ).bind(100).all();
+      ledger = ledRes?.results || [];
+    } catch {}
+
+    try {
+      snapshots = await listBackupSnapshots(env.DB, 15);
+    } catch {}
+
     return new Response(JSON.stringify({
       success: true,
       timestamp: new Date().toISOString(),
@@ -174,10 +221,19 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
           totalLifetimeUsers,
           totalRecoveryCodes,
         },
+        accountsSummary: {
+          totalAccounts: accounts.length,
+          verifiedEmails,
+          passwordProtected,
+          totalLedgerEntries: ledger.length,
+        },
         catalog: catalogCounts,
       },
       orders,
       users,
+      accounts,
+      ledger,
+      snapshots,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -185,6 +241,147 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
     console.error('[Admin] Dashboard error:', err);
     return new Response(JSON.stringify({ success: false, error: err.message || 'Internal error' }), {
       status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+// ================================================================
+// ENDPOINTS: Database Backup Snapshots & Verified Restore (/api/admin/backup*)
+// ================================================================
+export async function handleAdminBackupList({ request, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const snapshots = await listBackupSnapshots(env.DB, 25);
+    return new Response(JSON.stringify({ success: true, snapshots }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+export async function handleAdminBackupCreate({ request, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const snapshot = await createD1Snapshot(env, 'admin-manual');
+    return new Response(JSON.stringify({ success: true, snapshot }), {
+      status: 201,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+  } catch (err) {
+    console.error('[Admin] Backup snapshot error:', err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Snapshot failed' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+export async function handleAdminBackupDownload({ request, url, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    let snapshotId = (url.searchParams.get('id') || '').trim();
+    if (!snapshotId) {
+      const list = await listBackupSnapshots(env.DB, 1);
+      snapshotId = list[0]?.snapshot_id || '';
+    }
+    if (!snapshotId) {
+      const created = await createD1Snapshot(env, 'admin-download');
+      snapshotId = created.snapshot_id;
+    }
+
+    const row = await getBackupSnapshot(env.DB, snapshotId);
+    if (!row) {
+      return new Response(JSON.stringify({ success: false, error: 'Snapshot not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(row.payload_json, {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="zxaion-d1-backup-${row.snapshot_id}.json"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Download failed' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+export async function handleAdminBackupRestore({ request, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ success: false, error: 'Invalid JSON body' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    let snapshotPayload = body?.snapshot || (body?.tables ? body : null);
+    if (!snapshotPayload && body?.snapshotId) {
+      const row = await getBackupSnapshot(env.DB, String(body.snapshotId).trim());
+      if (!row) {
+        return new Response(JSON.stringify({ success: false, error: 'Snapshot not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      snapshotPayload = JSON.parse(row.payload_json);
+    }
+
+    if (!snapshotPayload) {
+      return new Response(JSON.stringify({ success: false, error: 'Provide snapshotId or snapshot JSON payload' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const result = await restoreFromSnapshot(env.DB, snapshotPayload);
+    return new Response(JSON.stringify({ success: true, ...result }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+  } catch (err) {
+    console.error('[Admin] Restore error:', err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Restore failed' }), {
+      status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

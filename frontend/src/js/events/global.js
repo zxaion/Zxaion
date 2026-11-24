@@ -17,12 +17,54 @@ function _cleanupPayPalModalState() {
     state.selectedCreditPack = null;
 }
 
+function _applyThemeState(isDark, { persist = false } = {}) {
+    document.documentElement.classList.toggle('dark', isDark);
+    document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+
+    const toggleBtn = document.getElementById('darkmode-toggle');
+    if (toggleBtn) {
+        toggleBtn.setAttribute('aria-checked', isDark ? 'true' : 'false');
+        toggleBtn.setAttribute('title', isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode');
+    }
+
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) {
+        themeMeta.setAttribute('content', isDark ? '#030712' : '#ffffff');
+    }
+
+    if (persist) {
+        try { localStorage.setItem('darkMode', String(isDark)); } catch (_) {}
+    }
+}
+
+// Apply saved or OS-preferred theme immediately when script executes
+(() => {
+    let saved = null;
+    try { saved = localStorage.getItem('darkMode'); } catch (_) {}
+    const prefersDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+    const isDark = saved !== null ? saved === 'true' : Boolean(prefersDark);
+    _applyThemeState(isDark, { persist: false });
+})();
+
 function initGlobalEvents() {
-    document.getElementById('darkmode-toggle')?.addEventListener('click', () => {
-        document.documentElement.classList.toggle('dark');
-        localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
-    });
-    if (localStorage.getItem('darkMode') === 'true') document.documentElement.classList.add('dark');
+    const toggleBtn = document.getElementById('darkmode-toggle');
+    if (toggleBtn) {
+        _applyThemeState(document.documentElement.classList.contains('dark'), { persist: false });
+        toggleBtn.addEventListener('click', () => {
+            const nextDark = !document.documentElement.classList.contains('dark');
+            _applyThemeState(nextDark, { persist: true });
+        });
+    }
+
+    // Ikuti perubahan tema sistem bila user belum memilih manual
+    try {
+        const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
+        mediaQuery?.addEventListener?.('change', (e) => {
+            if (localStorage.getItem('darkMode') === null) {
+                _applyThemeState(e.matches, { persist: false });
+            }
+        });
+    } catch (_) {}
 
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;

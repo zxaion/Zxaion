@@ -63,4 +63,8 @@ const elements = {
     adminOrdersTableBody:    document.getElementById('admin-orders-table-body'),
     adminUsersTableBody:     document.getElementById('admin-users-table-body'),
     adminPacksGrid:          document.getElementById('admin-packs-grid'),
+    accountBtn:              document.getElementById('account-btn'),
+    accountModal:            document.getElementById('account-modal'),
+    closeAccountModalBtn:    document.getElementById('close-account-modal'),
+    accountIdBadge:          document.getElementById('account-id-badge'),
 };

@@ -85,3 +85,97 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_reset
   ON rate_limits (reset_time);
+
+-- ================================================================
+-- Virtual Accounts, Sessions, Immutable Credit Ledger, Email & Backups
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS accounts (
+  account_id            TEXT PRIMARY KEY,
+  user_id               TEXT NOT NULL UNIQUE,
+  email                 TEXT UNIQUE,
+  email_verified        INTEGER NOT NULL DEFAULT 0,
+  password_hash         TEXT,
+  display_name          TEXT,
+  status                TEXT NOT NULL DEFAULT 'active',
+  failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+  locked_until          TEXT,
+  created_at            TEXT DEFAULT (datetime('now')),
+  updated_at            TEXT DEFAULT (datetime('now')),
+  last_login_at         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_email
+  ON accounts (email);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_user_id
+  ON accounts (user_id);
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+  session_id   TEXT PRIMARY KEY,
+  account_id   TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  user_agent   TEXT,
+  ip_hash      TEXT,
+  expires_at   TEXT NOT NULL,
+  revoked_at   TEXT,
+  last_seen_at TEXT DEFAULT (datetime('now')),
+  created_at   TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_account
+  ON user_sessions (account_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash
+  ON user_sessions (token_hash);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires
+  ON user_sessions (expires_at);
+
+CREATE TABLE IF NOT EXISTS credit_ledger (
+  id             TEXT PRIMARY KEY,
+  account_id     TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  tx_type        TEXT NOT NULL,
+  amount         INTEGER NOT NULL,
+  balance_after  INTEGER NOT NULL,
+  reference_type TEXT NOT NULL,
+  reference_id   TEXT NOT NULL,
+  description    TEXT,
+  metadata_json  TEXT,
+  created_at     TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_account_created
+  ON credit_ledger (account_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_user_created
+  ON credit_ledger (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id         TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  email      TEXT NOT NULL,
+  purpose    TEXT NOT NULL,
+  code_hash  TEXT NOT NULL,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verifications_lookup
+  ON email_verifications (email, purpose, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS backup_snapshots (
+  snapshot_id  TEXT PRIMARY KEY,
+  created_by   TEXT NOT NULL,
+  accounts_cnt INTEGER NOT NULL DEFAULT 0,
+  wallets_cnt  INTEGER NOT NULL DEFAULT 0,
+  ledger_cnt   INTEGER NOT NULL DEFAULT 0,
+  orders_cnt   INTEGER NOT NULL DEFAULT 0,
+  checksum_sha TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at   TEXT DEFAULT (datetime('now'))
+);
+

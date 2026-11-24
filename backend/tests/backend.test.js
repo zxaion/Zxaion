@@ -10,7 +10,7 @@ import { parseImageMeta } from '../src/services/imageMeta.js';
 import { getPayPalBase } from '../src/config/constants.js';
 import { CREDIT_PACK_DEFINITIONS } from '../src/config/packs.js';
 import { MIME_TYPES } from '../src/config/mimeTypes.js';
-import { getUserToken, generateRecoveryCode, signToken, verifySignedToken, derivePublicPayerRef } from '../src/utils/userToken.js';
+import { getUserToken, generateRecoveryCode, signToken, verifySignedToken, derivePublicPayerRef, isAccountIdFormat, generateAccountId, hashPassword, verifyPassword } from '../src/utils/userToken.js';
 import { createLocalEnv, createMockD1, createMockImagesBinding, createMockR2Bucket } from '../src/localRuntime.js';
 import { handleRequest } from '../src/router.js';
 import { handleStatic } from '../src/routes/static.js';
@@ -35,10 +35,34 @@ import {
   handleCreditPurchase,
   handleCreditSpend,
 } from '../src/routes/credits.js';
+import {
+  handleAutoAccount,
+  handleAccountMe,
+  handleRegisterAccount,
+  handleVerifyEmail,
+  handleLoginAccount,
+  handleLogoutAccount,
+  handleRecoverRequest,
+  handleRecoverConfirm,
+  handleAccountLedger,
+  handleListSessions,
+  handleRevokeSession,
+  handleRevokeOtherSessions,
+  handleAccountExport,
+} from '../src/routes/account.js';
 import { handlePayPalWebhook } from '../src/routes/paypalWebhook.js';
 import { handleServeImage } from '../src/routes/media.js';
-import { validateAdminAuth, handleAdminDashboard, handleAdminRescan } from '../src/routes/admin.js';
+import {
+  validateAdminAuth,
+  handleAdminDashboard,
+  handleAdminRescan,
+  handleAdminBackupList,
+  handleAdminBackupCreate,
+  handleAdminBackupDownload,
+  handleAdminBackupRestore,
+} from '../src/routes/admin.js';
 import { injectOpenGraphMetadata, buildPhotoCanonicalUrl, buildPhotoImageUrl } from '../src/services/seo.js';
+import { sha256Hex } from '../src/utils/userToken.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
 
@@ -1825,6 +1849,590 @@ test('device resolution selector presets and filename generation', async () => {
   assert.ok(adminSectionHtml.includes('id="admin-metric-revenue"'), 'must include revenue KPI card');
   assert.ok(adminSectionHtml.includes('id="admin-token-input"'), 'must include admin secret token input');
 });
+
+test('Virtual Account Generator rejects Account ID as login credential or auth token and upgrades guest wallet', async () => {
+  const env = await createLocalEnv();
+  const deviceToken = 'u_guest_upgrade_9001';
+
+  // 1. Account ID format helper & getUserToken rejection
+  const sampleAcctId = generateAccountId();
+  assert.match(sampleAcctId, /^ZXA-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+  assert.equal(isAccountIdFormat(sampleAcctId), true);
+  assert.equal(getUserToken(makeReq('http://localhost/api/account/auto', {
+    headers: { 'X-User-Token': sampleAcctId },
+  })), 'anonymous');
+
+  // 2. Reject passing Account ID in /api/account/auto
+  const badAutoRes = await handleAutoAccount({
+    request: makeReq('http://localhost/api/account/auto', {
+      method: 'POST',
+      headers: { 'X-User-Token': sampleAcctId },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(badAutoRes.status, 401);
+
+  // 3. Seed pre-existing guest wallet credits before registration
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO user_credits (user_id, public_id, credits, lifetime) VALUES (?, ?, ?, ?)'
+  ).bind(deviceToken, await derivePublicPayerRef(deviceToken), 75, 0).run();
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO purchased_images (user_id, photo_id, purchased_at) VALUES (?, ?, ?)'
+  ).bind(deviceToken, 'dtreasure:vault/existing_gem.jpg', '2026-11-20T00:00:00Z').run();
+
+  // 4. Provision auto account
+  const autoRes = await handleAutoAccount({
+    request: makeReq('http://localhost/api/account/auto', {
+      method: 'POST',
+      headers: { 'X-User-Token': deviceToken },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(autoRes.status, 200);
+  const autoData = await autoRes.json();
+  assert.equal(autoData.success, true);
+  assert.match(autoData.account.accountId, /^ZXA-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+  assert.equal(autoData.wallet.credits, 75);
+  assert.deepEqual(autoData.wallet.purchased, ['dtreasure:vault/existing_gem.jpg']);
+
+  // Calling auto again returns the exact same permanent Account ID
+  const autoRes2 = await handleAutoAccount({
+    request: makeReq('http://localhost/api/account/auto', {
+      method: 'POST',
+      headers: { 'X-User-Token': deviceToken },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  const autoData2 = await autoRes2.json();
+  assert.equal(autoData2.account.accountId, autoData.account.accountId);
+
+  // 5. Register account -> preserves credits & purchases, issues OTP & session
+  const regRes = await handleRegisterAccount({
+    request: makeReq('http://localhost/api/account/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': deviceToken },
+      body: { email: '  UserOne@Example.COM ', password: 'StrongPassword#2026', displayName: 'Zxaion Tester' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    sendEmail: async () => ({ sent: false, provider: 'unconfigured' }),
+  });
+  assert.equal(regRes.status, 201);
+  const regData = await regRes.json();
+  assert.equal(regData.account.accountId, autoData.account.accountId);
+  assert.equal(regData.account.email, 'userone@example.com');
+  assert.equal(regData.account.emailVerified, false);
+  assert.equal(regData.account.hasPassword, true);
+  assert.equal(regData.wallet.credits, 75);
+  assert.match(regData.sessionToken, /^zxs_[0-9a-f]{64}$/);
+  assert.match(regData.verification.devOtpPreview, /^\d{6}$/);
+
+  // 6. Verify email OTP (invalid first, then valid)
+  const wrongOtp = await handleVerifyEmail({
+    request: makeReq('http://localhost/api/account/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${regData.sessionToken}` },
+      body: { code: '000000' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  if (regData.verification.devOtpPreview !== '000000') {
+    assert.equal(wrongOtp.status, 400);
+  }
+
+  const okOtp = await handleVerifyEmail({
+    request: makeReq('http://localhost/api/account/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${regData.sessionToken}` },
+      body: { code: regData.verification.devOtpPreview },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(okOtp.status, 200);
+  const verifiedData = await okOtp.json();
+  assert.equal(verifiedData.account.emailVerified, true);
+
+  // 7. Account ID strictly forbidden in login payload & Bearer header
+  const acctIdLogin = await handleLoginAccount({
+    request: makeReq('http://localhost/api/account/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: autoData.account.accountId, password: 'StrongPassword#2026' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(acctIdLogin.status, 400);
+
+  const acctIdBearer = await handleAccountMe({
+    request: makeReq('http://localhost/api/account/me', {
+      headers: { 'Authorization': `Bearer ${autoData.account.accountId}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(acctIdBearer.status, 401);
+
+  // 8. Bare X-User-Token is blocked on password-protected account (requiresLogin: true)
+  const bareTokenMe = await handleAccountMe({
+    request: makeReq('http://localhost/api/account/me', {
+      headers: { 'X-User-Token': deviceToken },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(bareTokenMe.status, 401);
+  const bareBody = await bareTokenMe.json();
+  assert.equal(bareBody.requiresLogin, true);
+});
+
+test('Login lockout, multi-device session management, and verified email recovery revoke old sessions', async () => {
+  const env = await createLocalEnv();
+  const userTok = 'u_security_test_77';
+
+  // Provision & register verified user
+  const regRes = await handleRegisterAccount({
+    request: makeReq('http://localhost/api/account/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': userTok },
+      body: { email: 'sec@zxaion.test', password: 'InitialPass!99' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    sendEmail: async () => ({ sent: false, provider: 'unconfigured' }),
+  });
+  const regData = await regRes.json();
+
+  await handleVerifyEmail({
+    request: makeReq('http://localhost/api/account/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${regData.sessionToken}` },
+      body: { code: regData.verification.devOtpPreview },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+
+  // 1. Brute-force lockout after 5 wrong attempts
+  for (let i = 0; i < 4; i++) {
+    const failRes = await handleLoginAccount({
+      request: makeReq('http://localhost/api/account/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { email: 'sec@zxaion.test', password: 'WrongPassword123' },
+      }),
+      DB: env.DB,
+      corsHeaders,
+    });
+    assert.equal(failRes.status, 401);
+  }
+  const lockedRes = await handleLoginAccount({
+    request: makeReq('http://localhost/api/account/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: 'sec@zxaion.test', password: 'WrongPassword123' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(lockedRes.status, 429);
+
+  // Even correct password is blocked while locked
+  const duringLock = await handleLoginAccount({
+    request: makeReq('http://localhost/api/account/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: 'sec@zxaion.test', password: 'InitialPass!99' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(duringLock.status, 429);
+
+  // Clear lock directly in DB to continue testing multi-session login
+  await env.DB.prepare('UPDATE accounts SET failed_login_attempts = 0, locked_until = NULL WHERE email = ?')
+    .bind('sec@zxaion.test').run();
+
+  const login2 = await handleLoginAccount({
+    request: makeReq('http://localhost/api/account/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'MobileBrowser/2.0' },
+      body: { email: 'sec@zxaion.test', password: 'InitialPass!99' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(login2.status, 200);
+  const sess2 = (await login2.json()).sessionToken;
+
+  // 2. List sessions (should see 2 active sessions) and revoke others
+  const listRes = await handleListSessions({
+    request: makeReq('http://localhost/api/account/sessions', {
+      headers: { 'Authorization': `Bearer ${sess2}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  const listData = await listRes.json();
+  assert.equal(listData.sessions.length, 2);
+
+  const revokeOthers = await handleRevokeOtherSessions({
+    request: makeReq('http://localhost/api/account/sessions/revoke-others', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${sess2}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal((await revokeOthers.json()).revokedCount, 1);
+
+  // Old session is now rejected
+  const oldMe = await handleAccountMe({
+    request: makeReq('http://localhost/api/account/me', {
+      headers: { 'Authorization': `Bearer ${regData.sessionToken}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(oldMe.status, 401);
+
+  // 3. Verified Email Recovery resets password and revokes sess2
+  const recReq = await handleRecoverRequest({
+    request: makeReq('http://localhost/api/account/recover/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: 'sec@zxaion.test' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    sendEmail: async () => ({ sent: false, provider: 'unconfigured' }),
+  });
+  assert.equal(recReq.status, 200);
+  const recReqData = await recReq.json();
+  assert.match(recReqData.devOtpPreview, /^\d{6}$/);
+
+  const recConf = await handleRecoverConfirm({
+    request: makeReq('http://localhost/api/account/recover/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: 'sec@zxaion.test', code: recReqData.devOtpPreview, newPassword: 'BrandNewPassword#88' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(recConf.status, 200);
+  const recConfData = await recConf.json();
+  assert.match(recConfData.sessionToken, /^zxs_[0-9a-f]{64}$/);
+
+  // sess2 is revoked after recovery
+  const revokedSess2Check = await handleAccountMe({
+    request: makeReq('http://localhost/api/account/me', {
+      headers: { 'Authorization': `Bearer ${sess2}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(revokedSess2Check.status, 401);
+
+  // Can sign in with new password and logout cleanly
+  const newLogin = await handleLoginAccount({
+    request: makeReq('http://localhost/api/account/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: 'sec@zxaion.test', password: 'BrandNewPassword#88' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(newLogin.status, 200);
+
+  const logoutRes = await handleLogoutAccount({
+    request: makeReq('http://localhost/api/account/logout', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${recConfData.sessionToken}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(logoutRes.status, 200);
+
+  const afterLogoutMe = await handleAccountMe({
+    request: makeReq('http://localhost/api/account/me', {
+      headers: { 'Authorization': `Bearer ${recConfData.sessionToken}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(afterLogoutMe.status, 401);
+});
+
+test('Atomic Credit Ledger records PayPal purchase, DTREASURE spend, webhook refund, and personal JSON export', async () => {
+  const env = await createLocalEnv();
+  const buyer = 'u_ledger_buyer_44';
+  const payerRef = await derivePublicPayerRef(buyer);
+
+  // 1. Auto provision & register session
+  const regRes = await handleRegisterAccount({
+    request: makeReq('http://localhost/api/account/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': buyer },
+      body: { email: 'ledger@zxaion.test', password: 'LedgerPass#2026' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    sendEmail: async () => ({ sent: false, provider: 'unconfigured' }),
+  });
+  const { sessionToken, account } = await regRes.json();
+
+  // 2. Create PayPal order (5$ = 200 credits) & settle purchase
+  const createRes = await handleCreatePayPalOrder({
+    request: makeReq('http://localhost/api/credits/create-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+      body: { pack: '5$' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    createPayPalOrder: async () => ({ id: 'PP-LED-5', status: 'CREATED' }),
+  });
+  assert.equal(createRes.status, 200);
+
+  const purchaseRes = await handleCreditPurchase({
+    request: makeReq('http://localhost/api/credits/purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+      body: { pack: '5$', orderId: 'PP-LED-5' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    getPayPalAccessToken: async () => 'tok',
+    verifyPayPalOrder: async () => ({
+      status: 'COMPLETED',
+      purchase_units: [{
+        custom_id: payerRef,
+        payments: { captures: [{ id: 'CAP-LED-5', status: 'COMPLETED', amount: { value: '5.00', currency_code: 'USD' } }] },
+      }],
+    }),
+  });
+  assert.equal(purchaseRes.status, 200);
+  assert.equal((await purchaseRes.json()).newBalance, 200);
+
+  // 3. Spend 5 credits on DTREASURE unlock
+  const spendRes = await handleCreditSpend({
+    request: makeReq('http://localhost/api/credits/spend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+      body: { photoId: 'dtreasure:vault/imperial_dragon_8k.jpg' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(spendRes.status, 200);
+  assert.equal((await spendRes.json()).newBalance, 190);
+
+  // 4. Reversal / Refund webhook claws back 200 credits cleanly (clamped at >= 0) & appends refund ledger
+  const origWhFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/verify-webhook-signature')) {
+      return new Response(JSON.stringify({ verification_status: 'SUCCESS' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    throw new Error('Unexpected fetch: ' + url);
+  };
+  try {
+    const refundRes = await handlePayPalWebhook({
+      request: makeReq('http://localhost/api/paypal/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'paypal-transmission-id': 'tx-refund-led-1',
+          'paypal-transmission-time': '2026-11-24T01:00:00Z',
+          'paypal-cert-url': 'https://api-m.paypal.com/v1/notifications/certs/CERT-9',
+          'paypal-transmission-sig': 'sig',
+          'paypal-auth-algo': 'SHA256withRSA',
+        },
+        body: {
+          event_type: 'PAYMENT.CAPTURE.REFUNDED',
+          resource: {
+            id: 'CAP-LED-5',
+            supplementary_data: { related_ids: { order_id: 'PP-LED-5' } },
+          },
+        },
+      }),
+      DB: env.DB,
+      PAYPAL_WEBHOOK_ID: 'WH-TEST',
+      PAYPAL_BASE: 'https://api-m.paypal.com',
+      getPayPalAccessToken: async () => 'tok',
+      verifyPayPalOrder: async () => null,
+    });
+    assert.equal(refundRes.status, 200);
+  } finally {
+    globalThis.fetch = origWhFetch;
+  }
+
+  // 5. Inspect ledger entries (purchase +200, spend -5, refund -200)
+  const ledgerRes = await handleAccountLedger({
+    request: makeReq('http://localhost/api/account/ledger', {
+      headers: { 'Authorization': `Bearer ${sessionToken}` },
+    }),
+    url: new URL('http://localhost/api/account/ledger?limit=20'),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(ledgerRes.status, 200);
+  const { entries } = await ledgerRes.json();
+  assert.equal(entries.length, 3);
+  const types = entries.map(e => e.tx_type);
+  assert.ok(types.includes('purchase'));
+  assert.ok(types.includes('spend'));
+  assert.ok(types.includes('refunded'));
+
+  // 6. Export personal backup JSON & verify checksum
+  const exportRes = await handleAccountExport({
+    request: makeReq('http://localhost/api/account/export', {
+      headers: { 'Authorization': `Bearer ${sessionToken}` },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(exportRes.status, 200);
+  const exported = await exportRes.json();
+  assert.equal(exported.account.accountId, account.accountId);
+  assert.equal(exported.credit_ledger.length, 3);
+  assert.ok(exported.checksum_sha);
+});
+
+test('Database Backup Snapshot creation, SHA-256 tamper rejection, full D1 restore, and private R2 _backups blocking', async () => {
+  const env = await createLocalEnv();
+  const validAdmin = env.ADMIN_TOKEN || 'local-dev-admin';
+  const adminHeaders = { 'X-Admin-Token': validAdmin };
+
+  // Seed user account + credits + ledger
+  const autoRes = await handleAutoAccount({
+    request: makeReq('http://localhost/api/account/auto', {
+      method: 'POST',
+      headers: { 'X-User-Token': 'u_backup_user_01' },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  const autoData = await autoRes.json();
+  await env.DB.prepare('UPDATE user_credits SET credits = ? WHERE user_id = ?').bind(888, 'u_backup_user_01').run();
+
+  // 1. Create snapshot via Admin API
+  const createSnap = await handleAdminBackupCreate({
+    request: makeReq('http://localhost/api/admin/backup/snapshot', {
+      method: 'POST',
+      headers: adminHeaders,
+    }),
+    env,
+    corsHeaders,
+  });
+  assert.equal(createSnap.status, 201);
+  const snapData = await createSnap.json();
+  assert.equal(snapData.success, true);
+  assert.ok(snapData.snapshot.snapshot_id.startsWith('snap_'));
+  assert.equal(snapData.snapshot.r2_backed_up, true);
+
+  // 2. Private _backups/ prefix must NEVER be accessible via /api/img/
+  const leakAttempt = await handleServeImage({
+    request: makeReq('http://localhost/api/img/_backups%2Fd1-latest.json'),
+    path: '/api/img/_backups%2Fd1-latest.json',
+    url: new URL('http://localhost/api/img/_backups%2Fd1-latest.json'),
+    env,
+    mainBucket: env.Zxaion_B,
+    dtreasureBucket: env.Zxaion_DT,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(leakAttempt.status, 400);
+
+  // 3. Download snapshot JSON
+  const dlRes = await handleAdminBackupDownload({
+    request: makeReq(`http://localhost/api/admin/backup/download?id=${snapData.snapshot.snapshot_id}`, {
+      headers: adminHeaders,
+    }),
+    url: new URL(`http://localhost/api/admin/backup/download?id=${snapData.snapshot.snapshot_id}`),
+    env,
+    corsHeaders,
+  });
+  assert.equal(dlRes.status, 200);
+  const downloadedJson = await dlRes.json();
+  assert.equal(downloadedJson.snapshot_id, snapData.snapshot.snapshot_id);
+
+  // 4. Reject tampered snapshot payload (checksum mismatch)
+  const tampered = structuredClone(downloadedJson);
+  tampered.tables.user_credits[0].credits = 999999;
+  const tamperRes = await handleAdminBackupRestore({
+    request: makeReq('http://localhost/api/admin/backup/restore', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: { snapshot: tampered },
+    }),
+    env,
+    corsHeaders,
+  });
+  assert.equal(tamperRes.status, 400);
+
+  // 5. Mutate D1 (wipe credits) and verify restore recovers exact balance & account
+  await env.DB.prepare('DELETE FROM user_credits WHERE user_id = ?').bind('u_backup_user_01').run();
+  await env.DB.prepare('DELETE FROM accounts WHERE user_id = ?').bind('u_backup_user_01').run();
+
+  const restoreRes = await handleAdminBackupRestore({
+    request: makeReq('http://localhost/api/admin/backup/restore', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: { snapshot: downloadedJson },
+    }),
+    env,
+    corsHeaders,
+  });
+  assert.equal(restoreRes.status, 200);
+
+  const restoredCredit = await env.DB.prepare('SELECT credits FROM user_credits WHERE user_id = ?')
+    .bind('u_backup_user_01').first();
+  const restoredAcct = await env.DB.prepare('SELECT account_id FROM accounts WHERE user_id = ?')
+    .bind('u_backup_user_01').first();
+  assert.equal(restoredCredit.credits, 888);
+  assert.equal(restoredAcct.account_id, autoData.account.accountId);
+});
+
 
 
 

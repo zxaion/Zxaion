@@ -1,18 +1,62 @@
 import { handleHealth }          from './health.js';
-import { handleAdminSync, handleAdminRescan, handleAdminDashboard } from './admin.js';
+import {
+  handleAdminSync,
+  handleAdminRescan,
+  handleAdminDashboard,
+  handleAdminBackupList,
+  handleAdminBackupCreate,
+  handleAdminBackupDownload,
+  handleAdminBackupRestore,
+} from './admin.js';
 import { handlePayPalWebhook }   from './paypalWebhook.js';
 import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure, handleTrending } from './gallery.js';
 import { handleStats, handleRecordView, handleRecordDownload } from './stats.js';
 import { handleCreditBalance, handlePreparePayer, handleCreatePayPalOrder, handleCreateRecoveryCode, handleRecoverAccount, handleCreditPurchase, handleCreditSpend } from './credits.js';
+import {
+  handleAutoAccount,
+  handleAccountMe,
+  handleRegisterAccount,
+  handleResendVerification,
+  handleVerifyEmail,
+  handleLoginAccount,
+  handleLogoutAccount,
+  handleRecoverRequest,
+  handleRecoverConfirm,
+  handleAccountLedger,
+  handleListSessions,
+  handleRevokeSession,
+  handleRevokeOtherSessions,
+  handleAccountExport,
+} from './account.js';
 import { handleServeImage }      from './media.js';
 
 export const routes = [
   // --- System & Admin ---
-  { method: 'GET',  path: '/api/health',          handler: handleHealth },
-  { method: 'GET',  path: '/api/admin/dashboard', handler: handleAdminDashboard },
-  { method: 'POST', path: '/api/admin/rescan',    handler: handleAdminRescan },
-  { method: 'POST', path: '/api/admin/sync',      handler: handleAdminSync },
-  { method: 'POST', path: '/api/paypal/webhook',  handler: handlePayPalWebhook },
+  { method: 'GET',  path: '/api/health',                 handler: handleHealth },
+  { method: 'GET',  path: '/api/admin/dashboard',        handler: handleAdminDashboard },
+  { method: 'POST', path: '/api/admin/rescan',           handler: handleAdminRescan },
+  { method: 'POST', path: '/api/admin/sync',             handler: handleAdminSync },
+  { method: 'GET',  path: '/api/admin/backup',           handler: handleAdminBackupList },
+  { method: 'POST', path: '/api/admin/backup/snapshot',  handler: handleAdminBackupCreate },
+  { method: 'GET',  path: '/api/admin/backup/download',  handler: handleAdminBackupDownload },
+  { method: 'POST', path: '/api/admin/backup/restore',   handler: handleAdminBackupRestore },
+  { method: 'POST', path: '/api/paypal/webhook',         handler: handlePayPalWebhook },
+
+  // --- Virtual Account, Auth, Ledger & Sessions ---
+  { method: 'POST', path: '/api/account/auto',                    handler: handleAutoAccount },
+  { method: 'GET',  path: '/api/account/me',                      handler: handleAccountMe },
+  { method: 'POST', path: '/api/account/register',                handler: handleRegisterAccount },
+  { method: 'POST', path: '/api/account/resend-verification',     handler: handleResendVerification },
+  { method: 'POST', path: '/api/account/verify-email',            handler: handleVerifyEmail },
+  { method: 'POST', path: '/api/account/login',                   handler: handleLoginAccount },
+  { method: 'POST', path: '/api/account/logout',                  handler: handleLogoutAccount },
+  { method: 'POST', path: '/api/account/recover/request',         handler: handleRecoverRequest },
+  { method: 'POST', path: '/api/account/recover/confirm',         handler: handleRecoverConfirm },
+  { method: 'GET',  path: '/api/account/ledger',                  handler: handleAccountLedger },
+  { method: 'GET',  path: '/api/account/sessions',                handler: handleListSessions },
+  { method: 'POST', path: '/api/account/sessions/revoke',         handler: handleRevokeSession },
+  { method: 'POST', path: '/api/account/sessions/revoke-others',  handler: handleRevokeOtherSessions },
+  { method: 'GET',  path: '/api/account/export',                  handler: handleAccountExport },
 
   // --- Gallery ---
   { method: 'GET',  path: '/api/list',            handler: handleListMain },

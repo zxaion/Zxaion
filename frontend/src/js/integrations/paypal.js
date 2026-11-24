@@ -52,6 +52,13 @@ function _renderPayPalButtons(packKey, price) {
             style: { shape: 'pill', color: 'gold', layout: 'vertical', label: 'paypal' },
 
             createOrder: async () => {
+                const autoRes = await api.ensureAutoAccount?.();
+                if (autoRes && autoRes.requiresLogin) {
+                    const msg = 'Please sign in to your account before purchasing credits.';
+                    ui.showToast(msg, 'warning');
+                    ui.openAccountModal?.('security');
+                    throw new Error(msg);
+                }
                 const res = await api.createOrder(packKey);
                 if (!res?.success || !res.orderId) {
                     const msg = res?.error || 'Could not initialize secure checkout. Please try again.';
@@ -88,7 +95,10 @@ function _renderPayPalButtons(packKey, price) {
                         state.credits  = result.newBalance;
                         state.lifetime = result.lifetime || false;
                         ui.updateCreditDisplay();
-                        await api.fetchCreditBalance();
+                        await Promise.allSettled([
+                            api.fetchCreditBalance(),
+                            api.fetchAccountProfile?.(),
+                        ]);
                         api.invalidateCache();
 
                         ui.showToast(
@@ -116,7 +126,8 @@ function _renderPayPalButtons(packKey, price) {
                                 packKey,
                                 credits: result.newBalance,
                                 lifetime: state.lifetime,
-                                recoveryCode: recCode
+                                recoveryCode: recCode,
+                                accountId: result.accountId || state.account?.accountId || null,
                             });
                         } catch (e) {
                             console.error('Failed to auto-generate recovery code after purchase:', e);

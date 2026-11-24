@@ -5,30 +5,45 @@
 Object.assign(api, {
     async fetchCreditBalance() {
         try {
-            const token = getOrCreateUserToken();
             const res   = await fetch(`${API_BASE}/api/credits/balance`, {
-                headers: { 'X-User-Token': token }
+                credentials: 'same-origin',
+                headers: getAuthHeaders(),
             });
             if (!res.ok) { console.error('fetchCreditBalance failed:', res.status); return; }
             const data = await res.json();
+            state.requiresLogin   = !!data.requiresLogin;
             state.credits         = data.credits  || 0;
             state.lifetime        = data.lifetime || false;
             state.purchasedImages = new Set(data.purchased || []);
+            if (data.accountId) {
+                state.account = {
+                    ...(state.account || {}),
+                    accountId:     data.accountId,
+                    email:         data.email ?? state.account?.email ?? null,
+                    emailVerified: data.emailVerified ?? state.account?.emailVerified ?? false,
+                    hasPassword:   data.hasPassword ?? state.account?.hasPassword ?? false,
+                };
+            }
             ui.updateCreditDisplay();
+            ui.updateAccountBanner?.();
         } catch (e) {
             console.error('Failed to fetch credits:', e);
         }
     },
 
     async preparePayer() {
-        const token = getOrCreateUserToken();
         try {
             const res = await fetch(`${API_BASE}/api/credits/prepare`, {
                 method:  'POST',
-                headers: { 'X-User-Token': token }
+                credentials: 'same-origin',
+                headers: getAuthHeaders(),
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data.success && typeof data.payerRef === 'string' && data.payerRef.startsWith('pub_')) {
+                if (data.accountId) {
+                    state.account = { ...(state.account || {}), accountId: data.accountId };
+                    ui.updateAccountBanner?.();
+                }
                 return data.payerRef;
             }
             return null;
@@ -39,16 +54,24 @@ Object.assign(api, {
     },
 
     async createOrder(packKey) {
-        const token = getOrCreateUserToken();
         try {
             const res = await fetch(`${API_BASE}/api/credits/create-order`, {
                 method:  'POST',
-                headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+                credentials: 'same-origin',
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                 body:    JSON.stringify({ pack: packKey })
             });
             const data = await res.json().catch(() => ({}));
+            if (res.status === 401 && data.requiresLogin) {
+                state.requiresLogin = true;
+                ui.openAccountModal?.('security');
+            }
             if (res.ok && data.success && typeof data.orderId === 'string' && data.orderId.trim()) {
-                return { success: true, orderId: data.orderId.trim(), error: null };
+                if (data.accountId) {
+                    state.account = { ...(state.account || {}), accountId: data.accountId };
+                    ui.updateAccountBanner?.();
+                }
+                return { success: true, orderId: data.orderId.trim(), accountId: data.accountId || null, error: null };
             }
             return { success: false, orderId: null, error: data.error || 'Could not initialize secure checkout.' };
         } catch (e) {
@@ -58,19 +81,19 @@ Object.assign(api, {
     },
 
     async purchaseCredits(packKey, orderId) {
-        const token = getOrCreateUserToken();
         try {
             const res  = await fetch(`${API_BASE}/api/credits/purchase`, {
                 method:  'POST',
-                headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+                credentials: 'same-origin',
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                 body:    JSON.stringify({ pack: packKey, orderId })
             });
             const data = await res.json();
 
             if (res.ok && data.success === true) {
-                return { success: true, newBalance: data.newBalance ?? 0, lifetime: data.lifetime ?? false, error: null };
+                return { success: true, newBalance: data.newBalance ?? 0, lifetime: data.lifetime ?? false, accountId: data.accountId || null, error: null };
             } else if (data.message === 'Order already processed') {
-                return { success: true, newBalance: data.newBalance ?? 0, lifetime: data.lifetime ?? false, error: null };
+                return { success: true, newBalance: data.newBalance ?? 0, lifetime: data.lifetime ?? false, accountId: data.accountId || null, error: null };
             } else {
                 return { success: false, error: data.error || 'Payment verification failed', orderId: data.orderId || orderId, newBalance: 0, lifetime: false };
             }
@@ -81,15 +104,19 @@ Object.assign(api, {
     },
 
     async spendCredit(photoId) {
-        const token = getOrCreateUserToken();
         try {
             const res = await fetch(`${API_BASE}/api/credits/spend`, {
                 method:  'POST',
-                headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+                credentials: 'same-origin',
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                 body:    JSON.stringify({ photoId })
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+                if (res.status === 401 && err.requiresLogin) {
+                    state.requiresLogin = true;
+                    ui.openAccountModal?.('security');
+                }
                 return { success: false, error: err.error || 'Spend credit failed' };
             }
             return res.json();
@@ -100,17 +127,17 @@ Object.assign(api, {
     },
 
     async generateRecoveryCode() {
-        const token = getOrCreateUserToken();
         try {
             const res = await fetch(`${API_BASE}/api/credits/recovery`, {
                 method:  'POST',
-                headers: { 'X-User-Token': token }
+                credentials: 'same-origin',
+                headers: getAuthHeaders(),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) {
                 return { success: false, error: data.error || 'Failed to generate recovery code' };
             }
-            return { success: true, recoveryCode: data.recoveryCode };
+            return { success: true, recoveryCode: data.recoveryCode, accountId: data.accountId || null };
         } catch (e) {
             console.error('generateRecoveryCode network error:', e);
             return { success: false, error: 'Network error. Please check your connection.' };

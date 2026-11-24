@@ -197,7 +197,12 @@
 
                     <button type="button" data-tab="rescan" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
                         <i class="fas fa-cloud-arrow-down"></i>
-                        <span>Status R2 & Sync</span>
+                        <span>Status R2 &amp; Sync</span>
+                    </button>
+
+                    <button type="button" data-tab="backup" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
+                        <i class="fas fa-database"></i>
+                        <span>Backup &amp; Ledger</span>
                     </button>
                 </div>
 
@@ -327,6 +332,96 @@
                         <div class="text-xs font-bold uppercase text-gray-500 mb-1">Bucket DTREASURE Vault</div>
                         <div id="admin-catalog-dtreasure" class="text-2xl font-black font-mono text-gray-900 dark:text-white">0</div>
                         <p class="text-xs text-gray-400 mt-1">Edisi Eksklusif Terkunci</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 5: Backup, Virtual Accounts & Immutable Credit Ledger -->
+            <div id="admin-panel-backup" class="admin-tab-panel hidden space-y-6">
+                <!-- Snapshot Actions Card -->
+                <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-5 sm:p-6 space-y-4">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <h2 class="font-bold text-gray-900 dark:text-white text-base flex items-center gap-2">
+                                <i class="fas fa-database text-amber-500"></i>
+                                <span>Database Backup Snapshot &amp; Pemulihan D1</span>
+                            </h2>
+                            <p class="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                Snapshot mencakup tabel accounts, user_credits, purchased_images, payment_orders, dan credit_ledger terverifikasi SHA-256.
+                            </p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" id="admin-backup-create-btn" class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-gray-950 font-bold text-xs sm:text-sm flex items-center gap-2 transition-colors">
+                                <i class="fas fa-camera"></i><span>Buat Snapshot D1</span>
+                            </button>
+                            <button type="button" id="admin-backup-download-btn" class="px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white dark:bg-white dark:text-gray-950 font-bold text-xs sm:text-sm flex items-center gap-2 transition-colors">
+                                <i class="fas fa-download"></i><span>Unduh Snapshot Terbaru</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Snapshot List -->
+                    <div id="admin-snapshots-list" class="space-y-2 max-h-[260px] overflow-y-auto">
+                        <div class="text-xs text-gray-400 py-4 text-center">Memuat daftar snapshot backup...</div>
+                    </div>
+
+                    <!-- Upload / Restore JSON Snapshot -->
+                    <div class="pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="text-xs text-gray-600 dark:text-gray-400">
+                            <strong class="text-gray-900 dark:text-white">Restore dari File JSON Snapshot:</strong> Unggah file <code class="font-mono">.json</code> hasil unduhan backup untuk memulihkan database.
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input id="admin-backup-restore-file" type="file" accept=".json,application/json" class="text-xs text-gray-600 dark:text-gray-300 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-gray-100 file:text-gray-800 dark:file:bg-gray-800 dark:file:text-gray-200">
+                            <button type="button" id="admin-backup-restore-btn" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shrink-0">
+                                Restore JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Virtual Accounts & Ledger Summary -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+                        <div class="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                            <h3 class="font-bold text-gray-900 dark:text-white text-sm">Virtual Accounts</h3>
+                            <span id="admin-accounts-summary-badge" class="text-xs font-bold text-amber-600 dark:text-amber-400">0 Akun</span>
+                        </div>
+                        <div class="overflow-x-auto max-h-[340px] overflow-y-auto">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead class="bg-gray-50 dark:bg-gray-800/80 text-gray-500 uppercase text-[10px] font-bold">
+                                    <tr>
+                                        <th class="p-3">Account ID</th>
+                                        <th class="p-3">Email</th>
+                                        <th class="p-3">Keamanan</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-accounts-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 font-mono">
+                                    <tr><td colspan="3" class="p-6 text-center text-gray-400 font-sans">Belum ada virtual account.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+                        <div class="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                            <h3 class="font-bold text-gray-900 dark:text-white text-sm">Immutable Credit Ledger Terbaru</h3>
+                            <span id="admin-ledger-summary-badge" class="text-xs font-bold text-emerald-600 dark:text-emerald-400">0 Entri</span>
+                        </div>
+                        <div class="overflow-x-auto max-h-[340px] overflow-y-auto">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead class="bg-gray-50 dark:bg-gray-800/80 text-gray-500 uppercase text-[10px] font-bold">
+                                    <tr>
+                                        <th class="p-3">Account</th>
+                                        <th class="p-3">Tipe</th>
+                                        <th class="p-3">Delta</th>
+                                        <th class="p-3">Saldo</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-ledger-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 font-mono">
+                                    <tr><td colspan="4" class="p-6 text-center text-gray-400 font-sans">Belum ada entri ledger.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>

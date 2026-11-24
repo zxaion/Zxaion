@@ -1,6 +1,7 @@
 import { resolveAllowedOrigin } from '../utils/cors.js';
 import { parseTransformOptions, applyImageTransform, negotiateOutputMime } from '../services/imageTransform.js';
 import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
+import { resolveSessionAuth } from '../services/accountAuth.js';
 
 function safeDecode(value) {
   try {
@@ -13,6 +14,7 @@ function safeDecode(value) {
 function isSafeObjectKey(key) {
   if (!key || typeof key !== 'string') return false;
   if (key.startsWith('/') || key.includes('..') || key.includes('\0') || key.includes('\\')) return false;
+  if (key.toLowerCase().startsWith('_backups/')) return false;
   return true;
 }
 
@@ -65,7 +67,11 @@ export async function handleServeImage({ request, ctx, url, path, mainBucket, co
     });
   }
 
-  const userId     = getUserToken(request);
+  let userId = 'anonymous';
+  if (isDtreasure) {
+    const auth = await resolveSessionAuth({ request, DB, getUserToken });
+    userId = auth.authenticated ? auth.userId : 'anonymous';
+  }
   const isDownload = url.searchParams.get('download') === 'true';
 
   if (!isDtreasure && !isDownload && request.method === 'GET') {

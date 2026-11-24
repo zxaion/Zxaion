@@ -214,6 +214,11 @@ export function createMockD1() {
   const views = new Set();
   const downloads = new Set();
   const rateLimits = new Map();
+  const accounts = new Map();
+  const userSessions = new Map();
+  const creditLedger = new Map();
+  const emailVerifications = new Map();
+  const backupSnapshots = new Map();
 
   function filterImages(q, params) {
     let bucketFilter = null;
@@ -451,6 +456,11 @@ export function createMockD1() {
     }
 
     // --- USER CREDITS ---
+    if (q === 'SELECT credits, lifetime, recovery_hash FROM user_credits WHERE user_id = ?') {
+      const u = userCredits.get(params[0]);
+      return { first: u ? { credits: u.credits, lifetime: u.lifetime, recovery_hash: u.recovery_hash || null } : null };
+    }
+
     if (q === 'SELECT credits, lifetime FROM user_credits WHERE user_id = ?') {
       const u = userCredits.get(params[0]);
       return { first: u ? { credits: u.credits, lifetime: u.lifetime } : null };
@@ -564,6 +574,19 @@ export function createMockD1() {
       if (!user) return { meta: { changes: 0 } };
       user.credits = Math.max(0, user.credits - deduct);
       return { meta: { changes: 1 } };
+    }
+
+    if (q === 'UPDATE user_credits SET credits = ? WHERE user_id = ?') {
+      const [credits, userId] = params;
+      const user = userCredits.get(userId);
+      if (!user) return { meta: { changes: 0 } };
+      user.credits = Number(credits) || 0;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q === 'DELETE FROM user_credits WHERE user_id = ?') {
+      const deleted = userCredits.delete(params[0]);
+      return { meta: { changes: deleted ? 1 : 0 } };
     }
 
     // --- PURCHASED IMAGES ---
@@ -713,7 +736,437 @@ export function createMockD1() {
       return { meta: { changes: order ? 1 : 0 } };
     }
 
-    // --- ADMIN QUERIES ---
+    // --- ACCOUNTS ---
+    if (q.startsWith('SELECT') && q.includes('FROM accounts WHERE user_id = ?')) {
+      const uid = params[0];
+      for (const acc of accounts.values()) {
+        if (acc.user_id === uid) return { first: { ...acc } };
+      }
+      return { first: null };
+    }
+
+    if (q.startsWith('SELECT') && q.includes('FROM accounts WHERE account_id = ? LIMIT 1')) {
+      const acc = accounts.get(params[0]);
+      return { first: acc ? { ...acc } : null };
+    }
+
+    if (q.startsWith('SELECT') && q.includes('FROM accounts WHERE email = ? LIMIT 1')) {
+      const email = params[0];
+      for (const acc of accounts.values()) {
+        if (acc.email && acc.email === email) return { first: { ...acc } };
+      }
+      return { first: null };
+    }
+
+    if (q.startsWith('INSERT INTO accounts') && q.includes('ON CONFLICT(user_id) DO NOTHING')) {
+      const [account_id, user_id, created_at, updated_at] = params;
+      for (const acc of accounts.values()) {
+        if (acc.user_id === user_id) return { meta: { changes: 0 } };
+      }
+      accounts.set(account_id, {
+        account_id,
+        user_id,
+        email: null,
+        email_verified: 0,
+        password_hash: null,
+        display_name: null,
+        status: 'active',
+        failed_login_attempts: 0,
+        locked_until: null,
+        created_at,
+        updated_at,
+        last_login_at: null,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('INSERT OR REPLACE INTO accounts')) {
+      const [
+        account_id, user_id, email, email_verified, password_hash,
+        display_name, status, failed_login_attempts, locked_until,
+        created_at, updated_at, last_login_at,
+      ] = params;
+      accounts.set(account_id, {
+        account_id,
+        user_id,
+        email,
+        email_verified,
+        password_hash,
+        display_name,
+        status,
+        failed_login_attempts,
+        locked_until,
+        created_at,
+        updated_at,
+        last_login_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('UPDATE accounts SET email = ?, email_verified = 0, password_hash = ?, display_name = ?, updated_at = ? WHERE account_id = ?')) {
+      const [email, password_hash, display_name, updated_at, account_id] = params;
+      const acc = accounts.get(account_id);
+      if (!acc) return { meta: { changes: 0 } };
+      acc.email = email;
+      acc.email_verified = 0;
+      acc.password_hash = password_hash;
+      acc.display_name = display_name;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('UPDATE accounts SET failed_login_attempts = ?, locked_until = ?, updated_at = ? WHERE account_id = ?')) {
+      const [attempts, locked_until, updated_at, account_id] = params;
+      const acc = accounts.get(account_id);
+      if (!acc) return { meta: { changes: 0 } };
+      acc.failed_login_attempts = attempts;
+      acc.locked_until = locked_until;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('UPDATE accounts SET failed_login_attempts = 0, locked_until = NULL, last_login_at = ?, updated_at = ? WHERE account_id = ?')) {
+      const [last_login_at, updated_at, account_id] = params;
+      const acc = accounts.get(account_id);
+      if (!acc) return { meta: { changes: 0 } };
+      acc.failed_login_attempts = 0;
+      acc.locked_until = null;
+      acc.last_login_at = last_login_at;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('UPDATE accounts SET email_verified = 1, updated_at = ? WHERE account_id = ?')) {
+      const [updated_at, account_id] = params;
+      const acc = accounts.get(account_id);
+      if (!acc) return { meta: { changes: 0 } };
+      acc.email_verified = 1;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('UPDATE accounts SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL, last_login_at = ?, updated_at = ? WHERE account_id = ?')) {
+      const [password_hash, last_login_at, updated_at, account_id] = params;
+      const acc = accounts.get(account_id);
+      if (!acc) return { meta: { changes: 0 } };
+      acc.password_hash = password_hash;
+      acc.failed_login_attempts = 0;
+      acc.locked_until = null;
+      acc.last_login_at = last_login_at;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q === 'UPDATE accounts SET failed_login_attempts = 0, locked_until = NULL WHERE email = ?') {
+      const targetEmail = params[0];
+      let changes = 0;
+      for (const acc of accounts.values()) {
+        if (acc.email === targetEmail) {
+          acc.failed_login_attempts = 0;
+          acc.locked_until = null;
+          changes++;
+        }
+      }
+      return { meta: { changes } };
+    }
+
+    if (q === 'DELETE FROM accounts WHERE user_id = ?') {
+      let changes = 0;
+      for (const [acctId, acc] of accounts.entries()) {
+        if (acc.user_id === params[0]) {
+          accounts.delete(acctId);
+          changes++;
+        }
+      }
+      return { meta: { changes } };
+    }
+
+    if (q.startsWith('SELECT account_id, user_id, email, email_verified') && q.includes('FROM accounts ORDER BY created_at DESC')) {
+      const limit = params[0] || 200;
+      const results = Array.from(accounts.values())
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, limit)
+        .map((acc) => ({
+          account_id: acc.account_id,
+          user_id: acc.user_id,
+          email: acc.email,
+          email_verified: acc.email_verified,
+          has_password: Boolean(acc.password_hash),
+          display_name: acc.display_name,
+          status: acc.status,
+          created_at: acc.created_at,
+          last_login_at: acc.last_login_at,
+        }));
+      return { results };
+    }
+
+    if (q.startsWith('SELECT account_id, user_id, email, email_verified, password_hash') && q.includes('FROM accounts') && !q.includes('WHERE')) {
+      return { results: Array.from(accounts.values()).map((a) => ({ ...a })) };
+    }
+
+    // --- USER SESSIONS ---
+    if (q.includes('FROM user_sessions WHERE token_hash = ? LIMIT 1')) {
+      const hash = params[0];
+      for (const s of userSessions.values()) {
+        if (s.token_hash === hash) return { first: { ...s } };
+      }
+      return { first: null };
+    }
+
+    if (q.startsWith('INSERT INTO user_sessions')) {
+      const [session_id, account_id, token_hash, user_agent, ip_hash, expires_at, last_seen_at, created_at] = params;
+      userSessions.set(session_id, {
+        session_id,
+        account_id,
+        token_hash,
+        user_agent,
+        ip_hash,
+        expires_at,
+        revoked_at: null,
+        last_seen_at,
+        created_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q === 'UPDATE user_sessions SET last_seen_at = ? WHERE session_id = ?') {
+      const [last_seen_at, session_id] = params;
+      const s = userSessions.get(session_id);
+      if (s) s.last_seen_at = last_seen_at;
+      return { meta: { changes: s ? 1 : 0 } };
+    }
+
+    if (q === 'UPDATE user_sessions SET revoked_at = ? WHERE session_id = ? AND account_id = ? AND revoked_at IS NULL') {
+      const [revoked_at, session_id, account_id] = params;
+      const s = userSessions.get(session_id);
+      if (s && s.account_id === account_id && !s.revoked_at) {
+        s.revoked_at = revoked_at;
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 0 } };
+    }
+
+    if (q === 'UPDATE user_sessions SET revoked_at = ? WHERE account_id = ? AND session_id != ? AND revoked_at IS NULL') {
+      const [revoked_at, account_id, keepSessionId] = params;
+      let changes = 0;
+      for (const s of userSessions.values()) {
+        if (s.account_id === account_id && s.session_id !== keepSessionId && !s.revoked_at) {
+          s.revoked_at = revoked_at;
+          changes++;
+        }
+      }
+      return { meta: { changes } };
+    }
+
+    if (q === 'UPDATE user_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL') {
+      const [revoked_at, account_id] = params;
+      let changes = 0;
+      for (const s of userSessions.values()) {
+        if (s.account_id === account_id && !s.revoked_at) {
+          s.revoked_at = revoked_at;
+          changes++;
+        }
+      }
+      return { meta: { changes } };
+    }
+
+    if (q.includes('FROM user_sessions WHERE account_id = ? AND revoked_at IS NULL AND expires_at > ?')) {
+      const [account_id, nowIso] = params;
+      const results = Array.from(userSessions.values())
+        .filter((s) => s.account_id === account_id && !s.revoked_at && s.expires_at > nowIso)
+        .sort((a, b) => (b.last_seen_at || '').localeCompare(a.last_seen_at || ''))
+        .slice(0, 20)
+        .map(({ session_id, user_agent, ip_hash, expires_at, revoked_at, last_seen_at, created_at }) => ({
+          session_id,
+          user_agent,
+          ip_hash,
+          expires_at,
+          revoked_at,
+          last_seen_at,
+          created_at,
+        }));
+      return { results };
+    }
+
+    // --- EMAIL VERIFICATIONS ---
+    if (q.startsWith('UPDATE email_verifications SET used_at = ? WHERE email = ? AND purpose = ? AND used_at IS NULL')) {
+      const [used_at, email, purpose] = params;
+      let changes = 0;
+      for (const v of emailVerifications.values()) {
+        if (v.email === email && v.purpose === purpose && !v.used_at) {
+          v.used_at = used_at;
+          changes++;
+        }
+      }
+      return { meta: { changes } };
+    }
+
+    if (q.startsWith('INSERT INTO email_verifications')) {
+      const [id, account_id, email, purpose, code_hash, expires_at, created_at] = params;
+      emailVerifications.set(id, {
+        id,
+        account_id,
+        email,
+        purpose,
+        code_hash,
+        attempts: 0,
+        expires_at,
+        used_at: null,
+        created_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.includes('FROM email_verifications WHERE email = ? AND purpose = ? AND used_at IS NULL')) {
+      const [email, purpose] = params;
+      const matches = Array.from(emailVerifications.values())
+        .filter((v) => v.email === email && v.purpose === purpose && !v.used_at)
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      return { first: matches[0] ? { ...matches[0] } : null };
+    }
+
+    if (q === 'UPDATE email_verifications SET attempts = attempts + 1 WHERE id = ?') {
+      const v = emailVerifications.get(params[0]);
+      if (v) v.attempts = (v.attempts || 0) + 1;
+      return { meta: { changes: v ? 1 : 0 } };
+    }
+
+    if (q === 'UPDATE email_verifications SET used_at = ? WHERE id = ?') {
+      const [used_at, id] = params;
+      const v = emailVerifications.get(id);
+      if (v) v.used_at = used_at;
+      return { meta: { changes: v ? 1 : 0 } };
+    }
+
+    // --- CREDIT LEDGER (IMMUTABLE) ---
+    if (q.startsWith('INSERT OR IGNORE INTO credit_ledger') && q.includes('FROM user_credits WHERE user_id = ?')) {
+      const [id, account_id, user_id, tx_type, amount, reference_type, reference_id, description, metadata_json, created_at, targetUserId] = params;
+      if (creditLedger.has(id)) return { meta: { changes: 0 } };
+      const wallet = userCredits.get(targetUserId || user_id);
+      if (!wallet) return { meta: { changes: 0 } };
+      creditLedger.set(id, {
+        id,
+        account_id,
+        user_id,
+        tx_type,
+        amount: Number(amount) || 0,
+        balance_after: Number(wallet.credits) || 0,
+        reference_type,
+        reference_id,
+        description,
+        metadata_json,
+        created_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('INSERT OR IGNORE INTO credit_ledger')) {
+      const [id, account_id, user_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at] = params;
+      if (creditLedger.has(id)) return { meta: { changes: 0 } };
+      creditLedger.set(id, {
+        id,
+        account_id,
+        user_id,
+        tx_type,
+        amount: Number(amount) || 0,
+        balance_after: Number(balance_after) || 0,
+        reference_type,
+        reference_id,
+        description,
+        metadata_json,
+        created_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.includes('FROM credit_ledger WHERE user_id = ? AND tx_type = ?')) {
+      const [user_id, tx_type, limit = 50, offset = 0] = params;
+      const results = Array.from(creditLedger.values())
+        .filter((r) => r.user_id === user_id && r.tx_type === tx_type)
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(offset, offset + limit);
+      return { results };
+    }
+
+    if (q.includes('FROM credit_ledger WHERE user_id = ?')) {
+      const [user_id, limit = 50, offset = 0] = params;
+      const results = Array.from(creditLedger.values())
+        .filter((r) => r.user_id === user_id)
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(offset, offset + limit);
+      return { results };
+    }
+
+    if (q.includes('FROM credit_ledger ORDER BY created_at DESC LIMIT ?')) {
+      const limit = params[0] || 100;
+      const results = Array.from(creditLedger.values())
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, limit);
+      return { results };
+    }
+
+    if (q.startsWith('SELECT id, account_id, user_id, tx_type') && q.includes('FROM credit_ledger') && !q.includes('WHERE')) {
+      return { results: Array.from(creditLedger.values()).map((r) => ({ ...r })) };
+    }
+
+    // --- BACKUP SNAPSHOTS & EXPORT TABLE READS ---
+    if (q === 'SELECT user_id, public_id, credits, lifetime, recovery_hash FROM user_credits') {
+      return { results: Array.from(userCredits.values()).map((u) => ({ ...u })) };
+    }
+
+    if (q === 'SELECT user_id, photo_id, purchased_at FROM purchased_images') {
+      const results = [];
+      for (const k of purchasedImages) {
+        const idx = k.indexOf('::');
+        results.push({ user_id: k.slice(0, idx), photo_id: k.slice(idx + 2), purchased_at: new Date().toISOString() });
+      }
+      return { results };
+    }
+
+    if (q.startsWith('SELECT id, user_id, order_id, capture_id') && q.includes('FROM payment_orders') && !q.includes('WHERE')) {
+      return { results: Array.from(paymentOrders.values()).map((o) => ({ ...o })) };
+    }
+
+    if (q.startsWith('INSERT INTO backup_snapshots')) {
+      const [snapshot_id, created_by, accounts_cnt, wallets_cnt, ledger_cnt, orders_cnt, checksum_sha, payload_json, created_at] = params;
+      backupSnapshots.set(snapshot_id, {
+        snapshot_id,
+        created_by,
+        accounts_cnt,
+        wallets_cnt,
+        ledger_cnt,
+        orders_cnt,
+        checksum_sha,
+        payload_json,
+        created_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.includes('FROM backup_snapshots ORDER BY created_at DESC LIMIT ?')) {
+      const limit = params[0] || 25;
+      const results = Array.from(backupSnapshots.values())
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, limit)
+        .map(({ payload_json, ...meta }) => meta);
+      return { results };
+    }
+
+    if (q.includes('FROM backup_snapshots WHERE snapshot_id = ? LIMIT 1')) {
+      const snap = backupSnapshots.get(params[0]);
+      return { first: snap ? { ...snap } : null };
+    }
+
+    // --- ADMIN / USER ORDERS QUERIES ---
+    if (q.includes('FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC')) {
+      const [uid] = params;
+      const results = Array.from(paymentOrders.values())
+        .filter((o) => o.user_id === uid)
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, 50);
+      return { results };
+    }
+
     if (q.includes('FROM payment_orders') && q.includes('ORDER BY created_at DESC')) {
       const limit = params[0] || 200;
       const results = Array.from(paymentOrders.values())
@@ -867,6 +1320,7 @@ export async function createLocalEnv() {
     PAYPAL_CLIENT_SECRET_ID: process.env.PAYPAL_CLIENT_SECRET_ID || '',
     PAYPAL_WEBHOOK_ID: process.env.PAYPAL_WEBHOOK_ID || '',
     ADMIN_TOKEN: process.env.ADMIN_TOKEN || 'local-dev-admin',
+    ALLOW_DEV_OTP_PREVIEW: 'true',
   };
 
   await handleScheduled(env);

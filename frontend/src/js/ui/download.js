@@ -136,7 +136,6 @@ Object.assign(ui, {
         const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + ext;
 
         if (isDtreasure) {
-            const token        = getOrCreateUserToken();
             const loadingToast = document.createElement('div');
             loadingToast.id    = 'dl-toast';
             loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
@@ -146,7 +145,8 @@ Object.assign(ui, {
             try {
                 const res = await fetch(downloadUrl, {
                     method:  'GET',
-                    headers: { 'X-User-Token': token },
+                    credentials: 'same-origin',
+                    headers: getAuthHeaders(),
                 });
 
                 if (!res.ok) {
@@ -221,10 +221,10 @@ Object.assign(ui, {
         try {
             let imageBlob = null;
             if (isDtreasure) {
-                const token = getOrCreateUserToken();
                 const res = await fetch(downloadUrl, {
                     method: 'GET',
-                    headers: { 'X-User-Token': token },
+                    credentials: 'same-origin',
+                    headers: getAuthHeaders(),
                 });
                 if (!res.ok) {
                     let errMsg = `Download failed (HTTP ${res.status})`;

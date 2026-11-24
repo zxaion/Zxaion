@@ -96,4 +96,42 @@ function initAdminEvents() {
         window.location.hash = '#admin';
         ui.openAdminSection();
     });
+
+    // 11. Admin Backup Snapshot, Download & Restore
+    document.getElementById('admin-backup-create-btn')?.addEventListener('click', () => {
+        ui.createAdminBackupSnapshot?.();
+    });
+
+    document.getElementById('admin-backup-download-btn')?.addEventListener('click', () => {
+        ui.downloadAdminBackupSnapshot?.('');
+    });
+
+    document.getElementById('admin-snapshots-list')?.addEventListener('click', (e) => {
+        const dlBtn = e.target.closest('[data-admin-download-snap]');
+        if (dlBtn) {
+            ui.downloadAdminBackupSnapshot?.(dlBtn.dataset.adminDownloadSnap);
+            return;
+        }
+        const restoreBtn = e.target.closest('[data-admin-restore-snap]');
+        if (restoreBtn) {
+            ui.restoreAdminBackupPayload?.({ snapshotId: restoreBtn.dataset.adminRestoreSnap });
+        }
+    });
+
+    document.getElementById('admin-backup-restore-btn')?.addEventListener('click', async () => {
+        const fileInput = document.getElementById('admin-backup-restore-file');
+        const file = fileInput?.files?.[0];
+        if (!file) {
+            ui.showToast('Pilih file JSON snapshot terlebih dahulu.', 'warning');
+            return;
+        }
+        try {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            await ui.restoreAdminBackupPayload?.({ snapshot: parsed });
+            fileInput.value = '';
+        } catch {
+            ui.showToast('Format file JSON snapshot tidak valid.', 'error');
+        }
+    });
 }

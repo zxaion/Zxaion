@@ -1,10 +1,13 @@
 import { parseImageMeta } from './imageMeta.js';
+import { createD1Snapshot, listBackupSnapshots } from './backup.js';
 
 const BATCH_CHUNK_SIZE = 200;
 const DEFAULT_AUTOSYNC_COOLDOWN_MS = 15_000;
+const AUTO_BACKUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let activeSyncPromise = null;
 let lastAutoSyncAt = 0;
+let lastAutoBackupAt = 0;
 
 export function resetSyncStateForTests() {
   activeSyncPromise = null;
@@ -187,6 +190,21 @@ export async function handleScheduled(env) {
     await DB.prepare('DELETE FROM rate_limits WHERE reset_time < ?').bind(nowSec).run();
   } catch (e) {
     console.error('[Scheduled] Rate limit cleanup error:', e.message);
+  }
+
+  // Periodic automatic D1 wallet/account/ledger snapshot (throttled to every 6 hours)
+  try {
+    const nowMs = Date.now();
+    if (DB && nowMs - lastAutoBackupAt >= AUTO_BACKUP_INTERVAL_MS) {
+      const existing = await listBackupSnapshots(DB, 1);
+      const latestAt = existing[0]?.created_at ? Date.parse(existing[0].created_at) : 0;
+      if (!latestAt || (nowMs - latestAt >= AUTO_BACKUP_INTERVAL_MS)) {
+        await createD1Snapshot(env, 'cron-auto');
+      }
+      lastAutoBackupAt = nowMs;
+    }
+  } catch (e) {
+    console.warn('[Scheduled] Auto-backup skipped:', e.message);
   }
 
   lastAutoSyncAt = Date.now();

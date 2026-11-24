@@ -16,9 +16,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (_navEl)    _resizeObserver.observe(_navEl);
     if (_searchEl) _resizeObserver.observe(_searchEl);
 
-    const creditsPromise   = api.fetchCreditBalance();
-    const comitbasePromise = api.fetchComitbaseImages();
-    const dtreasurePromise = api.fetchDtreasureImages();
+    const autoAccountPromise = api.ensureAutoAccount?.();
+    const creditsPromise     = api.fetchCreditBalance();
+    const comitbasePromise   = api.fetchComitbaseImages();
+    const dtreasurePromise   = api.fetchDtreasureImages();
 
     const imagesOk = await api.fetchImages();
     if (imagesOk) {

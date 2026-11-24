@@ -33,7 +33,10 @@
             </div>
 
             <!-- Action Buttons -->
-            <div class="flex items-center gap-2 md:gap-3 min-w-fit">
+            <div class="flex items-center gap-2 md:gap-2.5 min-w-fit">
+                <button type="button" id="account-btn" class="flex items-center gap-2 px-3.5 py-2.5 bg-gray-900 text-white rounded-full hover:bg-black font-semibold text-xs md:text-sm shadow-sm transition-all duration-300 hover:scale-105 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-200" title="Virtual Account &amp; Credit Wallet">
+                    <i class="fas fa-wallet text-amber-400 dark:text-amber-600"></i><span id="nav-account-label" class="hidden sm:inline">WALLET</span>
+                </button>
                 <button type="button" id="zverse-btn" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-full hover:from-violet-700 hover:to-purple-700 font-semibold text-xs md:text-sm shadow-lg shadow-violet-500/25 transition-all duration-300 hover:scale-105 hover:shadow-xl">
                     <i class="fas fa-cube"></i><span class="hidden sm:inline">ZVERSE</span>
                 </button>
@@ -43,9 +46,26 @@
                 <button type="button" id="menu-btn" class="flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 font-semibold text-xs md:text-sm transition-all duration-300 hover:scale-105 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700">
                     <i class="fas fa-bars"></i><span class="hidden sm:inline">MENU</span>
                 </button>
-                <button type="button" id="darkmode-toggle" class="w-10 h-10 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200 transition-all duration-300 hover:scale-110 dark:bg-gray-800 dark:text-yellow-400 dark:hover:bg-gray-700">
-                    <i class="fas fa-moon dark:hidden"></i>
-                    <i class="fas fa-sun hidden dark:inline"></i>
+                <button
+                    type="button"
+                    id="darkmode-toggle"
+                    role="switch"
+                    aria-checked="false"
+                    aria-label="Toggle dark mode"
+                    title="Switch to Dark Mode"
+                    class="theme-toggle shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900">
+                    <span class="theme-toggle-thumb" aria-hidden="true"></span>
+                    <span class="theme-toggle-slot theme-toggle-sun" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                            <circle cx="12" cy="12" r="4"></circle>
+                            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+                        </svg>
+                    </span>
+                    <span class="theme-toggle-slot theme-toggle-moon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+                        </svg>
+                    </span>
                 </button>
             </div>
         </div>

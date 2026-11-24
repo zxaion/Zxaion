@@ -46,6 +46,13 @@ class AppState {
         this.adminData            = null;
         this.adminActiveTab       = 'orders';
         this.adminSearch          = '';
+        this.account              = null;
+        this.accountLedger        = [];
+        this.accountOrders        = [];
+        this.accountSessions      = [];
+        this.accountActiveTab     = 'overview';
+        this.accountLedgerFilter  = '';
+        this.requiresLogin        = false;
     }
 
     resetPagination() {

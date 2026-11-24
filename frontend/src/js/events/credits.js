@@ -11,11 +11,20 @@ function initCreditsEvents() {
     const recoverInput       = document.getElementById('recover-code-input');
     const recoverBtn         = document.getElementById('recover-account-btn');
 
-    document.getElementById('buy-credits-btn')?.addEventListener('click', () => {
+    document.getElementById('buy-credits-btn')?.addEventListener('click', async () => {
         ui.renderCreditPacks();
         buyCreditsModal?.classList.remove('hidden');
         buyCreditsModal?.classList.add('flex');
         document.body.style.overflow = 'hidden';
+        await api.ensureAutoAccount?.();
+        ui.updateAccountBanner?.();
+    });
+
+    document.getElementById('buy-credits-open-account-btn')?.addEventListener('click', () => {
+        buyCreditsModal?.classList.add('hidden');
+        buyCreditsModal?.classList.remove('flex');
+        document.body.style.overflow = '';
+        ui.openAccountModal?.(state.requiresLogin ? 'security' : 'overview');
     });
 
     const closeBuyCredits = document.getElementById('close-buy-credits');

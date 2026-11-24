@@ -54,10 +54,16 @@ Object.assign(ui, {
         });
     },
 
-    showPurchaseSuccessModal({ packKey, credits, lifetime, recoveryCode }) {
+    showPurchaseSuccessModal({ packKey, credits, lifetime, recoveryCode, accountId }) {
         if (!elements.purchaseSuccessModal) return;
 
         state.lastRecoveryCode = recoveryCode || state.lastRecoveryCode || '';
+        const resolvedAccountId = accountId || state.account?.accountId || null;
+
+        const acctBox = document.getElementById('purchase-success-account-id');
+        if (acctBox) {
+            acctBox.textContent = resolvedAccountId || 'ZXA-AUTO';
+        }
 
         if (elements.purchaseSuccessStatus) {
             elements.purchaseSuccessStatus.textContent = lifetime
@@ -92,6 +98,7 @@ Object.assign(ui, {
     downloadReceiptFile(recoveryCode, packKey) {
         try {
             const token = typeof getOrCreateUserToken === 'function' ? getOrCreateUserToken() : (localStorage.getItem('zx_user_token') || 'N/A');
+            const accountId = state.account?.accountId || 'N/A';
             const code = recoveryCode || state.lastRecoveryCode || 'N/A';
             const now = new Date();
             const dateStr = now.toUTCString();
@@ -105,6 +112,7 @@ Object.assign(ui, {
                 '=====================================================',
                 '',
                 `Tanggal & Waktu   : ${dateStr}`,
+                `Account ID        : ${accountId}`,
                 `Paket Transaksi   : ${packName}`,
                 `Status Saldo Akun : ${statusStr}`,
                 `Token Akun Rahasia: ${token}`,

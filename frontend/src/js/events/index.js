@@ -9,6 +9,7 @@ function initEvents() {
     initModalEvents();
     initPaginationEvents();
     initCreditsEvents();
+    initAccountEvents();
     initAdminEvents();
     initGlobalEvents();
 }

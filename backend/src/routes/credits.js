@@ -1,17 +1,25 @@
 import { PACK_PRICES, PACKS } from '../config/packs.js';
 import { generateRecoveryCode, sha256Hex, derivePublicPayerRef, maskTokenForLog } from '../utils/userToken.js';
+import { appendCreditLedgerStatement, ensureAutoAccount, resolveSessionAuth } from '../services/accountAuth.js';
 
 const STALE_PROCESSING_MS = 5 * 60 * 1000;
 
 // ================================================================
-// ENDPOINT: Credit balance (read-only; does not create DB rows)
+// ENDPOINT: Credit balance (read-only; respects session-protected accounts)
 // ================================================================
 export async function handleCreditBalance({ request, DB, corsHeaders, getUserToken }) {
-  const userId = getUserToken(request);
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  const userId = auth.authenticated ? auth.userId : 'anonymous';
 
   if (!userId || userId === 'anonymous') {
     return new Response(
-      JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+      JSON.stringify({
+        credits: 0,
+        lifetime: false,
+        purchased: [],
+        accountId: null,
+        requiresLogin: !!auth.requiresLogin,
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -21,9 +29,21 @@ export async function handleCreditBalance({ request, DB, corsHeaders, getUserTok
       'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
     ).bind(userId).first();
 
+    const account = auth.account || await DB.prepare(
+      'SELECT account_id, email, email_verified, password_hash FROM accounts WHERE user_id = ? LIMIT 1'
+    ).bind(userId).first();
+
     if (!user) {
       return new Response(
-        JSON.stringify({ credits: 0, lifetime: false, purchased: [] }),
+        JSON.stringify({
+          credits: 0,
+          lifetime: false,
+          purchased: [],
+          accountId: account?.account_id || null,
+          email: account?.email || null,
+          emailVerified: !!account?.email_verified,
+          hasPassword: !!account?.password_hash,
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -34,7 +54,15 @@ export async function handleCreditBalance({ request, DB, corsHeaders, getUserTok
     const purchased = purchasedRows.results.map(r => r.photo_id);
 
     return new Response(
-      JSON.stringify({ credits: user.credits, lifetime: !!user.lifetime, purchased }),
+      JSON.stringify({
+        credits: user.credits,
+        lifetime: !!user.lifetime,
+        purchased,
+        accountId: account?.account_id || null,
+        email: account?.email || null,
+        emailVerified: !!account?.email_verified,
+        hasPassword: !!account?.password_hash,
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (e) {
@@ -47,15 +75,20 @@ export async function handleCreditBalance({ request, DB, corsHeaders, getUserTok
 }
 
 // ================================================================
-// ENDPOINT: Prepare public payer reference for PayPal custom_id
+// ENDPOINT: Prepare public payer reference & automatic Account ID
 // ================================================================
 export async function handlePreparePayer({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const userId = getUserToken(request);
-  if (!userId || userId === 'anonymous') {
-    return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
+    return new Response(JSON.stringify({
+      success: false,
+      requiresLogin: !!auth.requiresLogin,
+      error: auth.requiresLogin ? 'Please sign in to your account to continue' : 'Authentication required',
+    }), {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+  const userId = auth.userId;
 
   if (typeof checkRateLimit === 'function') {
     const ip = request.headers.get('CF-Connecting-IP') || userId;
@@ -67,6 +100,7 @@ export async function handlePreparePayer({ request, DB, corsHeaders, getUserToke
   }
 
   try {
+    const { account } = await ensureAutoAccount(DB, { userId, request, issueSession: false });
     const payerRef = await derivePublicPayerRef(userId);
     await DB.prepare(
       `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
@@ -74,7 +108,11 @@ export async function handlePreparePayer({ request, DB, corsHeaders, getUserToke
        ON CONFLICT(user_id) DO UPDATE SET public_id = excluded.public_id`
     ).bind(userId, payerRef).run();
 
-    return new Response(JSON.stringify({ success: true, payerRef }), {
+    return new Response(JSON.stringify({
+      success: true,
+      payerRef,
+      accountId: account?.account_id || null,
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     });
   } catch (e) {
@@ -86,15 +124,20 @@ export async function handlePreparePayer({ request, DB, corsHeaders, getUserToke
 }
 
 // ================================================================
-// ENDPOINT: Create PayPal Order server-side (authoritative pack & price)
+// ENDPOINT: Create PayPal Order server-side (auto-provisions Account ID first)
 // ================================================================
 export async function handleCreatePayPalOrder({ request, DB, corsHeaders, getUserToken, checkRateLimit, getPayPalAccessToken, createPayPalOrder }) {
-  const userId = getUserToken(request);
-  if (!userId || userId === 'anonymous') {
-    return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
+    return new Response(JSON.stringify({
+      success: false,
+      requiresLogin: !!auth.requiresLogin,
+      error: auth.requiresLogin ? 'Please sign in to your account before purchasing credits' : 'Authentication required',
+    }), {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+  const userId = auth.userId;
 
   if (typeof checkRateLimit === 'function') {
     const ip = request.headers.get('CF-Connecting-IP') || userId;
@@ -124,6 +167,7 @@ export async function handleCreatePayPalOrder({ request, DB, corsHeaders, getUse
   }
 
   try {
+    const { account } = await ensureAutoAccount(DB, { userId, request, issueSession: false });
     const payerRef = await derivePublicPayerRef(userId);
     await DB.prepare(
       `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
@@ -149,11 +193,12 @@ export async function handleCreatePayPalOrder({ request, DB, corsHeaders, getUse
     `).bind(`order:${orderId}`, userId, orderId, pack, packPrice, new Date().toISOString()).run();
 
     return new Response(JSON.stringify({
-      success:  true,
+      success:   true,
       orderId,
+      accountId: account?.account_id || null,
       pack,
-      amount:   packPrice,
-      currency: 'USD',
+      amount:    packPrice,
+      currency:  'USD',
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     });
@@ -169,12 +214,13 @@ export async function handleCreatePayPalOrder({ request, DB, corsHeaders, getUse
 // ENDPOINT: Generate / rotate Recovery Code for current token
 // ================================================================
 export async function handleCreateRecoveryCode({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const userId = getUserToken(request);
-  if (!userId || userId === 'anonymous') {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+  const userId = auth.userId;
 
   if (typeof checkRateLimit === 'function') {
     const ip = request.headers.get('CF-Connecting-IP') || userId;
@@ -186,6 +232,7 @@ export async function handleCreateRecoveryCode({ request, DB, corsHeaders, getUs
   }
 
   try {
+    const { account } = await ensureAutoAccount(DB, { userId, request, issueSession: false });
     const publicId = await derivePublicPayerRef(userId);
     await DB.prepare(
       `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
@@ -200,7 +247,11 @@ export async function handleCreateRecoveryCode({ request, DB, corsHeaders, getUs
       'UPDATE user_credits SET recovery_hash = ? WHERE user_id = ?'
     ).bind(recoveryHash, userId).run();
 
-    return new Response(JSON.stringify({ success: true, recoveryCode }), {
+    return new Response(JSON.stringify({
+      success: true,
+      recoveryCode,
+      accountId: account?.account_id || null,
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     });
   } catch (e) {
@@ -273,10 +324,15 @@ export async function handleRecoverAccount({ request, DB, corsHeaders, checkRate
 // ENDPOINT: Purchase credits
 // ================================================================
 export async function handleCreditPurchase({ request, DB, corsHeaders, getUserToken, checkRateLimit, getPayPalAccessToken, verifyPayPalOrder }) {
-  const userId = getUserToken(request);
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  const userId = auth.authenticated ? auth.userId : 'anonymous';
 
   if (!userId || userId === 'anonymous') {
-    return new Response(JSON.stringify({ success: false, error: 'Invalid user token' }), {
+    return new Response(JSON.stringify({
+      success: false,
+      requiresLogin: !!auth.requiresLogin,
+      error: auth.requiresLogin ? 'Please sign in to your account first' : 'Invalid user token',
+    }), {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
@@ -500,26 +556,42 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
     }
 
     try {
+      const { account } = await ensureAutoAccount(DB, { userId: verifiedUserId, request, issueSession: false });
+      const totalCredits = packData.lifetime ? 0 : (packData.credits + (packData.bonus || 0));
+
       const creditStmt = packData.lifetime
         ? DB.prepare(
             `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
              VALUES (?, ?, 0, 1)
              ON CONFLICT(user_id) DO UPDATE SET lifetime = 1, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
           ).bind(verifiedUserId, expectedPublicId)
-        : (() => {
-            const totalCredits = packData.credits + (packData.bonus || 0);
-            return DB.prepare(
-              `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
-               VALUES (?, ?, ?, 0)
-               ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
-            ).bind(verifiedUserId, expectedPublicId, totalCredits, totalCredits);
-          })();
+        : DB.prepare(
+            `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
+             VALUES (?, ?, ?, 0)
+             ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
+          ).bind(verifiedUserId, expectedPublicId, totalCredits, totalCredits);
 
+      const completedAt = new Date().toISOString();
       const completeStmt = DB.prepare(
         `UPDATE payment_orders SET status = 'completed', completed_at = ?, capture_id = COALESCE(?, capture_id) WHERE id = ?`
-      ).bind(new Date().toISOString(), captureId, `order:${orderId}`);
+      ).bind(completedAt, captureId, `order:${orderId}`);
 
-      await DB.batch([creditStmt, completeStmt]);
+      const ledgerStmt = appendCreditLedgerStatement(DB, {
+        id: `led:order:${orderId}`,
+        accountId: account?.account_id,
+        userId: verifiedUserId,
+        txType: packData.lifetime ? 'lifetime_unlock' : 'purchase',
+        amount: totalCredits,
+        referenceType: 'paypal_order',
+        referenceId: orderId,
+        description: packData.lifetime
+          ? `Lifetime DTREASURE Pass (${pack})`
+          : `Purchased ${totalCredits} credits (${pack})`,
+        metadata: { pack, captureId, amountUsd: PACK_PRICES[pack] },
+        createdAt: completedAt,
+      });
+
+      await DB.batch([creditStmt, completeStmt, ledgerStmt]);
 
       const user = await DB.prepare(
         'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
@@ -532,6 +604,7 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
         success:    true,
         newBalance: user?.credits || 0,
         lifetime:   !!user?.lifetime,
+        accountId:  account?.account_id || null,
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
     } catch (dbError) {
@@ -556,10 +629,15 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 // ENDPOINT: Spend credits
 // ================================================================
 export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const userId = getUserToken(request);
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  const userId = auth.authenticated ? auth.userId : 'anonymous';
 
   if (!userId || userId === 'anonymous') {
-    return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), {
+    return new Response(JSON.stringify({
+      success: false,
+      requiresLogin: !!auth.requiresLogin,
+      error: auth.requiresLogin ? 'Please sign in to your account to unlock items' : 'Authentication required',
+    }), {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
@@ -626,10 +704,24 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
       });
     }
 
+    const { account } = await ensureAutoAccount(DB, { userId, request, issueSession: false });
+
     if (userRecord.lifetime) {
-      await DB.prepare(
+      const insertLifetime = await DB.prepare(
         'INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)'
       ).bind(userId, photoId).run();
+      if (insertLifetime?.meta?.changes > 0) {
+        await appendCreditLedgerStatement(DB, {
+          id: `led:spend:${userId}:${photoId}`,
+          accountId: account?.account_id,
+          userId,
+          txType: 'lifetime_access',
+          amount: 0,
+          referenceType: 'dtreasure_photo',
+          referenceId: photoId,
+          description: `Unlocked DTREASURE item via Lifetime Pass (${photoId})`,
+        }).run();
+      }
       return new Response(JSON.stringify({
         success:    true,
         newBalance: userRecord.credits || 0,
@@ -676,6 +768,17 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
         error:   'Insufficient credits (concurrent request detected)',
       }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
+
+    await appendCreditLedgerStatement(DB, {
+      id: `led:spend:${userId}:${photoId}`,
+      accountId: account?.account_id,
+      userId,
+      txType: 'spend',
+      amount: -10,
+      referenceType: 'dtreasure_photo',
+      referenceId: photoId,
+      description: `Unlocked DTREASURE item (${photoId})`,
+    }).run();
 
     const newUser = await DB.prepare(
       'SELECT credits FROM user_credits WHERE user_id = ?'

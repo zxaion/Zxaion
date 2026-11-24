@@ -358,8 +358,143 @@ Object.assign(ui, {
         // 5. Render Packs Breakdown Grid
         this.renderAdminPacksGrid(rev.packBreakdown || {});
 
+        // 6. Render Virtual Accounts, Ledger & Backup Snapshots
+        this.renderAdminBackupTab(data);
+
         // Keep current active tab state
         this.switchAdminTab(state.adminActiveTab || 'orders');
+    },
+
+    renderAdminBackupTab(data) {
+        const accounts = data?.accounts || [];
+        const ledger = data?.ledger || [];
+        const snapshots = data?.snapshots || [];
+
+        const accBadge = document.getElementById('admin-accounts-summary-badge');
+        if (accBadge) accBadge.textContent = `${accounts.length} Akun`;
+
+        const ledBadge = document.getElementById('admin-ledger-summary-badge');
+        if (ledBadge) ledBadge.textContent = `${ledger.length} Entri`;
+
+        const accBody = document.getElementById('admin-accounts-table-body');
+        if (accBody) {
+            accBody.innerHTML = accounts.length === 0
+                ? '<tr><td colspan="3" class="p-6 text-center text-gray-400 font-sans">Belum ada virtual account.</td></tr>'
+                : accounts.slice(0, 100).map((a) => `
+                    <tr class="hover:bg-gray-50/50 dark:hover:bg-gray-800/40">
+                        <td class="p-3 font-bold text-amber-600 dark:text-amber-400">${utils.escapeHtml(a.account_id)}</td>
+                        <td class="p-3 text-gray-600 dark:text-gray-300 font-sans">${utils.escapeHtml(a.email || 'Auto Guest')}</td>
+                        <td class="p-3 font-sans">
+                            ${a.email_verified
+                                ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Verified</span>'
+                                : (a.has_password
+                                    ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">Unverified</span>'
+                                    : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300">Guest</span>')}
+                        </td>
+                    </tr>
+                `).join('');
+        }
+
+        const ledBody = document.getElementById('admin-ledger-table-body');
+        if (ledBody) {
+            ledBody.innerHTML = ledger.length === 0
+                ? '<tr><td colspan="4" class="p-6 text-center text-gray-400 font-sans">Belum ada entri ledger.</td></tr>'
+                : ledger.slice(0, 100).map((l) => {
+                    const amt = Number(l.amount || 0);
+                    const cls = amt > 0 ? 'text-emerald-600 dark:text-emerald-400' : (amt < 0 ? 'text-red-500' : 'text-amber-500');
+                    return `
+                        <tr class="hover:bg-gray-50/50 dark:hover:bg-gray-800/40">
+                            <td class="p-3 text-gray-700 dark:text-gray-200">${utils.escapeHtml(l.account_id || '-')}</td>
+                            <td class="p-3 font-sans">${utils.escapeHtml(l.tx_type || '-')}</td>
+                            <td class="p-3 font-bold ${cls}">${amt > 0 ? '+' : ''}${amt}</td>
+                            <td class="p-3 font-bold">${utils.formatNumber(l.balance_after || 0)}</td>
+                        </tr>
+                    `;
+                }).join('');
+        }
+
+        const snapList = document.getElementById('admin-snapshots-list');
+        if (snapList) {
+            snapList.innerHTML = snapshots.length === 0
+                ? '<div class="text-xs text-gray-400 py-4 text-center">Belum ada snapshot tersimpan. Klik "Buat Snapshot D1" untuk membuat cadangan sekarang.</div>'
+                : snapshots.map((s) => `
+                    <div class="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <div class="min-w-0">
+                            <div class="font-mono font-bold text-gray-900 dark:text-white truncate">${utils.escapeHtml(s.snapshot_id)} <span class="text-gray-400 font-sans font-normal">(${utils.escapeHtml(s.created_by)})</span></div>
+                            <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                Akun: ${s.accounts_cnt || 0} &bull; Wallet: ${s.wallets_cnt || 0} &bull; Ledger: ${s.ledger_cnt || 0} &bull; Orders: ${s.orders_cnt || 0}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button type="button" data-admin-download-snap="${utils.escapeHtml(s.snapshot_id)}" class="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold transition-colors">
+                                Unduh
+                            </button>
+                            <button type="button" data-admin-restore-snap="${utils.escapeHtml(s.snapshot_id)}" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-gray-950 font-bold transition-colors">
+                                Restore
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+        }
+    },
+
+    async createAdminBackupSnapshot() {
+        if (!state.adminToken) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/backup/snapshot`, {
+                method: 'POST',
+                headers: { 'X-Admin-Token': state.adminToken },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+            this.showToast(`Snapshot ${data.snapshot?.snapshot_id} berhasil dibuat!`, 'success');
+            await this.fetchAdminDashboard();
+        } catch (err) {
+            this.showToast('Gagal membuat snapshot: ' + err.message, 'error');
+        }
+    },
+
+    async downloadAdminBackupSnapshot(snapshotId = '') {
+        if (!state.adminToken) return;
+        try {
+            const qs = snapshotId ? `?id=${encodeURIComponent(snapshotId)}` : '';
+            const res = await fetch(`${API_BASE}/api/admin/backup/download${qs}`, {
+                headers: { 'X-Admin-Token': state.adminToken },
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `zxaion-d1-backup-${snapshotId || 'latest'}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            this.showToast('File backup D1 (.json) diunduh!', 'success');
+        } catch (err) {
+            this.showToast('Gagal mengunduh snapshot: ' + err.message, 'error');
+        }
+    },
+
+    async restoreAdminBackupPayload(payload) {
+        if (!state.adminToken) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/backup/restore`, {
+                method: 'POST',
+                headers: {
+                    'X-Admin-Token': state.adminToken,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+            this.showToast(`Database dipulihkan (${data.counts?.accounts || 0} akun, ${data.counts?.credit_ledger || 0} entri ledger)!`, 'success', 5000);
+            await this.fetchAdminDashboard();
+        } catch (err) {
+            this.showToast('Restore gagal: ' + err.message, 'error');
+        }
     },
 
     renderAdminOrdersTable(orders) {
