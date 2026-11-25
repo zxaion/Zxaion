@@ -184,12 +184,24 @@ export async function handleScheduled(env) {
     }
   }
 
-  // Cleanup expired rate_limits rows to keep D1 table compact
+  // Data retention cleanup: keep ephemeral D1 tables compact without altering image view/download totals
   try {
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowMs = Date.now();
+    const nowSec = Math.floor(nowMs / 1000);
+    const cutoff7dIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const cutoff30dIso = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
+
     await DB.prepare('DELETE FROM rate_limits WHERE reset_time < ?').bind(nowSec).run();
+    await DB.prepare(
+      'DELETE FROM email_verifications WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)'
+    ).bind(cutoff7dIso, cutoff7dIso).run();
+    await DB.prepare(
+      'DELETE FROM user_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)'
+    ).bind(cutoff7dIso, cutoff7dIso).run();
+    await DB.prepare('DELETE FROM views WHERE created_at < ?').bind(cutoff30dIso).run();
+    await DB.prepare('DELETE FROM downloads WHERE created_at < ?').bind(cutoff30dIso).run();
   } catch (e) {
-    console.error('[Scheduled] Rate limit cleanup error:', e.message);
+    console.error('[Scheduled] Retention cleanup error:', e.message);
   }
 
   // Periodic automatic D1 wallet/account/ledger snapshot (throttled to every 6 hours)

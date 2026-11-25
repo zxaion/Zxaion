@@ -1,7 +1,14 @@
 /**
- * services/seo.js — Dynamic OpenGraph, Twitter Cards, and Schema.org metadata injection.
- * Supports SSR crawler previews when shared via ?photo=<id> or direct deep-links.
+ * services/seo.js — Dynamic OpenGraph, Twitter Cards, Schema.org metadata injection,
+ * plus dynamic /robots.txt and /sitemap.xml endpoints.
  */
+import { ensureAutoSync } from './r2Sync.js';
+
+export function resolvePublicOrigin(origin, env = null) {
+  const configured = env?.APP_URL ? String(env.APP_URL).trim() : '';
+  const raw = configured || origin || 'https://zxaionverse.workers.dev';
+  return String(raw).replace(/\/+$/, '');
+}
 
 export function buildPhotoCanonicalUrl(photoId, origin = 'https://zxaionverse.workers.dev') {
   const base = String(origin || '').replace(/\/+$/, '');
@@ -44,13 +51,38 @@ export function generateSchemaJsonLd(photo, imageUrl, canonicalUrl) {
   return JSON.stringify(schema, null, 2);
 }
 
+export function injectBaseSeoOrigin(html, origin = '') {
+  if (!html || typeof html !== 'string' || !origin) return html;
+  const base = String(origin).replace(/\/+$/, '');
+  const logoAbs = `${base}/api/img/HEADER/Logo.png`;
+  let updated = html;
+
+  updated = updated.replace(
+    /<meta\s+property=["']og:image["']\s+content=["']\/api\/img\/HEADER\/Logo\.png["'][^>]*>/i,
+    `<meta property="og:image" content="${escapeHtmlAttr(logoAbs)}">`
+  );
+  updated = updated.replace(
+    /<meta\s+name=["']twitter:image["']\s+content=["']\/api\/img\/HEADER\/Logo\.png["'][^>]*>/i,
+    `<meta name="twitter:image" content="${escapeHtmlAttr(logoAbs)}">`
+  );
+  updated = updated.replace(
+    /<meta\s+property=["']og:url["']\s+content=["'][^"']*["'][^>]*>/i,
+    `<meta property="og:url" content="${escapeHtmlAttr(`${base}/`)}">`
+  );
+  updated = updated.replace(
+    /<link\s+rel=["']canonical["']\s+href=["'][^"']*["'][^>]*>/i,
+    `<link rel="canonical" href="${escapeHtmlAttr(`${base}/`)}">`
+  );
+  return updated;
+}
+
 export function injectOpenGraphMetadata(html, photo, origin = '') {
   if (!html || typeof html !== 'string' || !photo) return html;
 
   const title = photo.title ? `${photo.title} — ZXAION GALLERY` : 'ZXAION GALLERY';
   const pageTitle = photo.title ? `${photo.title} — 4K Wallpaper | ZXAION GALLERY` : 'ZXAION GALLERY';
   const category = photo.category || photo.sub_category || 'Wallpaper';
-  const description = `Unduh wallpaper 4K "${photo.title || 'Artwork'}" (${category}) di ZXAION GALLERY. Koleksi visual resolusi tinggi untuk desktop dan smartphone.`;
+  const description = `Download 4K "${photo.title || 'Artwork'}" (${category}) wallpaper on ZXAION GALLERY. High-resolution visual collection for desktop and mobile.`;
   const canonicalUrl = buildPhotoCanonicalUrl(photo.id, origin);
   const imageUrl = buildPhotoImageUrl(photo, origin);
   const jsonLd = generateSchemaJsonLd(photo, imageUrl, canonicalUrl);
@@ -83,10 +115,12 @@ export function injectOpenGraphMetadata(html, photo, origin = '') {
     `<script type="application/ld+json" id="zx-schema-photo">\n${jsonLd}\n</script>`,
   ].join('\n    ');
 
-  // Replace existing og:title and og:description if present
+  // Replace existing og/twitter/canonical/photo-schema tags if present
+  updated = updated.replace(/<meta\s+property=["']og:type["'][^>]*>/gi, '');
+  updated = updated.replace(/<meta\s+property=["']og:url["'][^>]*>/gi, '');
   updated = updated.replace(/<meta\s+property=["']og:title["'][^>]*>/gi, '');
   updated = updated.replace(/<meta\s+property=["']og:description["'][^>]*>/gi, '');
-  updated = updated.replace(/<meta\s+property=["']og:image["'][^>]*>/gi, '');
+  updated = updated.replace(/<meta\s+property=["']og:image(?::[\w-]+)?["'][^>]*>/gi, '');
   updated = updated.replace(/<meta\s+name=["']twitter:[\w:-]+["'][^>]*>/gi, '');
   updated = updated.replace(/<link\s+rel=["']canonical["'][^>]*>/gi, '');
   updated = updated.replace(/<script\s+type=["']application\/ld\+json["']\s+id=["']zx-schema-photo["']>[\s\S]*?<\/script>/gi, '');
@@ -96,6 +130,106 @@ export function injectOpenGraphMetadata(html, photo, origin = '') {
   }
 
   return updated;
+}
+
+export async function handleRobotsTxt({ origin, url, env, corsHeaders = {} } = {}) {
+  const base = resolvePublicOrigin(origin || url?.origin, env);
+  const body = [
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /admin',
+    'Disallow: /api/',
+    '',
+    `Sitemap: ${base}/sitemap.xml`,
+    '',
+  ].join('\n');
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+}
+
+export async function handleSitemapXml({ DB, env, ctx, origin, url, corsHeaders = {} } = {}) {
+  try {
+    if (env && DB) {
+      await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
+    }
+    const base = resolvePublicOrigin(origin || url?.origin, env);
+    let rows = [];
+    if (DB) {
+      const res = await DB.prepare(
+        `SELECT id, r2_key, bucket, title, category, uploaded
+         FROM images
+         WHERE bucket IN ('main', 'comitbase', 'dtreasure')
+           AND category != 'Header'
+         ORDER BY uploaded DESC, id DESC
+         LIMIT 5000`
+      ).all();
+      rows = Array.isArray(res?.results) ? res.results : [];
+    }
+
+    const nowIso = new Date().toISOString().split('T')[0];
+    const urlEntries = [
+      `  <url>\n    <loc>${escapeXml(`${base}/`)}</loc>\n    <lastmod>${nowIso}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>`,
+    ];
+
+    for (const row of rows) {
+      if (!row?.id) continue;
+      const loc = buildPhotoCanonicalUrl(row.id, base);
+      const lastmod = row.uploaded && !Number.isNaN(Date.parse(row.uploaded))
+        ? new Date(row.uploaded).toISOString().split('T')[0]
+        : nowIso;
+      const includeImageTag = row.bucket !== 'dtreasure';
+      const imageBlock = includeImageTag
+        ? `\n    <image:image>\n      <image:loc>${escapeXml(buildPhotoImageUrl(row, base))}</image:loc>\n      <image:title>${escapeXml(row.title || 'ZXAION Wallpaper')}</image:title>\n    </image:image>`
+        : '';
+
+      urlEntries.push(
+        `  <url>\n    <loc>${escapeXml(loc)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>${imageBlock}\n  </url>`
+      );
+    }
+
+    const xml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">',
+      ...urlEntries,
+      '</urlset>',
+      '',
+    ].join('\n');
+
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': 'public, max-age=1800',
+      },
+    });
+  } catch (e) {
+    console.error('/sitemap.xml error:', e.message);
+    return new Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>', {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/xml; charset=utf-8',
+      },
+    });
+  }
+}
+
+function escapeXml(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function escapeHtmlAttr(str) {

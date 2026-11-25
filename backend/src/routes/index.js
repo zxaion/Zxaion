@@ -29,8 +29,13 @@ import {
   handleAccountExport,
 } from './account.js';
 import { handleServeImage }      from './media.js';
+import { handleRobotsTxt, handleSitemapXml } from '../services/seo.js';
 
 export const routes = [
+  // --- Technical SEO ---
+  { method: 'GET',  path: '/robots.txt',                 handler: handleRobotsTxt },
+  { method: 'GET',  path: '/sitemap.xml',                handler: handleSitemapXml },
+
   // --- System & Admin ---
   { method: 'GET',  path: '/api/health',                 handler: handleHealth },
   { method: 'GET',  path: '/api/admin/dashboard',        handler: handleAdminDashboard },

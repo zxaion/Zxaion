@@ -90,7 +90,7 @@ Object.assign(ui, {
 
         const badge = document.getElementById('resolution-current-badge') || elements.resolutionBadge;
         if (badge) {
-            badge.textContent = preset.key === 'original' ? 'Asli / 4K' : preset.tag;
+            badge.textContent = preset.key === 'original' ? 'Original / 4K' : preset.tag;
         }
 
         const desc = document.getElementById('resolution-desc-text') || elements.resolutionDescText;
@@ -203,7 +203,7 @@ Object.assign(ui, {
         const loadingToast = document.createElement('div');
         loadingToast.id    = 'dl-toast';
         loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
-        loadingToast.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Menyiapkan resolusi ${preset.tag}...`;
+        loadingToast.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Preparing ${preset.tag} resolution...`;
         document.body.appendChild(loadingToast);
 
         const markDownloaded = () => {
@@ -243,7 +243,7 @@ Object.assign(ui, {
 
             await new Promise((resolve, reject) => {
                 img.onload = () => resolve();
-                img.onerror = () => reject(new Error('Gagal memproses gambar untuk resolusi yang dipilih'));
+                img.onerror = () => reject(new Error('Failed to process image for the selected resolution'));
                 img.src = blobUrl;
             });
 
@@ -278,7 +278,7 @@ Object.assign(ui, {
                 canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
             });
 
-            if (!resizedBlob) throw new Error('Gagal mengekspor resolusi');
+            if (!resizedBlob) throw new Error('Failed to export selected resolution');
 
             const dlUrl = URL.createObjectURL(resizedBlob);
             const a = document.createElement('a');
@@ -290,11 +290,11 @@ Object.assign(ui, {
             setTimeout(() => URL.revokeObjectURL(dlUrl), 5000);
 
             markDownloaded();
-            loadingToast.innerHTML = `<i class="fas fa-check-circle text-green-400"></i> Unduhan resolusi ${preset.tag} siap!`;
+            loadingToast.innerHTML = `<i class="fas fa-check-circle text-green-400"></i> ${preset.tag} download ready!`;
             loadingToast.classList.add('bg-green-800');
         } catch (err) {
             console.error('Resolution download error:', err);
-            loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${utils.escapeHtml(err.message || 'Gagal memproses resolusi')}`;
+            loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${utils.escapeHtml(err.message || 'Failed to process resolution')}`;
             loadingToast.classList.add('bg-red-800');
         } finally {
             setTimeout(() => { document.getElementById('dl-toast')?.remove(); }, 3500);

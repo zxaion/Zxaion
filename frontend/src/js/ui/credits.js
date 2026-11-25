@@ -67,12 +67,12 @@ Object.assign(ui, {
 
         if (elements.purchaseSuccessStatus) {
             elements.purchaseSuccessStatus.textContent = lifetime
-                ? 'Akun Anda sekarang memiliki Akses Unlimited Lifetime DTREASURE!'
-                : `Pembayaran berhasil! Saldo kredit Anda sekarang: ${utils.formatNumber(credits)} credits.`;
+                ? 'Your account now has Unlimited Lifetime DTREASURE Access!'
+                : `Payment successful! Your credit balance is now: ${utils.formatNumber(credits)} credits.`;
         }
 
         if (elements.purchaseSuccessCode) {
-            elements.purchaseSuccessCode.textContent = recoveryCode || 'Gagal membuat kode';
+            elements.purchaseSuccessCode.textContent = recoveryCode || 'Failed to generate code';
         }
 
         // Also sync to buy credits modal's recovery display if present
@@ -108,27 +108,27 @@ Object.assign(ui, {
 
             const text = [
                 '=====================================================',
-                '         ZXAION GALLERY — BUKTI & KUNCI PEMULIHAN    ',
+                '        ZXAION GALLERY — RECEIPT & RECOVERY KEY      ',
                 '=====================================================',
                 '',
-                `Tanggal & Waktu   : ${dateStr}`,
+                `Date & Time       : ${dateStr}`,
                 `Account ID        : ${accountId}`,
-                `Paket Transaksi   : ${packName}`,
-                `Status Saldo Akun : ${statusStr}`,
-                `Token Akun Rahasia: ${token}`,
+                `Purchased Pack    : ${packName}`,
+                `Wallet Status     : ${statusStr}`,
+                `Secret Device Tok.: ${token}`,
                 `RECOVERY KEY      : ${code}`,
                 '',
                 '-----------------------------------------------------',
-                'PETUNJUK MEMULIHKAN AKUN JIKA GANTI PERANGKAT/BROWSER:',
+                'HOW TO RESTORE ON A NEW DEVICE OR BROWSER:',
                 '-----------------------------------------------------',
-                '1. Buka situs ZXAION GALLERY.',
-                '2. Klik tombol "Buy Credits" di bilah atas.',
-                '3. Gulir ke bagian "Account Backup & Restore".',
-                '4. Masukkan RECOVERY KEY Anda di atas pada kolom yang tersedia.',
-                '5. Klik tombol "Restore". Seluruh saldo kredit & hak unduh DTREASURE Anda akan pulih seketika!',
+                '1. Open ZXAION GALLERY.',
+                '2. Click "Buy Credits" in the top navigation bar.',
+                '3. Scroll to the "Account Backup & Restore" section.',
+                '4. Enter your RECOVERY KEY above into the restore field.',
+                '5. Click "Restore". Your credit balance & DTREASURE unlocks will restore immediately!',
                 '',
-                'PERINGATAN:',
-                'Simpan file ini dengan aman di penyimpanan pribadi Anda (Google Drive, catatan aman, dll).',
+                'WARNING:',
+                'Keep this file in a secure personal location (Google Drive, password manager, etc.).',
                 '=====================================================',
             ].join('\r\n');
 
@@ -142,10 +142,10 @@ Object.assign(ui, {
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(url), 1500);
-            ui.showToast('File struk backup (.txt) berhasil diunduh!', 'success', 4000);
+            ui.showToast('Backup receipt (.txt) downloaded!', 'success', 4000);
         } catch (e) {
             console.error('Download receipt error:', e);
-            ui.showToast('Gagal mengunduh struk backup.', 'error');
+            ui.showToast('Failed to download backup receipt.', 'error');
         }
     },
 });

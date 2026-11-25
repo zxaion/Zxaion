@@ -122,7 +122,7 @@ function initAdminEvents() {
         const fileInput = document.getElementById('admin-backup-restore-file');
         const file = fileInput?.files?.[0];
         if (!file) {
-            ui.showToast('Pilih file JSON snapshot terlebih dahulu.', 'warning');
+            ui.showToast('Please select a JSON snapshot file first.', 'warning');
             return;
         }
         try {
@@ -131,7 +131,7 @@ function initAdminEvents() {
             await ui.restoreAdminBackupPayload?.({ snapshot: parsed });
             fileInput.value = '';
         } catch {
-            ui.showToast('Format file JSON snapshot tidak valid.', 'error');
+            ui.showToast('Invalid JSON snapshot file format.', 'error');
         }
     });
 }

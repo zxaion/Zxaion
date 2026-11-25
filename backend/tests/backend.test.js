@@ -23,7 +23,7 @@ import {
 } from '../src/services/r2Sync.js';
 import { parseTransformOptions } from '../src/services/imageTransform.js';
 import { checkRateLimit as rawCheckRateLimit } from '../src/services/rateLimit.js';
-import { handleListMain, handleAnimeAlbums } from '../src/routes/gallery.js';
+import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure } from '../src/routes/gallery.js';
 import { handleRecordView, handleRecordDownload, handleStats } from '../src/routes/stats.js';
 import { createPayPalOrder } from '../src/services/paypal.js';
 import {
@@ -61,7 +61,7 @@ import {
   handleAdminBackupDownload,
   handleAdminBackupRestore,
 } from '../src/routes/admin.js';
-import { injectOpenGraphMetadata, buildPhotoCanonicalUrl, buildPhotoImageUrl } from '../src/services/seo.js';
+import { injectOpenGraphMetadata, buildPhotoCanonicalUrl, buildPhotoImageUrl, handleRobotsTxt, handleSitemapXml } from '../src/services/seo.js';
 import { sha256Hex } from '../src/utils/userToken.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
@@ -2432,6 +2432,219 @@ test('Database Backup Snapshot creation, SHA-256 tamper rejection, full D1 resto
   assert.equal(restoredCredit.credits, 888);
   assert.equal(restoredAcct.account_id, autoData.account.accountId);
 });
+
+test('Technical SEO: /robots.txt, /sitemap.xml, canonical/WebSite JSON-LD, and English OpenGraph copy', async () => {
+  const env = await createLocalEnv();
+
+  // 1. /robots.txt via router
+  const robotsRes = await handleRequest(
+    makeReq('https://gallery.zxaion.com/robots.txt'),
+    env,
+    { waitUntil: () => {} }
+  );
+  assert.equal(robotsRes.status, 200);
+  const robotsText = await robotsRes.text();
+  assert.match(robotsText, /Disallow: \/admin/);
+  assert.match(robotsText, /Disallow: \/api\//);
+  assert.match(robotsText, /Sitemap: https:\/\/gallery\.zxaion\.com\/sitemap\.xml/);
+
+  // 2. /sitemap.xml excludes HEADER, includes ?photo= URLs & <image:image> for public, omits <image:image> for DTREASURE
+  const sitemapRes = await handleSitemapXml({
+    DB: env.DB,
+    env,
+    ctx: { waitUntil: () => {} },
+    origin: 'https://gallery.zxaion.com',
+    corsHeaders,
+  });
+  assert.equal(sitemapRes.status, 200);
+  const sitemapXml = await sitemapRes.text();
+  assert.ok(sitemapXml.includes('<loc>https://gallery.zxaion.com/</loc>'));
+  assert.ok(sitemapXml.includes('?photo='));
+  assert.ok(sitemapXml.includes('<image:loc>https://gallery.zxaion.com/api/img/'));
+  assert.equal(sitemapXml.includes('HEADER%2F'), false);
+  assert.equal(sitemapXml.includes('/api/dtreasure/img/'), false);
+
+  // 3. Frontend index.html includes canonical, og:site_name, og:url, and WebSite JSON-LD
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const indexHtml = fs.readFileSync(path.resolve('frontend/src/index.html'), 'utf8');
+  assert.ok(indexHtml.includes('<link rel="canonical" href="/">'));
+  assert.ok(indexHtml.includes('property="og:site_name"'));
+  assert.ok(indexHtml.includes('id="zx-schema-site"'));
+  assert.ok(indexHtml.includes('"@type": "WebSite"'));
+
+  // 4. OpenGraph injection uses English description
+  const injected = injectOpenGraphMetadata(indexHtml, {
+    id: 'main:ANIME/Jujutsu%20Kaisen/domain_4k.jpg',
+    r2_key: 'ANIME/Jujutsu Kaisen/domain_4k.jpg',
+    bucket: 'main',
+    title: 'Domain 4k',
+    category: 'Anime',
+  }, 'https://gallery.zxaion.com');
+  assert.ok(injected.includes('Download 4K &quot;Domain 4k&quot; (Anime) wallpaper on ZXAION GALLERY'));
+});
+
+test('Data retention scheduled cleanup removes expired logs/tokens while keeping recent records and image totals intact', async () => {
+  const env = await createLocalEnv();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const oldDate = new Date(Date.now() - 40 * 86400 * 1000).toISOString();
+  const recentDate = new Date(Date.now() - 2 * 86400 * 1000).toISOString();
+  const oldEightDaysIso = new Date(Date.now() - 8 * 86400 * 1000).toISOString();
+  const futureIso = new Date(Date.now() + 7 * 86400 * 1000).toISOString();
+
+  // Seed expired and active rate_limits using production INSERT syntax
+  await env.DB.prepare(
+    'INSERT INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?) ON CONFLICT(id) DO UPDATE SET count = CASE WHEN reset_time < ? THEN 1 ELSE count + 1 END, reset_time = CASE WHEN reset_time < ? THEN ? ELSE reset_time END'
+  ).bind('old-rl', nowSec - 7200, nowSec, nowSec, nowSec - 7200).run();
+  await env.DB.prepare(
+    'INSERT INTO rate_limits (id, count, reset_time) VALUES (?, 1, ?) ON CONFLICT(id) DO UPDATE SET count = CASE WHEN reset_time < ? THEN 1 ELSE count + 1 END, reset_time = CASE WHEN reset_time < ? THEN ? ELSE reset_time END'
+  ).bind('fresh-rl', nowSec + 3600, nowSec, nowSec, nowSec + 3600).run();
+
+  await env.DB.prepare(
+    'INSERT INTO email_verifications (id, account_id, email, purpose, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind('ev-old', 'ZXA-RET1-0001', 'old@test.local', 'verify_email', 'h1', oldEightDaysIso, oldEightDaysIso).run();
+  await env.DB.prepare(
+    'INSERT INTO email_verifications (id, account_id, email, purpose, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind('ev-fresh', 'ZXA-RET1-0001', 'fresh@test.local', 'verify_email', 'h2', futureIso, recentDate).run();
+
+  await env.DB.prepare(
+    'INSERT INTO user_sessions (session_id, account_id, token_hash, user_agent, ip_hash, expires_at, last_seen_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind('sess-old', 'ZXA-RET1-0001', 'th-old', 'UA', 'ip1', oldEightDaysIso, oldEightDaysIso, oldEightDaysIso).run();
+  await env.DB.prepare(
+    'INSERT INTO user_sessions (session_id, account_id, token_hash, user_agent, ip_hash, expires_at, last_seen_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind('sess-active', 'ZXA-RET1-0001', 'th-active', 'UA', 'ip1', futureIso, recentDate, recentDate).run();
+
+  await env.DB.prepare('INSERT OR IGNORE INTO views (photo_id, viewer_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'viewer-old', oldDate).run();
+  await env.DB.prepare('INSERT OR IGNORE INTO views (photo_id, viewer_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'viewer-fresh', recentDate).run();
+
+  await env.DB.prepare('INSERT OR IGNORE INTO downloads (photo_id, downloader_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'dl-old', oldDate).run();
+  await env.DB.prepare('INSERT OR IGNORE INTO downloads (photo_id, downloader_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'dl-fresh', recentDate).run();
+
+  const imgBefore = await env.DB.prepare('SELECT view_count, download_count FROM images WHERE id = ?')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg').first();
+
+  await handleScheduled(env, {});
+
+  const rlOld = await env.DB.prepare('SELECT count FROM rate_limits WHERE id = ?').bind('old-rl').first();
+  const rlFresh = await env.DB.prepare('SELECT count FROM rate_limits WHERE id = ?').bind('fresh-rl').first();
+  assert.equal(rlOld, null);
+  assert.equal(rlFresh.count, 1);
+
+  const evOld = await env.DB.prepare('SELECT id, expires_at FROM email_verifications WHERE email = ? AND purpose = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1').bind('old@test.local', 'verify_email').first();
+  const evFresh = await env.DB.prepare('SELECT id, expires_at FROM email_verifications WHERE email = ? AND purpose = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1').bind('fresh@test.local', 'verify_email').first();
+  assert.equal(evOld, null);
+  assert.equal(evFresh.id, 'ev-fresh');
+
+  const sessOld = await env.DB.prepare('SELECT session_id FROM user_sessions WHERE token_hash = ? LIMIT 1').bind('th-old').first();
+  const sessActive = await env.DB.prepare('SELECT session_id FROM user_sessions WHERE token_hash = ? LIMIT 1').bind('th-active').first();
+  assert.equal(sessOld, null);
+  assert.equal(sessActive.session_id, 'sess-active');
+
+  // Re-inserting old viewer/downloader succeeds only if retention purged the >30d row; fresh row remains deduplicated
+  const reinsertOldView = await env.DB.prepare('INSERT OR IGNORE INTO views (photo_id, viewer_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'viewer-old', recentDate).run();
+  const reinsertFreshView = await env.DB.prepare('INSERT OR IGNORE INTO views (photo_id, viewer_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'viewer-fresh', recentDate).run();
+  assert.equal(reinsertOldView.meta.changes, 1);
+  assert.equal(reinsertFreshView.meta.changes, 0);
+
+  const reinsertOldDl = await env.DB.prepare('INSERT OR IGNORE INTO downloads (photo_id, downloader_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'dl-old', recentDate).run();
+  const reinsertFreshDl = await env.DB.prepare('INSERT OR IGNORE INTO downloads (photo_id, downloader_id, created_at) VALUES (?, ?, ?)')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg', 'dl-fresh', recentDate).run();
+  assert.equal(reinsertOldDl.meta.changes, 1);
+  assert.equal(reinsertFreshDl.meta.changes, 0);
+
+  const imgStats = await env.DB.prepare('SELECT view_count, download_count FROM images WHERE id = ?')
+    .bind('main:FANTASY/astral_citadel_dragons.jpg').first();
+  assert.equal(imgStats.view_count, imgBefore.view_count);
+  assert.equal(imgStats.download_count, imgBefore.download_count);
+});
+
+test('Dynamic Anime albums API includes sample_url & new R2 series; paginated list endpoints include X-Total-Count & search', async () => {
+  const env = await createLocalEnv();
+  await env.Zxaion_B.put('ANIME/Frieren/beyond_journeys_end_4k.jpg', new Uint8Array([1, 2, 3]), { contentType: 'image/jpeg' });
+  await handleScheduled(env, {});
+
+  const albumsRes = await handleAnimeAlbums({
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(albumsRes.status, 200);
+  const albums = await albumsRes.json();
+  const frieren = albums.find(a => a.sub_category === 'frieren');
+  assert.ok(frieren, 'Newly synced R2 folder ANIME/Frieren must appear dynamically in /api/anime/albums');
+  assert.equal(frieren.count, 1);
+  assert.match(frieren.sample_url, /^\/api\/img\/ANIME%2FFrieren%2F/);
+
+  // Paginated search across /api/list, /api/comitbase/list, /api/dtreasure/list with X-Total-Count
+  const listSearchRes = await handleListMain({
+    url: new URL('http://localhost/api/list?q=Frieren&page=1&limit=10'),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(listSearchRes.status, 200);
+  assert.ok(Number(listSearchRes.headers.get('X-Total-Count')) >= 1);
+  const listItems = await listSearchRes.json();
+  assert.ok(listItems.some(item => item.subCategory === 'frieren'));
+
+  const comitRes = await handleListComitbase({
+    url: new URL('http://localhost/api/comitbase/list?page=1&limit=1'),
+    env,
+    ctx: { waitUntil: () => {} },
+    comitbaseBucket: env.ZX_BUCKET,
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(comitRes.status, 200);
+  assert.ok(Number(comitRes.headers.get('X-Total-Count')) >= 1);
+
+  const dtRes = await handleListDtreasure({
+    url: new URL('http://localhost/api/dtreasure/list?page=1&limit=1'),
+    env,
+    ctx: { waitUntil: () => {} },
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(dtRes.status, 200);
+  assert.ok(Number(dtRes.headers.get('X-Total-Count')) >= 1);
+});
+
+test('Public cleanliness, accessibility, legal compliance disclosures, and English UI consistency', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  const footerHtml = fs.readFileSync(path.resolve('frontend/src/partials/layout/footer.html'), 'utf8');
+  assert.equal(footerHtml.includes('footer-admin-link'), false, 'Public footer must not expose Admin Portal link');
+  const socialLinkMatches = footerHtml.match(/<a\s+[^>]*target="_blank"[^>]*>/g) || [];
+  assert.ok(socialLinkMatches.length >= 9);
+  for (const linkTag of socialLinkMatches) {
+    assert.ok(/aria-label="/.test(linkTag), `Social link must define aria-label: ${linkTag}`);
+  }
+
+  const quicklinks = JSON.parse(fs.readFileSync(path.resolve('frontend/src/quicklink.json'), 'utf8'));
+  assert.ok(quicklinks.contact.content.includes('rel="noopener noreferrer"'), 'External contact link must include rel="noopener noreferrer"');
+  assert.ok(quicklinks.privacy.content.includes('Virtual Account') && quicklinks.privacy.content.includes('PayPal'));
+  assert.ok(quicklinks.terms.content.includes('ZXA-') && quicklinks.terms.content.includes('Credits & Purchases'));
+
+  const accountHtml = fs.readFileSync(path.resolve('frontend/src/partials/modals/account-modal.html'), 'utf8');
+  assert.ok(accountHtml.includes('Your Account Dashboard'));
+  assert.equal(/Dasbor Akun|Daftar &amp; Verifikasi|Pemulihan/.test(accountHtml), false);
+
+  const animeJs = fs.readFileSync(path.resolve('frontend/src/js/ui/anime.js'), 'utf8');
+  assert.ok(animeJs.includes('animeAlbumServerList'));
+  assert.ok(animeJs.includes("'role', 'button'") && animeJs.includes("'tabindex', '0'"));
+});
+
 
 
 

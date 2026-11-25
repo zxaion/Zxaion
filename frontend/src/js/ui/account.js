@@ -19,11 +19,11 @@ Object.assign(ui, {
         const buyModalVerifiedEl = document.getElementById('buy-credits-account-verified');
         if (buyModalVerifiedEl) {
             if (state.requiresLogin) {
-                buyModalVerifiedEl.textContent = '(Perlu Login)';
+                buyModalVerifiedEl.textContent = '(Sign In Required)';
             } else if (acct?.emailVerified) {
-                buyModalVerifiedEl.textContent = '• Email Terverifikasi';
+                buyModalVerifiedEl.textContent = '• Email Verified';
             } else if (acct?.hasPassword) {
-                buyModalVerifiedEl.textContent = '• Email Belum Verifikasi';
+                buyModalVerifiedEl.textContent = '• Email Unverified';
             } else {
                 buyModalVerifiedEl.textContent = '• Auto Account';
             }
@@ -148,7 +148,7 @@ Object.assign(ui, {
         if (acct?.hasPassword && !state.requiresLogin) {
             signedInSummary?.classList.remove('hidden');
             if (signedInEmail) {
-                signedInEmail.textContent = `${acct.email || ''} (${acct.emailVerified ? 'Email Terverifikasi' : 'Belum Verifikasi'})`;
+                signedInEmail.textContent = `${acct.email || ''} (${acct.emailVerified ? 'Email Verified' : 'Unverified'})`;
             }
             regForm?.classList.add('hidden');
             loginForm?.classList.add('hidden');
@@ -173,7 +173,7 @@ Object.assign(ui, {
 
         const entries = state.accountLedger || [];
         if (entries.length === 0) {
-            container.innerHTML = '<div class="text-center py-8 text-xs text-gray-400">Belum ada transaksi kredit tercatat di ledger.</div>';
+            container.innerHTML = '<div class="text-center py-8 text-xs text-gray-400">No credit transactions recorded in ledger yet.</div>';
             return;
         }
 
@@ -185,7 +185,7 @@ Object.assign(ui, {
                 ? 'text-emerald-600 dark:text-emerald-400'
                 : (amt < 0 ? 'text-red-500 dark:text-red-400' : 'text-amber-600 dark:text-amber-400');
             const dateStr = entry.created_at
-                ? new Date(entry.created_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
+                ? new Date(entry.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })
                 : '-';
 
             return `
@@ -200,7 +200,7 @@ Object.assign(ui, {
                     </div>
                     <div class="text-right shrink-0 font-mono">
                         <div class="text-sm font-black ${amtColor}">${signText}</div>
-                        <div class="text-[10px] text-gray-400">Saldo: ${utils.formatNumber(entry.balance_after || 0)}</div>
+                        <div class="text-[10px] text-gray-400">Balance: ${utils.formatNumber(entry.balance_after || 0)}</div>
                     </div>
                 </div>
             `;
@@ -219,24 +219,24 @@ Object.assign(ui, {
 
         const sessions = state.accountSessions || [];
         if (sessions.length === 0) {
-            container.innerHTML = '<div class="text-xs text-gray-400 py-5 text-center">Belum ada sesi login terautentikasi (mode Auto Guest aktif).</div>';
+            container.innerHTML = '<div class="text-xs text-gray-400 py-5 text-center">No authenticated sign-in sessions yet (Auto Guest mode active).</div>';
             return;
         }
 
         container.innerHTML = sessions.map((s) => {
-            const lastSeen = s.last_seen_at ? new Date(s.last_seen_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+            const lastSeen = s.last_seen_at ? new Date(s.last_seen_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) : '-';
             const ua = (s.user_agent || 'Browser Device').slice(0, 64);
             return `
                 <div class="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-bold text-gray-900 dark:text-white truncate">${utils.escapeHtml(ua)}</span>
-                            ${s.isCurrent ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Sesi Ini</span>' : ''}
+                            ${s.isCurrent ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">This Session</span>' : ''}
                         </div>
-                        <div class="text-[11px] text-gray-400 mt-0.5 font-mono">Aktif: ${utils.escapeHtml(lastSeen)}</div>
+                        <div class="text-[11px] text-gray-400 mt-0.5 font-mono">Active: ${utils.escapeHtml(lastSeen)}</div>
                     </div>
                     <button type="button" data-revoke-session="${utils.escapeHtml(s.session_id)}" class="shrink-0 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:hover:bg-red-900/50 dark:text-red-400 text-xs font-bold transition-colors">
-                        Cabut
+                        Revoke
                     </button>
                 </div>
             `;

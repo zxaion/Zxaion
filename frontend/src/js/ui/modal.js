@@ -76,7 +76,7 @@ Object.assign(ui, {
         const title = photo.title ? `${photo.title} — ZXAION GALLERY` : 'ZXAION GALLERY';
         const pageTitle = photo.title ? `${photo.title} — 4K Wallpaper | ZXAION GALLERY` : 'ZXAION GALLERY';
         const category = photo.category || photo.subCategory || 'Wallpaper';
-        const desc = `Lihat dan unduh wallpaper 4K "${photo.title || 'Artwork'}" (${category}) di ZXAION GALLERY. Resolusi tinggi untuk desktop & smartphone.`;
+        const desc = `Download 4K "${photo.title || 'Artwork'}" (${category}) wallpaper on ZXAION GALLERY. High resolution for desktop & smartphone.`;
         const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
         const imageUrl = utils.encodeImageUrlPath(photo.url || '');
         const fullImageUrl = imageUrl.startsWith('http') ? imageUrl : `${origin}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
@@ -220,7 +220,7 @@ Object.assign(ui, {
             try {
                 await navigator.share({
                     title: `${title} — ZXAION GALLERY`,
-                    text: `Lihat wallpaper "${title}" di ZXAION GALLERY!`,
+                    text: `Check out "${title}" wallpaper on ZXAION GALLERY!`,
                     url: shareUrl,
                 });
                 return;
@@ -242,10 +242,10 @@ Object.assign(ui, {
                 document.execCommand('copy');
                 document.body.removeChild(temp);
             }
-            ui.showToast('Tautan wallpaper berhasil disalin!', 'success', 3000);
+            ui.showToast('Wallpaper link copied to clipboard!', 'success', 3000);
         } catch (e) {
             console.error('Share fallback copy error:', e);
-            ui.showToast('Gagal menyalin tautan wallpaper.', 'error');
+            ui.showToast('Failed to copy wallpaper link.', 'error');
         }
     },
 

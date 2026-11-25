@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from './backend/src/index.js';
 import { createLocalEnv } from './backend/src/localRuntime.js';
-import { injectOpenGraphMetadata } from './backend/src/services/seo.js';
+import { injectOpenGraphMetadata, injectBaseSeoOrigin, resolvePublicOrigin } from './backend/src/services/seo.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, 'frontend', 'dist');
@@ -146,33 +146,43 @@ export function createApp(env) {
     return express.static(DIST_DIR)(req, res, next);
   });
 
+  // Technical SEO routes (/robots.txt & /sitemap.xml) served dynamically via Worker router
+  app.get(['/robots.txt', '/sitemap.xml'], (req, res) => {
+    return bridgeWorkerRequest(req, res, env);
+  });
+
   // Collect raw request body for API routes so the Cloudflare Worker Request adapter handles JSON/text identically
   app.use('/api', express.raw({ type: '*/*', limit: '10mb' }), (req, res) => {
     return bridgeWorkerRequest(req, res, env);
   });
 
-  // Dynamic OpenGraph metadata injection for deep-linked photos (?photo=<id>)
+  // Dynamic OpenGraph & canonical origin injection for HTML pages and deep-linked photos (?photo=<id>)
   app.get(['/', '/index.html', '/admin'], async (req, res, next) => {
-    const photoId = req.query.photo;
-    if (!photoId || !env.DB) {
-      return next();
-    }
     try {
-      const photo = await env.DB.prepare(
-        'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
-      ).bind(photoId, photoId).first();
+      const rawHtml = readFileSync(join(DIST_DIR, 'index.html'), 'utf8');
+      const reqOrigin = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+      const publicOrigin = resolvePublicOrigin(reqOrigin, env);
+      const photoId = req.query.photo;
 
-      if (photo) {
-        const rawHtml = readFileSync(join(DIST_DIR, 'index.html'), 'utf8');
-        const origin = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
-        const transformedHtml = injectOpenGraphMetadata(rawHtml, photo, origin);
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.send(transformedHtml);
+      if (photoId && env.DB) {
+        const photo = await env.DB.prepare(
+          'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
+        ).bind(photoId, photoId).first();
+
+        if (photo) {
+          const transformedHtml = injectOpenGraphMetadata(rawHtml, photo, publicOrigin);
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          return res.send(transformedHtml);
+        }
       }
+
+      const withBaseOrigin = injectBaseSeoOrigin(rawHtml, publicOrigin);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(withBaseOrigin);
     } catch (err) {
       console.warn('[Server] OG injection error:', err.message);
+      next();
     }
-    next();
   });
 
   // Serve built frontend static assets

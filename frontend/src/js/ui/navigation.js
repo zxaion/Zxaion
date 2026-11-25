@@ -176,7 +176,13 @@ Object.assign(ui, {
             if (heroTitle) heroTitle.textContent = `Search: "${query}"`;
             if (heroDesc)  heroDesc.textContent  = `${state.filteredPhotos.length} results found`;
 
-            if ((api.imageCache?.totalMain || 0) > state.allPhotos.length && typeof api.searchCatalogServer === 'function') {
+            const needsServerSearch = (api.imageCache?.totalMain || 0) > state.allPhotos.length
+                || state.comitbasePhotos.length === 0
+                || (api.imageCache?.totalComitbase || 0) > state.comitbasePhotos.length
+                || state.dtreasurePhotos.length === 0
+                || (api.imageCache?.totalDtreasure || 0) > state.dtreasurePhotos.length;
+
+            if (needsServerSearch && typeof api.searchCatalogServer === 'function') {
                 api.searchCatalogServer(searchTerm).then(serverMatches => {
                     if (state.searchQuery !== searchTerm || !Array.isArray(serverMatches)) return;
                     const mergedById = new Map(state.filteredPhotos.map(p => [p.id, p]));

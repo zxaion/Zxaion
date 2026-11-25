@@ -5,12 +5,14 @@
 // --- API Calls ---
 const api = {
     imageCache: {
-        main:        null,
-        comitbase:   null,
-        dtreasure:   null,
-        animeAlbums: null,
-        totalMain:   0,
-        timestamp:   0,
+        main:           null,
+        comitbase:      null,
+        dtreasure:      null,
+        animeAlbums:    null,
+        totalMain:      0,
+        totalComitbase: 0,
+        totalDtreasure: 0,
+        timestamp:      0,
     },
 
     _filterHeader(items) {
@@ -27,7 +29,7 @@ const api = {
                 return true;
             }
 
-            const PAGE_SIZE = 500;
+            const PAGE_SIZE = 200;
             const [res, albumsRes] = await Promise.all([
                 fetch(`${API_BASE}/api/list?page=1&limit=${PAGE_SIZE}`),
                 this.fetchAnimeAlbums().catch(() => null),
@@ -64,7 +66,9 @@ const api = {
 
     _applyServerAnimeCounts(albums) {
         const counts = {};
-        albums.forEach(({ sub_category, count }) => {
+        const thumbs = {};
+        const serverList = [];
+        albums.forEach(({ sub_category, count, sample_url }) => {
             if (!sub_category) return;
             const norm = typeof utils !== 'undefined' && typeof utils.normalizeAlbumKey === 'function'
                 ? utils.normalizeAlbumKey(sub_category)
@@ -72,8 +76,39 @@ const api = {
             if (!norm) return;
             const n = Number(count) || 0;
             counts[norm] = (counts[norm] || 0) + n;
+            if (sample_url && !thumbs[norm]) {
+                thumbs[norm] = sample_url;
+            }
+            const resolvedTitle = typeof this._resolveAlbumTitle === 'function'
+                ? this._resolveAlbumTitle(sub_category)
+                : sub_category;
+            if (resolvedTitle) {
+                const normTitle = typeof utils !== 'undefined' && typeof utils.normalizeAlbumKey === 'function'
+                    ? utils.normalizeAlbumKey(resolvedTitle)
+                    : resolvedTitle.toLowerCase();
+                if (sample_url && !thumbs[normTitle]) {
+                    thumbs[normTitle] = sample_url;
+                }
+                if (normTitle !== norm) {
+                    counts[normTitle] = (counts[normTitle] || 0) + n;
+                }
+                const existing = serverList.find(item => item.title === resolvedTitle);
+                if (existing) {
+                    existing.count += n;
+                    if (!existing.sample_url && sample_url) existing.sample_url = sample_url;
+                } else {
+                    serverList.push({
+                        sub_category,
+                        title: resolvedTitle,
+                        count: n,
+                        sample_url: sample_url || null,
+                    });
+                }
+            }
         });
         state.animeAlbumCounts = counts;
+        state.animeAlbumThumbs = thumbs;
+        state.animeAlbumServerList = serverList;
     },
 
     async _loadRemainingMainPages(pageSize, cacheStamp) {
@@ -197,12 +232,14 @@ const api = {
     },
 
     invalidateCache() {
-        this.imageCache.main        = null;
-        this.imageCache.comitbase   = null;
-        this.imageCache.dtreasure   = null;
-        this.imageCache.animeAlbums = null;
-        this.imageCache.totalMain   = 0;
-        this.imageCache.timestamp   = 0;
+        this.imageCache.main           = null;
+        this.imageCache.comitbase      = null;
+        this.imageCache.dtreasure      = null;
+        this.imageCache.animeAlbums    = null;
+        this.imageCache.totalMain      = 0;
+        this.imageCache.totalComitbase = 0;
+        this.imageCache.totalDtreasure = 0;
+        this.imageCache.timestamp      = 0;
     },
 
     async _fetchPaginatedBucket(endpoint, cacheKey, stateKey, errorKey) {
@@ -213,13 +250,18 @@ const api = {
             return true;
         }
 
-        const PAGE_SIZE = 500;
+        const PAGE_SIZE = 200;
         const res = await fetch(`${API_BASE}${endpoint}?page=1&limit=${PAGE_SIZE}`);
         if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+        const totalHeader = parseInt(res.headers.get('X-Total-Count') || '0', 10);
         const firstPage = await res.json();
         if (!Array.isArray(firstPage)) throw new Error('Invalid bucket payload');
 
         this.imageCache[cacheKey] = firstPage;
+        const totalKey = cacheKey === 'comitbase' ? 'totalComitbase' : (cacheKey === 'dtreasure' ? 'totalDtreasure' : null);
+        if (totalKey) {
+            this.imageCache[totalKey] = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : firstPage.length;
+        }
         if (!this.imageCache.timestamp) this.imageCache.timestamp = now;
         state[stateKey] = firstPage;
         if (errorKey) state[errorKey] = false;

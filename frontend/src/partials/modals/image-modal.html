@@ -48,11 +48,11 @@
                     <div class="bg-gray-50 dark:bg-gray-900/60 p-3.5 rounded-2xl border border-gray-200 dark:border-gray-700/80">
                         <div class="flex items-center justify-between mb-2.5">
                             <label class="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                                <i class="fas fa-display text-amber-500"></i>
-                                <span>Pilihan Resolusi Unduhan</span>
+                                <i class="fas fa-display text-amber-500" aria-hidden="true"></i>
+                                <span>Download Resolution</span>
                             </label>
                             <span id="resolution-current-badge" class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                Asli / 4K
+                                Original / 4K
                             </span>
                         </div>
 
@@ -64,14 +64,14 @@
                                 class="resolution-btn active text-left p-2.5 rounded-xl border border-amber-500 bg-amber-500/10 text-gray-900 dark:text-white transition-all flex items-center gap-2.5 col-span-2"
                             >
                                 <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                                    <i class="fas fa-expand text-sm"></i>
+                                    <i class="fas fa-expand text-sm" aria-hidden="true"></i>
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <div class="font-bold text-xs flex items-center justify-between">
-                                        <span>Asli / 4K Ultra HD</span>
-                                        <i class="fas fa-check-circle text-amber-500 text-xs resolution-check"></i>
+                                        <span>Original / 4K Ultra HD</span>
+                                        <i class="fas fa-check-circle text-amber-500 text-xs resolution-check" aria-hidden="true"></i>
                                     </div>
-                                    <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate">Resolusi penuh asli dari R2</div>
+                                    <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate">Uncompressed original resolution</div>
                                 </div>
                             </button>
 
@@ -130,26 +130,26 @@
                                     <i class="fas fa-square text-xs"></i>
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <div class="font-bold text-xs truncate">Persegi 1:1</div>
+                                    <div class="font-bold text-xs truncate">Square 1:1</div>
                                     <div class="text-[10px] text-gray-500 dark:text-gray-400">1080 × 1080</div>
                                 </div>
                             </button>
                         </div>
 
                         <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-2.5 flex items-center gap-1.5">
-                            <i class="fas fa-circle-info text-[10px] text-amber-500 shrink-0"></i>
-                            <span id="resolution-desc-text">File asli 4K ultra HD tanpa kompresi tambahan.</span>
+                            <i class="fas fa-circle-info text-[10px] text-amber-500 shrink-0" aria-hidden="true"></i>
+                            <span id="resolution-desc-text">Full 4K Ultra HD original file with no extra compression.</span>
                         </p>
                     </div>
                 </div>
 
                 <div class="border-t pt-4 dark:border-gray-700 flex items-center gap-3">
                     <a id="download-btn" href="#" class="flex-1 px-4 py-3.5 bg-gradient-to-r from-gray-900 to-black text-white rounded-xl font-bold hover:from-gray-800 hover:to-gray-900 transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-[1.02] dark:from-white dark:to-gray-200 dark:text-black">
-                        <i class="fas fa-download"></i> Download
+                        <i class="fas fa-download" aria-hidden="true"></i> Download
                     </a>
-                    <button id="share-btn" type="button" aria-label="Bagikan Wallpaper" title="Bagikan tautan wallpaper" class="px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white rounded-xl font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow hover:scale-105 active:scale-95">
-                        <i class="fas fa-share-nodes text-lg text-amber-500"></i>
-                        <span class="hidden sm:inline text-sm">Bagikan</span>
+                    <button id="share-btn" type="button" aria-label="Share Wallpaper" title="Share wallpaper link" class="px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white rounded-xl font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow hover:scale-105 active:scale-95">
+                        <i class="fas fa-share-nodes text-lg text-amber-500" aria-hidden="true"></i>
+                        <span class="hidden sm:inline text-sm">Share</span>
                     </button>
                 </div>
             </div>

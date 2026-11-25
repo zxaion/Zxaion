@@ -179,3 +179,42 @@ CREATE TABLE IF NOT EXISTS backup_snapshots (
   created_at   TEXT DEFAULT (datetime('now'))
 );
 
+-- Retention cleanup indexes
+CREATE INDEX IF NOT EXISTS idx_views_created_at
+  ON views (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_downloads_created_at
+  ON downloads (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_email_verifications_retention
+  ON email_verifications (expires_at, used_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_retention
+  ON user_sessions (expires_at, revoked_at);
+
+-- Full-Text Search (FTS5) index for scalable catalog search
+CREATE VIRTUAL TABLE IF NOT EXISTS images_fts USING fts5(
+  title,
+  category,
+  sub_category,
+  r2_key,
+  content='images',
+  content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_images_ai AFTER INSERT ON images BEGIN
+  INSERT INTO images_fts(rowid, title, category, sub_category, r2_key)
+  VALUES (new.rowid, new.title, new.category, COALESCE(new.sub_category, ''), new.r2_key);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_images_ad AFTER DELETE ON images BEGIN
+  INSERT INTO images_fts(images_fts, rowid, title, category, sub_category, r2_key)
+  VALUES ('delete', old.rowid, old.title, old.category, COALESCE(old.sub_category, ''), old.r2_key);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_images_au AFTER UPDATE ON images BEGIN
+  INSERT INTO images_fts(images_fts, rowid, title, category, sub_category, r2_key)
+  VALUES ('delete', old.rowid, old.title, old.category, COALESCE(old.sub_category, ''), old.r2_key);
+  INSERT INTO images_fts(rowid, title, category, sub_category, r2_key)
+  VALUES (new.rowid, new.title, new.category, COALESCE(new.sub_category, ''), new.r2_key);
+END;

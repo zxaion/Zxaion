@@ -17,6 +17,8 @@ class AppState {
         this.dtreasureError       = false;
         this.animeAlbums          = {};
         this.animeAlbumCounts     = {};
+        this.animeAlbumThumbs     = {};
+        this.animeAlbumServerList = [];
         this.filteredPhotos       = [];
         this.currentImageId       = null;
         this.credits              = 0;

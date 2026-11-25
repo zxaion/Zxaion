@@ -9,7 +9,7 @@
             </div>
             <h2 class="text-2xl font-black tracking-tight text-gray-900 dark:text-white uppercase mb-2">Admin Portal</h2>
             <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
-                Akses privat untuk memantau pendapatan PayPal, transaksi, akun kredit, dan kontrol force-rescan R2.
+                Private access to monitor PayPal revenue, transactions, credit accounts, and R2 force-rescan controls.
             </p>
 
             <form id="admin-login-form" class="space-y-4">
@@ -22,12 +22,12 @@
                             type="password"
                             id="admin-token-input"
                             required
-                            placeholder="Masukkan token admin..."
+                            placeholder="Enter admin token..."
                             class="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm"
                             autocomplete="current-password"
                         >
-                        <button type="button" id="admin-toggle-token-visibility" aria-label="Lihat token" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                            <i class="fas fa-eye"></i>
+                        <button type="button" id="admin-toggle-token-visibility" aria-label="Show or hide token" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                            <i class="fas fa-eye" aria-hidden="true"></i>
                         </button>
                     </div>
                 </div>
@@ -40,14 +40,14 @@
                     id="admin-login-btn"
                     class="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-extrabold rounded-xl transition-all duration-200 shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2"
                 >
-                    <i class="fas fa-key"></i>
-                    <span>Masuk Dashboard</span>
+                    <i class="fas fa-key" aria-hidden="true"></i>
+                    <span>Enter Dashboard</span>
                 </button>
             </form>
 
             <div class="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-xs text-gray-500">
                 <a href="#" id="admin-login-back-btn" class="hover:text-amber-500 transition-colors">
-                    <i class="fas fa-arrow-left mr-1"></i> Kembali ke Galeri
+                    <i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Back to Gallery
                 </a>
                 <span class="text-[11px] font-mono text-gray-400">Auth Token Required</span>
             </div>
@@ -60,7 +60,7 @@
                 <div>
                     <div class="flex items-center gap-2">
                         <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                            <i class="fas fa-shield-alt"></i> Private Admin Console
+                            <i class="fas fa-shield-alt" aria-hidden="true"></i> Private Admin Console
                         </span>
                         <span id="admin-last-sync" class="text-xs text-gray-400 font-mono"></span>
                     </div>
@@ -72,19 +72,19 @@
                         type="button"
                         id="admin-rescan-btn"
                         class="flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-2 active:scale-95"
-                        title="Force rescan R2 bucket untuk mendeteksi file baru atau terhapus"
+                        title="Force rescan R2 buckets to detect added or deleted files"
                     >
-                        <i class="fas fa-bolt text-xs"></i>
-                        <span id="admin-rescan-btn-text">1-Klik Force-Rescan R2</span>
+                        <i class="fas fa-bolt text-xs" aria-hidden="true"></i>
+                        <span id="admin-rescan-btn-text">1-Click Force-Rescan R2</span>
                     </button>
 
                     <button
                         type="button"
                         id="admin-refresh-btn"
                         class="px-3.5 py-2.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5"
-                        title="Segarkan data terbaru dari database"
+                        title="Refresh latest metrics from database"
                     >
-                        <i class="fas fa-rotate"></i>
+                        <i class="fas fa-rotate" aria-hidden="true"></i>
                         <span class="hidden sm:inline">Refresh</span>
                     </button>
 
@@ -92,19 +92,19 @@
                         type="button"
                         id="admin-exit-btn"
                         class="px-3.5 py-2.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5"
-                        title="Kembali melihat galeri publik"
+                        title="Return to public gallery"
                     >
-                        <i class="fas fa-arrow-left"></i>
-                        <span class="hidden sm:inline">Galeri</span>
+                        <i class="fas fa-arrow-left" aria-hidden="true"></i>
+                        <span class="hidden sm:inline">Gallery</span>
                     </button>
 
                     <button
                         type="button"
                         id="admin-logout-btn"
                         class="px-3.5 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:hover:bg-red-900/50 dark:text-red-400 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5"
-                        title="Keluar dari portal admin"
+                        title="Sign out from admin portal"
                     >
-                        <i class="fas fa-right-from-bracket"></i>
+                        <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
                         <span>Logout</span>
                     </button>
                 </div>
@@ -118,58 +118,58 @@
                 <!-- KPI 1: Gross Revenue -->
                 <div class="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm relative overflow-hidden">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Total Pendapatan</span>
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Total Revenue</span>
                         <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-                            <i class="fas fa-dollar-sign text-lg"></i>
+                            <i class="fas fa-dollar-sign text-lg" aria-hidden="true"></i>
                         </div>
                     </div>
                     <div class="mt-3">
                         <div id="admin-metric-revenue" class="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white font-mono">$0.00</div>
-                        <p id="admin-metric-orders-ratio" class="text-xs text-gray-500 dark:text-gray-400 mt-1">0 pesanan sukses</p>
+                        <p id="admin-metric-orders-ratio" class="text-xs text-gray-500 dark:text-gray-400 mt-1">0 completed orders</p>
                     </div>
                 </div>
 
                 <!-- KPI 2: PayPal Orders Breakdown -->
                 <div class="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm relative overflow-hidden">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Status Pesanan</span>
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Order Status</span>
                         <div class="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center">
-                            <i class="fas fa-receipt text-lg"></i>
+                            <i class="fas fa-receipt text-lg" aria-hidden="true"></i>
                         </div>
                     </div>
                     <div class="mt-3 flex flex-wrap gap-1.5 text-xs font-semibold">
-                        <span id="admin-badge-completed" class="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">0 Sukses</span>
-                        <span id="admin-badge-processing" class="px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">0 Proses</span>
-                        <span id="admin-badge-failed" class="px-2 py-0.5 rounded-md bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400">0 Gagal</span>
-                        <span id="admin-badge-refunded" class="px-2 py-0.5 rounded-md bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400">0 Refund</span>
+                        <span id="admin-badge-completed" class="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">0 Completed</span>
+                        <span id="admin-badge-processing" class="px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">0 Processing</span>
+                        <span id="admin-badge-failed" class="px-2 py-0.5 rounded-md bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400">0 Failed</span>
+                        <span id="admin-badge-refunded" class="px-2 py-0.5 rounded-md bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400">0 Refunded</span>
                     </div>
-                    <p id="admin-metric-total-orders" class="text-xs text-gray-500 dark:text-gray-400 mt-2">Total 0 transaksi</p>
+                    <p id="admin-metric-total-orders" class="text-xs text-gray-500 dark:text-gray-400 mt-2">Total 0 transactions</p>
                 </div>
 
                 <!-- KPI 3: Users & Credits -->
                 <div class="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm relative overflow-hidden">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Pengguna & Kredit</span>
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Users &amp; Credits</span>
                         <div class="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
-                            <i class="fas fa-coins text-lg"></i>
+                            <i class="fas fa-coins text-lg" aria-hidden="true"></i>
                         </div>
                     </div>
                     <div class="mt-3">
-                        <div id="admin-metric-users-count" class="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white font-mono">0 Akun</div>
-                        <p id="admin-metric-credits-summary" class="text-xs text-gray-500 dark:text-gray-400 mt-1">0 kredit beredar • 0 Lifetime</p>
+                        <div id="admin-metric-users-count" class="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white font-mono">0 Accounts</div>
+                        <p id="admin-metric-credits-summary" class="text-xs text-gray-500 dark:text-gray-400 mt-1">0 circulating credits • 0 Lifetime</p>
                     </div>
                 </div>
 
                 <!-- KPI 4: Catalog & Recovery -->
                 <div class="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm relative overflow-hidden">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Katalog R2 & Recovery</span>
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-500">R2 Catalog &amp; Recovery</span>
                         <div class="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
-                            <i class="fas fa-boxes-stacked text-lg"></i>
+                            <i class="fas fa-boxes-stacked text-lg" aria-hidden="true"></i>
                         </div>
                     </div>
                     <div class="mt-3">
-                        <div id="admin-metric-recovery-count" class="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white font-mono">0 Key</div>
+                        <div id="admin-metric-recovery-count" class="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white font-mono">0 Keys</div>
                         <p id="admin-metric-catalog-counts" class="text-xs text-gray-500 dark:text-gray-400 mt-1">R2: 0 Main • 0 Comit • 0 DT</p>
                     </div>
                 </div>
@@ -179,44 +179,44 @@
             <div class="bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
                 <div class="flex items-center gap-1.5 overflow-x-auto pb-2 md:pb-0" id="admin-tab-bar">
                     <button type="button" data-tab="orders" class="admin-tab-btn active px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
-                        <i class="fas fa-credit-card"></i>
-                        <span>Pesanan PayPal</span>
+                        <i class="fas fa-credit-card" aria-hidden="true"></i>
+                        <span>PayPal Orders</span>
                         <span id="admin-tab-count-orders" class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20">0</span>
                     </button>
 
                     <button type="button" data-tab="users" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
-                        <i class="fas fa-users"></i>
-                        <span>Akun Kredit & Vault</span>
+                        <i class="fas fa-users" aria-hidden="true"></i>
+                        <span>Credit &amp; Vault Accounts</span>
                         <span id="admin-tab-count-users" class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20">0</span>
                     </button>
 
                     <button type="button" data-tab="packs" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
-                        <i class="fas fa-box-open"></i>
-                        <span>Paket Terjual</span>
+                        <i class="fas fa-box-open" aria-hidden="true"></i>
+                        <span>Packs Sold</span>
                     </button>
 
                     <button type="button" data-tab="rescan" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
-                        <i class="fas fa-cloud-arrow-down"></i>
-                        <span>Status R2 &amp; Sync</span>
+                        <i class="fas fa-cloud-arrow-down" aria-hidden="true"></i>
+                        <span>R2 Status &amp; Sync</span>
                     </button>
 
                     <button type="button" data-tab="backup" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
-                        <i class="fas fa-database"></i>
+                        <i class="fas fa-database" aria-hidden="true"></i>
                         <span>Backup &amp; Ledger</span>
                     </button>
                 </div>
 
                 <!-- Table Search -->
                 <div class="relative min-w-[240px]">
-                    <i class="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <i class="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs" aria-hidden="true"></i>
                     <input
                         type="text"
                         id="admin-search-input"
-                        placeholder="Cari order, user ID, status..."
+                        placeholder="Search order, user ID, status..."
                         class="w-full pl-9 pr-8 py-2 text-xs sm:text-sm bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
                     >
-                    <button type="button" id="admin-search-clear" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
-                        <i class="fas fa-times-circle"></i>
+                    <button type="button" id="admin-search-clear" aria-label="Clear search" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
+                        <i class="fas fa-times-circle" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
@@ -225,11 +225,11 @@
             <div id="admin-panel-orders" class="admin-tab-panel bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                 <div class="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
                     <h2 class="font-bold text-gray-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
-                        <i class="fas fa-receipt text-amber-500"></i>
-                        <span>Riwayat Pesanan PayPal</span>
+                        <i class="fas fa-receipt text-amber-500" aria-hidden="true"></i>
+                        <span>PayPal Order History</span>
                     </h2>
                     <button type="button" id="admin-export-orders-btn" class="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1.5">
-                        <i class="fas fa-file-csv"></i>
+                        <i class="fas fa-file-csv" aria-hidden="true"></i>
                         <span>Export CSV</span>
                     </button>
                 </div>
@@ -240,16 +240,16 @@
                             <tr>
                                 <th class="p-3.5">Order / Capture ID</th>
                                 <th class="p-3.5">User Token / Payer</th>
-                                <th class="p-3.5">Paket</th>
-                                <th class="p-3.5">Nominal</th>
+                                <th class="p-3.5">Pack</th>
+                                <th class="p-3.5">Amount</th>
                                 <th class="p-3.5">Status</th>
-                                <th class="p-3.5">Waktu</th>
-                                <th class="p-3.5">Catatan / Error</th>
+                                <th class="p-3.5">Time</th>
+                                <th class="p-3.5">Notes / Error</th>
                             </tr>
                         </thead>
                         <tbody id="admin-orders-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300 font-mono text-xs">
                             <tr>
-                                <td colspan="7" class="p-8 text-center text-gray-400 font-sans">Memuat data pesanan...</td>
+                                <td colspan="7" class="p-8 text-center text-gray-400 font-sans">Loading order data...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -260,10 +260,10 @@
             <div id="admin-panel-users" class="admin-tab-panel hidden bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                 <div class="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
                     <h2 class="font-bold text-gray-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
-                        <i class="fas fa-users text-amber-500"></i>
-                        <span>Data Akun Pengguna & Saldo Kredit</span>
+                        <i class="fas fa-users text-amber-500" aria-hidden="true"></i>
+                        <span>User Accounts &amp; Credit Balances</span>
                     </h2>
-                    <span id="admin-users-total-badge" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold">0 Terdaftar</span>
+                    <span id="admin-users-total-badge" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold">0 Registered</span>
                 </div>
 
                 <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
@@ -272,15 +272,15 @@
                             <tr>
                                 <th class="p-3.5">User ID</th>
                                 <th class="p-3.5">Public ID</th>
-                                <th class="p-3.5">Saldo Kredit</th>
-                                <th class="p-3.5">Status VIP</th>
+                                <th class="p-3.5">Credit Balance</th>
+                                <th class="p-3.5">VIP Status</th>
                                 <th class="p-3.5">Recovery Key</th>
-                                <th class="p-3.5">DTREASURE Dibeli</th>
+                                <th class="p-3.5">DTREASURE Unlocked</th>
                             </tr>
                         </thead>
                         <tbody id="admin-users-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300 font-mono text-xs">
                             <tr>
-                                <td colspan="6" class="p-8 text-center text-gray-400 font-sans">Memuat data pengguna...</td>
+                                <td colspan="6" class="p-8 text-center text-gray-400 font-sans">Loading user data...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -290,8 +290,8 @@
             <!-- Tab 3: Packs Breakdown -->
             <div id="admin-panel-packs" class="admin-tab-panel hidden bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6">
                 <h2 class="font-bold text-gray-900 dark:text-white text-base mb-4 flex items-center gap-2">
-                    <i class="fas fa-box-open text-amber-500"></i>
-                    <span>Distribusi Penjualan Paket Kredit</span>
+                    <i class="fas fa-box-open text-amber-500" aria-hidden="true"></i>
+                    <span>Credit Pack Sales Distribution</span>
                 </h2>
                 <div id="admin-packs-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <!-- Populated dynamically via ui.renderAdminDashboard -->
@@ -302,9 +302,9 @@
             <div id="admin-panel-rescan" class="admin-tab-panel hidden bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 space-y-6">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-amber-500/5 border border-amber-500/20">
                     <div>
-                        <h3 class="font-bold text-gray-900 dark:text-white text-base">Sinkronisasi Instan Bucket Cloudflare R2</h3>
+                        <h3 class="font-bold text-gray-900 dark:text-white text-base">Instant Cloudflare R2 Bucket Sync</h3>
                         <p class="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            Secara otomatis membaca daftar file di bucket R2 (Main, Comitbase, dan DTREASURE), memperbarui D1 Database, dan mendeteksi penambahan atau penghapusan gambar baru.
+                            Automatically reads file listings across R2 buckets (Main, Comitbase, and DTREASURE), updates the D1 database, and detects added or removed images.
                         </p>
                     </div>
                     <button
@@ -312,26 +312,26 @@
                         id="admin-rescan-trigger-large"
                         class="px-6 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-extrabold rounded-xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 whitespace-nowrap transition-all active:scale-95"
                     >
-                        <i class="fas fa-rotate"></i>
-                        <span>Jalankan Force-Rescan R2</span>
+                        <i class="fas fa-rotate" aria-hidden="true"></i>
+                        <span>Run R2 Force-Rescan</span>
                     </button>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" id="admin-catalog-cards">
                     <div class="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
-                        <div class="text-xs font-bold uppercase text-gray-500 mb-1">Bucket Main (Wallpaper)</div>
+                        <div class="text-xs font-bold uppercase text-gray-500 mb-1">Main Bucket (Wallpapers)</div>
                         <div id="admin-catalog-main" class="text-2xl font-black font-mono text-gray-900 dark:text-white">0</div>
                         <p class="text-xs text-gray-400 mt-1">Anime, Fantasy, 4K Art</p>
                     </div>
                     <div class="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
-                        <div class="text-xs font-bold uppercase text-gray-500 mb-1">Bucket Comitbase</div>
+                        <div class="text-xs font-bold uppercase text-gray-500 mb-1">Comitbase Bucket</div>
                         <div id="admin-catalog-comitbase" class="text-2xl font-black font-mono text-gray-900 dark:text-white">0</div>
-                        <p class="text-xs text-gray-400 mt-1">Koleksi Komunitas</p>
+                        <p class="text-xs text-gray-400 mt-1">Community Collection</p>
                     </div>
                     <div class="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
-                        <div class="text-xs font-bold uppercase text-gray-500 mb-1">Bucket DTREASURE Vault</div>
+                        <div class="text-xs font-bold uppercase text-gray-500 mb-1">DTREASURE Vault Bucket</div>
                         <div id="admin-catalog-dtreasure" class="text-2xl font-black font-mono text-gray-900 dark:text-white">0</div>
-                        <p class="text-xs text-gray-400 mt-1">Edisi Eksklusif Terkunci</p>
+                        <p class="text-xs text-gray-400 mt-1">Exclusive Locked Editions</p>
                     </div>
                 </div>
             </div>
@@ -343,32 +343,32 @@
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
                             <h2 class="font-bold text-gray-900 dark:text-white text-base flex items-center gap-2">
-                                <i class="fas fa-database text-amber-500"></i>
-                                <span>Database Backup Snapshot &amp; Pemulihan D1</span>
+                                <i class="fas fa-database text-amber-500" aria-hidden="true"></i>
+                                <span>Database Backup Snapshots &amp; D1 Recovery</span>
                             </h2>
                             <p class="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                Snapshot mencakup tabel accounts, user_credits, purchased_images, payment_orders, dan credit_ledger terverifikasi SHA-256.
+                                Snapshots include accounts, user_credits, purchased_images, payment_orders, and credit_ledger verified with SHA-256.
                             </p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
                             <button type="button" id="admin-backup-create-btn" class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-gray-950 font-bold text-xs sm:text-sm flex items-center gap-2 transition-colors">
-                                <i class="fas fa-camera"></i><span>Buat Snapshot D1</span>
+                                <i class="fas fa-camera" aria-hidden="true"></i><span>Create D1 Snapshot</span>
                             </button>
                             <button type="button" id="admin-backup-download-btn" class="px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white dark:bg-white dark:text-gray-950 font-bold text-xs sm:text-sm flex items-center gap-2 transition-colors">
-                                <i class="fas fa-download"></i><span>Unduh Snapshot Terbaru</span>
+                                <i class="fas fa-download" aria-hidden="true"></i><span>Download Latest Snapshot</span>
                             </button>
                         </div>
                     </div>
 
                     <!-- Snapshot List -->
                     <div id="admin-snapshots-list" class="space-y-2 max-h-[260px] overflow-y-auto">
-                        <div class="text-xs text-gray-400 py-4 text-center">Memuat daftar snapshot backup...</div>
+                        <div class="text-xs text-gray-400 py-4 text-center">Loading backup snapshots...</div>
                     </div>
 
                     <!-- Upload / Restore JSON Snapshot -->
                     <div class="pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div class="text-xs text-gray-600 dark:text-gray-400">
-                            <strong class="text-gray-900 dark:text-white">Restore dari File JSON Snapshot:</strong> Unggah file <code class="font-mono">.json</code> hasil unduhan backup untuk memulihkan database.
+                            <strong class="text-gray-900 dark:text-white">Restore from JSON Snapshot File:</strong> Upload a downloaded <code class="font-mono">.json</code> backup file to restore the database.
                         </div>
                         <div class="flex items-center gap-2">
                             <input id="admin-backup-restore-file" type="file" accept=".json,application/json" class="text-xs text-gray-600 dark:text-gray-300 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-gray-100 file:text-gray-800 dark:file:bg-gray-800 dark:file:text-gray-200">
@@ -384,7 +384,7 @@
                     <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                         <div class="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
                             <h3 class="font-bold text-gray-900 dark:text-white text-sm">Virtual Accounts</h3>
-                            <span id="admin-accounts-summary-badge" class="text-xs font-bold text-amber-600 dark:text-amber-400">0 Akun</span>
+                            <span id="admin-accounts-summary-badge" class="text-xs font-bold text-amber-600 dark:text-amber-400">0 Accounts</span>
                         </div>
                         <div class="overflow-x-auto max-h-[340px] overflow-y-auto">
                             <table class="w-full text-left border-collapse text-xs">
@@ -392,11 +392,11 @@
                                     <tr>
                                         <th class="p-3">Account ID</th>
                                         <th class="p-3">Email</th>
-                                        <th class="p-3">Keamanan</th>
+                                        <th class="p-3">Security</th>
                                     </tr>
                                 </thead>
                                 <tbody id="admin-accounts-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 font-mono">
-                                    <tr><td colspan="3" class="p-6 text-center text-gray-400 font-sans">Belum ada virtual account.</td></tr>
+                                    <tr><td colspan="3" class="p-6 text-center text-gray-400 font-sans">No virtual accounts yet.</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -404,21 +404,21 @@
 
                     <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                         <div class="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                            <h3 class="font-bold text-gray-900 dark:text-white text-sm">Immutable Credit Ledger Terbaru</h3>
-                            <span id="admin-ledger-summary-badge" class="text-xs font-bold text-emerald-600 dark:text-emerald-400">0 Entri</span>
+                            <h3 class="font-bold text-gray-900 dark:text-white text-sm">Recent Immutable Credit Ledger</h3>
+                            <span id="admin-ledger-summary-badge" class="text-xs font-bold text-emerald-600 dark:text-emerald-400">0 Entries</span>
                         </div>
                         <div class="overflow-x-auto max-h-[340px] overflow-y-auto">
                             <table class="w-full text-left border-collapse text-xs">
                                 <thead class="bg-gray-50 dark:bg-gray-800/80 text-gray-500 uppercase text-[10px] font-bold">
                                     <tr>
                                         <th class="p-3">Account</th>
-                                        <th class="p-3">Tipe</th>
+                                        <th class="p-3">Type</th>
                                         <th class="p-3">Delta</th>
-                                        <th class="p-3">Saldo</th>
+                                        <th class="p-3">Balance</th>
                                     </tr>
                                 </thead>
                                 <tbody id="admin-ledger-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 font-mono">
-                                    <tr><td colspan="4" class="p-6 text-center text-gray-400 font-sans">Belum ada entri ledger.</td></tr>
+                                    <tr><td colspan="4" class="p-6 text-center text-gray-400 font-sans">No ledger entries yet.</td></tr>
                                 </tbody>
                             </table>
                         </div>

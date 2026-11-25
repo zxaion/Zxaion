@@ -211,8 +211,8 @@ export function createMockD1() {
   const userCredits = new Map();
   const purchasedImages = new Set();
   const paymentOrders = new Map();
-  const views = new Set();
-  const downloads = new Set();
+  const views = new Map();
+  const downloads = new Map();
   const rateLimits = new Map();
   const accounts = new Map();
   const userSessions = new Map();
@@ -222,7 +222,10 @@ export function createMockD1() {
 
   function filterImages(q, params) {
     let bucketFilter = null;
-    if (q.includes("bucket = 'main'")) bucketFilter = 'main';
+    let bucketList = null;
+    if (q.includes("bucket IN ('main', 'comitbase', 'dtreasure')")) {
+      bucketList = new Set(['main', 'comitbase', 'dtreasure']);
+    } else if (q.includes("bucket = 'main'")) bucketFilter = 'main';
     else if (q.includes("bucket = 'comitbase'")) bucketFilter = 'comitbase';
     else if (q.includes("bucket = 'dtreasure'")) bucketFilter = 'dtreasure';
 
@@ -231,9 +234,17 @@ export function createMockD1() {
     const targetCategory = q.includes('LOWER(category) = LOWER(?)') ? String(params[paramIdx++]).toLowerCase() : null;
     const targetSubCategory = q.includes('LOWER(sub_category) = LOWER(?)') ? String(params[paramIdx++]).toLowerCase() : null;
 
+    let searchTokens = null;
     let searchTerm = null;
     let searchTitleOnly = false;
-    if (q.includes("LOWER(COALESCE(sub_category, '')) LIKE ?")) {
+    if (q.includes('images_fts MATCH ?')) {
+      const rawFts = String(params[paramIdx++] || '');
+      searchTokens = rawFts
+        .split(/\s+AND\s+/i)
+        .map(t => t.replace(/^"|"|\*$/g, '').toLowerCase())
+        .filter(Boolean);
+      searchTitleOnly = bucketFilter === 'comitbase' || bucketFilter === 'dtreasure';
+    } else if (q.includes("LOWER(COALESCE(sub_category, '')) LIKE ?")) {
       searchTerm = String(params[paramIdx++]).replace(/^%|%$/g, '').toLowerCase();
       paramIdx += 2;
     } else if (q.includes('LOWER(title) LIKE ?')) {
@@ -242,11 +253,17 @@ export function createMockD1() {
     }
 
     const filtered = Array.from(images.values()).filter((r) => {
+      if (bucketList && !bucketList.has(r.bucket)) return false;
       if (bucketFilter && r.bucket !== bucketFilter) return false;
       if (excludeHeader && r.category === 'Header') return false;
       if (targetCategory && (r.category || '').toLowerCase() !== targetCategory) return false;
       if (targetSubCategory && (r.sub_category || '').toLowerCase() !== targetSubCategory) return false;
-      if (searchTerm !== null) {
+      if (searchTokens && searchTokens.length > 0) {
+        const hay = searchTitleOnly
+          ? (r.title || '').toLowerCase()
+          : `${r.title || ''} ${r.category || ''} ${r.sub_category || ''} ${r.r2_key || ''}`.toLowerCase();
+        if (!searchTokens.every(tok => hay.includes(tok))) return false;
+      } else if (searchTerm !== null) {
         const inTitle = (r.title || '').toLowerCase().includes(searchTerm);
         if (searchTitleOnly) return inTitle;
         const inCat = (r.category || '').toLowerCase().includes(searchTerm);
@@ -312,15 +329,20 @@ export function createMockD1() {
     }
 
     if (q.includes('GROUP BY sub_category') && q.includes('FROM images')) {
-      const counts = new Map();
+      const grouped = new Map();
       for (const r of images.values()) {
         if (r.bucket === 'main' && (r.category || '').toLowerCase() === 'anime' && r.sub_category) {
-          counts.set(r.sub_category, (counts.get(r.sub_category) || 0) + 1);
+          const entry = grouped.get(r.sub_category) || { count: 0, sample_key: r.r2_key };
+          entry.count += 1;
+          if (!entry.sample_key || (r.r2_key && r.r2_key < entry.sample_key)) {
+            entry.sample_key = r.r2_key;
+          }
+          grouped.set(r.sub_category, entry);
         }
       }
-      const results = Array.from(counts.entries())
+      const results = Array.from(grouped.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([sub_category, count]) => ({ sub_category, count }));
+        .map(([sub_category, info]) => ({ sub_category, count: info.count, sample_key: info.sample_key }));
       return { results };
     }
 
@@ -342,9 +364,9 @@ export function createMockD1() {
       return { first: { total: filtered.length }, results: [{ total: filtered.length }] };
     }
 
-    if (q.includes('FROM images WHERE bucket =') && q.includes('ORDER BY uploaded DESC')) {
+    if ((q.includes('FROM images WHERE bucket =') || q.includes("FROM images WHERE bucket IN ('main', 'comitbase', 'dtreasure')")) && q.includes('ORDER BY uploaded DESC')) {
       const { filtered, nextParamIdx } = filterImages(q, params);
-      const limit = params[nextParamIdx] ?? 500;
+      const limit = params[nextParamIdx] ?? 5000;
       const offset = params[nextParamIdx + 1] ?? 0;
       const results = filtered
         .sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id))
@@ -412,15 +434,39 @@ export function createMockD1() {
     if (q.startsWith('INSERT OR IGNORE INTO views')) {
       const key = `${params[0]}::${params[1]}`;
       const had = views.has(key);
-      views.add(key);
+      if (!had) views.set(key, params[2] || new Date().toISOString());
       return { meta: { changes: had ? 0 : 1 } };
+    }
+
+    if (q.startsWith('DELETE FROM views WHERE created_at < ?')) {
+      const cutoff = params[0];
+      let changes = 0;
+      for (const [k, createdAt] of views.entries()) {
+        if (createdAt && createdAt < cutoff) {
+          views.delete(k);
+          changes++;
+        }
+      }
+      return { meta: { changes } };
     }
 
     if (q.startsWith('INSERT OR IGNORE INTO downloads')) {
       const key = `${params[0]}::${params[1]}`;
       const had = downloads.has(key);
-      downloads.add(key);
+      if (!had) downloads.set(key, params[2] || new Date().toISOString());
       return { meta: { changes: had ? 0 : 1 } };
+    }
+
+    if (q.startsWith('DELETE FROM downloads WHERE created_at < ?')) {
+      const cutoff = params[0];
+      let changes = 0;
+      for (const [k, createdAt] of downloads.entries()) {
+        if (createdAt && createdAt < cutoff) {
+          downloads.delete(k);
+          changes++;
+        }
+      }
+      return { meta: { changes } };
     }
 
     // --- RATE LIMITS ---
@@ -988,6 +1034,18 @@ export function createMockD1() {
       return { results };
     }
 
+    if (q.startsWith('DELETE FROM user_sessions WHERE expires_at < ?')) {
+      const [expCutoff, revCutoff] = params;
+      let changes = 0;
+      for (const [sid, s] of userSessions.entries()) {
+        if ((s.expires_at && s.expires_at < expCutoff) || (s.revoked_at && s.revoked_at < revCutoff)) {
+          userSessions.delete(sid);
+          changes++;
+        }
+      }
+      return { meta: { changes } };
+    }
+
     // --- EMAIL VERIFICATIONS ---
     if (q.startsWith('UPDATE email_verifications SET used_at = ? WHERE email = ? AND purpose = ? AND used_at IS NULL')) {
       const [used_at, email, purpose] = params;
@@ -1036,6 +1094,18 @@ export function createMockD1() {
       const v = emailVerifications.get(id);
       if (v) v.used_at = used_at;
       return { meta: { changes: v ? 1 : 0 } };
+    }
+
+    if (q.startsWith('DELETE FROM email_verifications WHERE expires_at < ?')) {
+      const [expCutoff, usedCutoff] = params;
+      let changes = 0;
+      for (const [vid, v] of emailVerifications.entries()) {
+        if ((v.expires_at && v.expires_at < expCutoff) || (v.used_at && v.used_at < usedCutoff)) {
+          emailVerifications.delete(vid);
+          changes++;
+        }
+      }
+      return { meta: { changes } };
     }
 
     // --- CREDIT LEDGER (IMMUTABLE) ---

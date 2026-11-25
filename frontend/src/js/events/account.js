@@ -27,7 +27,7 @@ function initAccountEvents() {
         if (!acctId) return;
         try {
             await navigator.clipboard.writeText(acctId);
-            ui.showToast(`Account ID ${acctId} disalin!`, 'success');
+            ui.showToast(`Account ID ${acctId} copied!`, 'success');
         } catch {
             ui.showToast(`Account ID: ${acctId}`, 'info');
         }
@@ -65,7 +65,7 @@ function initAccountEvents() {
         if (submitBtn) submitBtn.disabled = false;
 
         if (!res.success) {
-            ui.showToast(res.error || 'Pendaftaran gagal', 'error');
+            ui.showToast(res.error || 'Registration failed', 'error');
             return;
         }
 
@@ -84,8 +84,8 @@ function initAccountEvents() {
 
         ui.showToast(
             res.verification?.emailDispatched
-                ? 'Akun diamankan! Kode OTP telah dikirim ke email Anda.'
-                : 'Akun terdaftar! Silakan cek kode OTP atau hubungi admin jika email belum terkonfigurasi.',
+                ? 'Account secured! A verification OTP code has been sent to your email.'
+                : 'Account registered! Check your OTP preview or configure email delivery.',
             res.verification?.emailDispatched ? 'success' : 'warning',
             5000
         );
@@ -102,9 +102,9 @@ function initAccountEvents() {
             devHint.classList.remove('hidden');
         }
         if (res.success) {
-            ui.showToast('Kode verifikasi OTP baru telah dibuat.', 'success');
+            ui.showToast('A new verification OTP code has been sent.', 'success');
         } else {
-            ui.showToast(res.error || 'Gagal mengirim OTP', 'error');
+            ui.showToast(res.error || 'Failed to send OTP', 'error');
         }
     });
 
@@ -113,18 +113,18 @@ function initAccountEvents() {
         const otpInput = document.getElementById('account-otp-input');
         const code = otpInput?.value?.trim() || '';
         if (!/^\d{6}$/.test(code)) {
-            ui.showToast('Masukkan 6 digit kode OTP.', 'warning');
+            ui.showToast('Please enter a 6-digit OTP code.', 'warning');
             otpInput?.focus();
             return;
         }
         const res = await api.verifyEmailOtp(code);
         if (!res.success) {
-            ui.showToast(res.error || 'Kode OTP tidak valid', 'error');
+            ui.showToast(res.error || 'Invalid OTP code', 'error');
             return;
         }
         if (otpInput) otpInput.value = '';
         document.getElementById('account-dev-otp-hint')?.classList.add('hidden');
-        ui.showToast('Email berhasil diverifikasi!', 'success');
+        ui.showToast('Email verified successfully!', 'success');
         ui.renderAccountDashboard();
     });
 
@@ -140,11 +140,11 @@ function initAccountEvents() {
         if (btn) btn.disabled = false;
 
         if (!res.success) {
-            ui.showToast(res.error || 'Login gagal', 'error');
+            ui.showToast(res.error || 'Sign in failed', 'error');
             return;
         }
         document.getElementById('login-password').value = '';
-        ui.showToast(`Selamat datang kembali (${res.account?.accountId || 'Wallet'})!`, 'success');
+        ui.showToast(`Welcome back (${res.account?.accountId || 'Wallet'})!`, 'success');
         await ui.refreshAccountModalData();
         ui.switchAccountTab('overview');
     });
@@ -152,7 +152,7 @@ function initAccountEvents() {
     // Logout
     document.getElementById('account-logout-btn')?.addEventListener('click', async () => {
         await api.logoutAccount();
-        ui.showToast('Anda telah keluar dari sesi akun.', 'info');
+        ui.showToast('You have signed out of your account session.', 'info');
         await ui.refreshAccountModalData();
         ui.switchAccountTab('overview');
     });
@@ -172,9 +172,9 @@ function initAccountEvents() {
             }
         }
         if (res.success) {
-            ui.showToast(res.message || 'Kode pemulihan telah dikirim jika email terverifikasi.', 'success');
+            ui.showToast(res.message || 'Recovery code sent if the email is verified.', 'success');
         } else {
-            ui.showToast(res.error || 'Gagal meminta kode pemulihan', 'error');
+            ui.showToast(res.error || 'Failed to request recovery code', 'error');
         }
     });
 
@@ -186,13 +186,13 @@ function initAccountEvents() {
         const newPassword = document.getElementById('recover-new-password')?.value || '';
         const res = await api.confirmEmailRecovery({ email, code, newPassword });
         if (!res.success) {
-            ui.showToast(res.error || 'Pemulihan akun gagal', 'error');
+            ui.showToast(res.error || 'Account recovery failed', 'error');
             return;
         }
         document.getElementById('recover-otp-input').value = '';
         document.getElementById('recover-new-password').value = '';
         document.getElementById('account-recover-dev-hint')?.classList.add('hidden');
-        ui.showToast('Akun berhasil dipulihkan & semua sesi lama dicabut!', 'success');
+        ui.showToast('Account recovered and all previous sessions revoked!', 'success');
         await ui.refreshAccountModalData();
         ui.switchAccountTab('overview');
     });
@@ -204,14 +204,14 @@ function initAccountEvents() {
         const sessionId = btn.dataset.revokeSession;
         const res = await api.revokeAccountSession(sessionId);
         if (res.success) {
-            ui.showToast('Sesi perangkat dicabut.', 'success');
+            ui.showToast('Device session revoked.', 'success');
             if (res.revokedCurrent) {
                 await api.logoutAccount();
             }
             await ui.loadAccountSessions();
             ui.renderAccountDashboard();
         } else {
-            ui.showToast(res.error || 'Gagal mencabut sesi', 'error');
+            ui.showToast(res.error || 'Failed to revoke session', 'error');
         }
     });
 
@@ -219,10 +219,10 @@ function initAccountEvents() {
     document.getElementById('account-revoke-others-btn')?.addEventListener('click', async () => {
         const res = await api.revokeOtherAccountSessions();
         if (res.success) {
-            ui.showToast(`${res.revokedCount || 0} sesi lain berhasil dicabut.`, 'success');
+            ui.showToast(`${res.revokedCount || 0} other session(s) revoked.`, 'success');
             await ui.loadAccountSessions();
         } else {
-            ui.showToast(res.error || 'Gagal mencabut sesi lain', 'error');
+            ui.showToast(res.error || 'Failed to revoke other sessions', 'error');
         }
     });
 
@@ -230,9 +230,9 @@ function initAccountEvents() {
     document.getElementById('account-export-json-btn')?.addEventListener('click', async () => {
         const res = await api.downloadAccountBackupJson();
         if (res.success) {
-            ui.showToast('Backup wallet (.json) berhasil diunduh!', 'success');
+            ui.showToast('Wallet backup (.json) downloaded!', 'success');
         } else {
-            ui.showToast(res.error || 'Gagal mengekspor backup wallet', 'error');
+            ui.showToast(res.error || 'Failed to export wallet backup', 'error');
         }
     });
 }

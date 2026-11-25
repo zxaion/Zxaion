@@ -9,6 +9,61 @@ function buildVersionedImagePath(prefix, r2Key, row) {
   return `${base}?v=${encodeURIComponent(ver)}`;
 }
 
+function buildFtsMatchQuery(rawSearch) {
+  const tokens = String(rawSearch || '')
+    .trim()
+    .split(/\s+/)
+    .map(tok => tok.replace(/["'*()^:]/g, '').trim())
+    .filter(tok => tok.length >= 2);
+  if (tokens.length === 0) return null;
+  return tokens.map(tok => `"${tok}"*`).join(' AND ');
+}
+
+async function queryImagesWithSearch({ DB, baseConditions, baseBindings, searchQuery, searchColumns, orderBy, limit, offset }) {
+  if (searchQuery) {
+    const ftsQuery = buildFtsMatchQuery(searchQuery);
+    if (ftsQuery) {
+      try {
+        const ftsConditions = [...baseConditions, 'images.rowid IN (SELECT rowid FROM images_fts WHERE images_fts MATCH ?)'];
+        const ftsBindings = [...baseBindings, ftsQuery];
+        const ftsWhere = ftsConditions.join(' AND ');
+        const [{ results }, countRow] = await Promise.all([
+          DB.prepare(`SELECT * FROM images WHERE ${ftsWhere} ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
+            .bind(...ftsBindings, limit, offset)
+            .all(),
+          DB.prepare(`SELECT COUNT(*) AS total FROM images WHERE ${ftsWhere}`)
+            .bind(...ftsBindings)
+            .first(),
+        ]);
+        return { results: results || [], total: Number(countRow?.total ?? 0) };
+      } catch {
+        // Fallback cleanly to LIKE if images_fts is not initialized in an existing DB/MockD1
+      }
+    }
+  }
+
+  const conditions = [...baseConditions];
+  const bindings = [...baseBindings];
+  if (searchQuery) {
+    const pattern = `%${searchQuery.toLowerCase()}%`;
+    conditions.push(`(${searchColumns.join(' OR ')})`);
+    for (let i = 0; i < searchColumns.length; i++) {
+      bindings.push(pattern);
+    }
+  }
+
+  const whereClause = conditions.join(' AND ');
+  const [{ results }, countRow] = await Promise.all([
+    DB.prepare(`SELECT * FROM images WHERE ${whereClause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
+      .bind(...bindings, limit, offset)
+      .all(),
+    DB.prepare(`SELECT COUNT(*) AS total FROM images WHERE ${whereClause}`)
+      .bind(...bindings)
+      .first(),
+  ]);
+  return { results: results || [], total: Number(countRow?.total ?? 0) };
+}
+
 // ================================================================
 // ENDPOINT: List main gallery (supports category, subCategory, q search, pagination)
 // ================================================================
@@ -43,20 +98,16 @@ export async function handleListMain({ request, url, env, ctx, DB, corsHeaders }
       bindings.push(subCategory);
     }
 
-    if (searchQuery) {
-      const pattern = `%${searchQuery.toLowerCase()}%`;
-      conditions.push('(LOWER(title) LIKE ? OR LOWER(category) LIKE ? OR LOWER(COALESCE(sub_category, \'\')) LIKE ?)');
-      bindings.push(pattern, pattern, pattern);
-    }
-
-    const whereClause = conditions.join(' AND ');
-    const query       = `SELECT * FROM images WHERE ${whereClause} ORDER BY uploaded DESC, id DESC LIMIT ? OFFSET ?`;
-    const countQuery  = `SELECT COUNT(*) AS total FROM images WHERE ${whereClause}`;
-
-    const [{ results }, countRow] = await Promise.all([
-      DB.prepare(query).bind(...bindings, limit, offset).all(),
-      DB.prepare(countQuery).bind(...bindings).first(),
-    ]);
+    const { results, total } = await queryImagesWithSearch({
+      DB,
+      baseConditions: conditions,
+      baseBindings: bindings,
+      searchQuery,
+      searchColumns: ['LOWER(title) LIKE ?', 'LOWER(category) LIKE ?', "LOWER(COALESCE(sub_category, '')) LIKE ?"],
+      orderBy: 'uploaded DESC, id DESC',
+      limit,
+      offset,
+    });
 
     const photos = results.map(row => ({
       id:            row.id,
@@ -76,7 +127,7 @@ export async function handleListMain({ request, url, env, ctx, DB, corsHeaders }
         ...corsHeaders,
         'Content-Type':  'application/json',
         'Cache-Control': 'public, max-age=60',
-        'X-Total-Count': String(countRow?.total ?? photos.length),
+        'X-Total-Count': String(total ?? photos.length),
       },
     });
     if (request) storeEdgeCache(request, res, ctx);
@@ -100,14 +151,20 @@ export async function handleAnimeAlbums({ request, env, ctx, DB, corsHeaders }) 
     }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const { results } = await DB.prepare(
-      `SELECT sub_category, COUNT(*) AS count
+      `SELECT sub_category, COUNT(*) AS count, MIN(r2_key) AS sample_key
        FROM images
        WHERE bucket = 'main' AND LOWER(category) = 'anime' AND sub_category IS NOT NULL
        GROUP BY sub_category
        ORDER BY sub_category ASC`
     ).all();
 
-    const res = new Response(JSON.stringify(results), {
+    const albums = (results || []).map(row => ({
+      sub_category: row.sub_category,
+      count:        Number(row.count || 0),
+      sample_url:   row.sample_key ? `/api/img/${encodeURIComponent(row.sample_key)}` : null,
+    }));
+
+    const res = new Response(JSON.stringify(albums), {
       headers: {
         ...corsHeaders,
         'Content-Type':  'application/json',
@@ -144,18 +201,16 @@ export async function handleListComitbase({ request, url, env, ctx, comitbaseBuc
     const offset      = (page - 1) * limit;
     const searchQuery = (url.searchParams.get('q') || '').trim() || null;
 
-    const conditions = ["bucket = 'comitbase'"];
-    const bindings   = [];
-    if (searchQuery) {
-      conditions.push('LOWER(title) LIKE ?');
-      bindings.push(`%${searchQuery.toLowerCase()}%`);
-    }
-
-    const { results } = await DB.prepare(
-      `SELECT id, title, r2_key, size, uploaded, view_count, download_count
-       FROM images WHERE ${conditions.join(' AND ')}
-       ORDER BY uploaded DESC, id DESC LIMIT ? OFFSET ?`
-    ).bind(...bindings, limit, offset).all();
+    const { results, total } = await queryImagesWithSearch({
+      DB,
+      baseConditions: ["bucket = 'comitbase'"],
+      baseBindings: [],
+      searchQuery,
+      searchColumns: ['LOWER(title) LIKE ?'],
+      orderBy: 'uploaded DESC, id DESC',
+      limit,
+      offset,
+    });
 
     const photos = results.map(row => ({
       id:            row.id,
@@ -172,6 +227,7 @@ export async function handleListComitbase({ request, url, env, ctx, comitbaseBuc
         ...corsHeaders,
         'Content-Type':  'application/json',
         'Cache-Control': 'public, max-age=60',
+        'X-Total-Count': String(total ?? photos.length),
       },
     });
     if (request) storeEdgeCache(request, res, ctx);
@@ -200,18 +256,16 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
     const offset      = (page - 1) * limit;
     const searchQuery = (url.searchParams.get('q') || '').trim() || null;
 
-    const conditions = ["bucket = 'dtreasure'"];
-    const bindings   = [];
-    if (searchQuery) {
-      conditions.push('LOWER(title) LIKE ?');
-      bindings.push(`%${searchQuery.toLowerCase()}%`);
-    }
-
-    const { results } = await DB.prepare(
-      `SELECT id, title, r2_key, uploaded, view_count, download_count
-       FROM images WHERE ${conditions.join(' AND ')}
-       ORDER BY uploaded DESC, id DESC LIMIT ? OFFSET ?`
-    ).bind(...bindings, limit, offset).all();
+    const { results, total } = await queryImagesWithSearch({
+      DB,
+      baseConditions: ["bucket = 'dtreasure'"],
+      baseBindings: [],
+      searchQuery,
+      searchColumns: ['LOWER(title) LIKE ?'],
+      orderBy: 'uploaded DESC, id DESC',
+      limit,
+      offset,
+    });
 
     const photos = results.map(row => ({
       id:            row.id,
@@ -228,6 +282,7 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
         ...corsHeaders,
         'Content-Type':  'application/json',
         'Cache-Control': 'private, max-age=30',
+        'X-Total-Count': String(total ?? photos.length),
       },
     });
   } catch (e) {

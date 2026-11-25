@@ -71,7 +71,7 @@ Object.assign(ui, {
         const cleanToken = (token || '').trim();
         if (!cleanToken) {
             if (elements.adminLoginError) {
-                elements.adminLoginError.textContent = 'Token admin tidak boleh kosong.';
+                elements.adminLoginError.textContent = 'Admin token cannot be empty.';
                 elements.adminLoginError.classList.remove('hidden');
             }
             return;
@@ -81,7 +81,7 @@ Object.assign(ui, {
         const origText = loginBtn ? loginBtn.innerHTML : '';
         if (loginBtn) {
             loginBtn.disabled = true;
-            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memvalidasi token...';
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validating token...';
         }
 
         try {
@@ -96,7 +96,7 @@ Object.assign(ui, {
 
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.error || `Akses ditolak (HTTP ${res.status})`);
+                throw new Error(errData.error || `Access denied (HTTP ${res.status})`);
             }
 
             const data = await res.json();
@@ -111,11 +111,11 @@ Object.assign(ui, {
             if (elements.adminLoginError) elements.adminLoginError.classList.add('hidden');
 
             this.renderAdminDashboard(data);
-            this.showToast('Login admin berhasil!', 'success');
+            this.showToast('Admin login successful!', 'success');
         } catch (err) {
             console.error('[Admin] Login error:', err);
             if (elements.adminLoginError) {
-                elements.adminLoginError.textContent = err.message || 'Token tidak valid. Silakan coba lagi.';
+                elements.adminLoginError.textContent = err.message || 'Invalid token. Please try again.';
                 elements.adminLoginError.classList.remove('hidden');
             }
         } finally {
@@ -139,14 +139,14 @@ Object.assign(ui, {
         if (elements.adminTokenInput) elements.adminTokenInput.value = '';
         if (elements.adminLoginError) elements.adminLoginError.classList.add('hidden');
 
-        this.showToast('Telah keluar dari admin portal.', 'info');
+        this.showToast('Signed out from admin portal.', 'info');
     },
 
     async fetchAdminDashboard() {
         if (!state.adminToken) return;
 
         const refreshBtn = elements.adminRefreshBtn;
-        if (refreshBtn) refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span class="hidden sm:inline">Memuat...</span>';
+        if (refreshBtn) refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span class="hidden sm:inline">Loading...</span>';
 
         try {
             const url = `${API_BASE}/api/admin/dashboard`;
@@ -160,7 +160,7 @@ Object.assign(ui, {
 
             if (res.status === 401) {
                 this.logoutAdmin();
-                this.showToast('Sesi token admin telah kedaluwarsa. Silakan masukkan token kembali.', 'warning');
+                this.showToast('Admin token session expired. Please re-enter your token.', 'warning');
                 return;
             }
 
@@ -171,7 +171,7 @@ Object.assign(ui, {
             this.renderAdminDashboard(data);
         } catch (err) {
             console.error('[Admin] Fetch dashboard error:', err);
-            this.showToast('Gagal memuat data dashboard: ' + err.message, 'error');
+            this.showToast('Failed to load dashboard data: ' + err.message, 'error');
         } finally {
             if (refreshBtn) refreshBtn.innerHTML = '<i class="fas fa-rotate"></i> <span class="hidden sm:inline">Refresh</span>';
         }
@@ -179,7 +179,7 @@ Object.assign(ui, {
 
     async triggerAdminRescan() {
         if (!state.adminToken) {
-            this.showToast('Token admin diperlukan untuk rescan.', 'warning');
+            this.showToast('Admin token is required to rescan.', 'warning');
             return;
         }
 
@@ -224,16 +224,16 @@ Object.assign(ui, {
                     <div class="flex items-center gap-2">
                         <i class="fas fa-check-circle text-emerald-500 text-lg"></i>
                         <div>
-                            <div class="font-bold">Force-Rescan R2 Sukses!</div>
-                            <div class="text-xs opacity-90">${totalUpserted} file baru/update, ${totalRemoved} file dihapus. Total saat ini: ${totalImages} gambar di database.</div>
+                            <div class="font-bold">R2 Force-Rescan Complete!</div>
+                            <div class="text-xs opacity-90">${totalUpserted} added/updated files, ${totalRemoved} removed files. Current total: ${totalImages} images in database.</div>
                         </div>
                     </div>
-                    <button type="button" class="text-xs font-bold underline ml-4" onclick="this.parentElement.classList.add('hidden')">Tutup</button>
+                    <button type="button" class="text-xs font-bold underline ml-4" onclick="this.parentElement.classList.add('hidden')">Dismiss</button>
                 `;
                 alertEl.classList.remove('hidden');
             }
 
-            this.showToast(`R2 Rescan Berhasil: +${totalUpserted} baru, -${totalRemoved} hapus!`, 'success', 5000);
+            this.showToast(`R2 Rescan Complete: +${totalUpserted} added, -${totalRemoved} removed!`, 'success', 5000);
 
             // Reload admin metrics and public image cache
             await this.fetchAdminDashboard();
@@ -247,19 +247,19 @@ Object.assign(ui, {
                     <div class="flex items-center gap-2">
                         <i class="fas fa-exclamation-triangle text-red-500 text-lg"></i>
                         <div>
-                            <div class="font-bold">Gagal menjalankan force-rescan R2</div>
+                            <div class="font-bold">Failed to run R2 force-rescan</div>
                             <div class="text-xs opacity-90">${utils.escapeHtml(err.message)}</div>
                         </div>
                     </div>
-                    <button type="button" class="text-xs font-bold underline ml-4" onclick="this.parentElement.classList.add('hidden')">Tutup</button>
+                    <button type="button" class="text-xs font-bold underline ml-4" onclick="this.parentElement.classList.add('hidden')">Dismiss</button>
                 `;
                 alertEl.classList.remove('hidden');
             }
-            this.showToast('Rescan gagal: ' + err.message, 'error');
+            this.showToast('Rescan failed: ' + err.message, 'error');
         } finally {
             if (btn) btn.disabled = false;
             if (triggerLarge) triggerLarge.disabled = false;
-            if (btnText) btnText.innerHTML = '1-Klik Force-Rescan R2';
+            if (btnText) btnText.innerHTML = '1-Click Force-Rescan R2';
         }
     },
 
@@ -303,30 +303,30 @@ Object.assign(ui, {
         if (revEl) revEl.textContent = `$${(rev.totalGross || 0).toFixed(2)} USD`;
 
         const ordersRatioEl = document.getElementById('admin-metric-orders-ratio');
-        if (ordersRatioEl) ordersRatioEl.textContent = `${rev.completedOrders || 0} sukses dari ${rev.totalOrders || 0} pesanan`;
+        if (ordersRatioEl) ordersRatioEl.textContent = `${rev.completedOrders || 0} completed of ${rev.totalOrders || 0} orders`;
 
         const bComp = document.getElementById('admin-badge-completed');
-        if (bComp) bComp.textContent = `${rev.completedOrders || 0} Sukses`;
+        if (bComp) bComp.textContent = `${rev.completedOrders || 0} Completed`;
         const bProc = document.getElementById('admin-badge-processing');
-        if (bProc) bProc.textContent = `${rev.processingOrders || 0} Proses`;
+        if (bProc) bProc.textContent = `${rev.processingOrders || 0} Processing`;
         const bFail = document.getElementById('admin-badge-failed');
-        if (bFail) bFail.textContent = `${rev.failedOrders || 0} Gagal`;
+        if (bFail) bFail.textContent = `${rev.failedOrders || 0} Failed`;
         const bRef = document.getElementById('admin-badge-refunded');
-        if (bRef) bRef.textContent = `${rev.refundedOrders || 0} Refund`;
+        if (bRef) bRef.textContent = `${rev.refundedOrders || 0} Refunded`;
 
         const totalOrdersEl = document.getElementById('admin-metric-total-orders');
-        if (totalOrdersEl) totalOrdersEl.textContent = `Total ${rev.totalOrders || 0} transaksi`;
+        if (totalOrdersEl) totalOrdersEl.textContent = `Total ${rev.totalOrders || 0} transactions`;
 
         const usersCountEl = document.getElementById('admin-metric-users-count');
-        if (usersCountEl) usersCountEl.textContent = `${uSummary.totalUsers || 0} Akun`;
+        if (usersCountEl) usersCountEl.textContent = `${uSummary.totalUsers || 0} Accounts`;
 
         const creditsSummaryEl = document.getElementById('admin-metric-credits-summary');
         if (creditsSummaryEl) {
-            creditsSummaryEl.textContent = `${uSummary.totalCreditsCirculating || 0} kredit beredar • ${uSummary.totalLifetimeUsers || 0} Lifetime`;
+            creditsSummaryEl.textContent = `${uSummary.totalCreditsCirculating || 0} circulating credits • ${uSummary.totalLifetimeUsers || 0} Lifetime`;
         }
 
         const recoveryCountEl = document.getElementById('admin-metric-recovery-count');
-        if (recoveryCountEl) recoveryCountEl.textContent = `${uSummary.totalRecoveryCodes || 0} Ter-Backup`;
+        if (recoveryCountEl) recoveryCountEl.textContent = `${uSummary.totalRecoveryCodes || 0} Backed Up`;
 
         const catalogCountsEl = document.getElementById('admin-metric-catalog-counts');
         if (catalogCountsEl) {
@@ -347,7 +347,7 @@ Object.assign(ui, {
         const tabCountUsers = document.getElementById('admin-tab-count-users');
         if (tabCountUsers) tabCountUsers.textContent = (data.users || []).length;
         const usersTotalBadge = document.getElementById('admin-users-total-badge');
-        if (usersTotalBadge) usersTotalBadge.textContent = `${(data.users || []).length} Terdaftar`;
+        if (usersTotalBadge) usersTotalBadge.textContent = `${(data.users || []).length} Registered`;
 
         // 3. Render Orders Table
         this.renderAdminOrdersTable(data.orders || []);
@@ -371,15 +371,15 @@ Object.assign(ui, {
         const snapshots = data?.snapshots || [];
 
         const accBadge = document.getElementById('admin-accounts-summary-badge');
-        if (accBadge) accBadge.textContent = `${accounts.length} Akun`;
+        if (accBadge) accBadge.textContent = `${accounts.length} Accounts`;
 
         const ledBadge = document.getElementById('admin-ledger-summary-badge');
-        if (ledBadge) ledBadge.textContent = `${ledger.length} Entri`;
+        if (ledBadge) ledBadge.textContent = `${ledger.length} Entries`;
 
         const accBody = document.getElementById('admin-accounts-table-body');
         if (accBody) {
             accBody.innerHTML = accounts.length === 0
-                ? '<tr><td colspan="3" class="p-6 text-center text-gray-400 font-sans">Belum ada virtual account.</td></tr>'
+                ? '<tr><td colspan="3" class="p-6 text-center text-gray-400 font-sans">No virtual accounts yet.</td></tr>'
                 : accounts.slice(0, 100).map((a) => `
                     <tr class="hover:bg-gray-50/50 dark:hover:bg-gray-800/40">
                         <td class="p-3 font-bold text-amber-600 dark:text-amber-400">${utils.escapeHtml(a.account_id)}</td>
@@ -398,7 +398,7 @@ Object.assign(ui, {
         const ledBody = document.getElementById('admin-ledger-table-body');
         if (ledBody) {
             ledBody.innerHTML = ledger.length === 0
-                ? '<tr><td colspan="4" class="p-6 text-center text-gray-400 font-sans">Belum ada entri ledger.</td></tr>'
+                ? '<tr><td colspan="4" class="p-6 text-center text-gray-400 font-sans">No ledger entries yet.</td></tr>'
                 : ledger.slice(0, 100).map((l) => {
                     const amt = Number(l.amount || 0);
                     const cls = amt > 0 ? 'text-emerald-600 dark:text-emerald-400' : (amt < 0 ? 'text-red-500' : 'text-amber-500');
@@ -416,18 +416,18 @@ Object.assign(ui, {
         const snapList = document.getElementById('admin-snapshots-list');
         if (snapList) {
             snapList.innerHTML = snapshots.length === 0
-                ? '<div class="text-xs text-gray-400 py-4 text-center">Belum ada snapshot tersimpan. Klik "Buat Snapshot D1" untuk membuat cadangan sekarang.</div>'
+                ? '<div class="text-xs text-gray-400 py-4 text-center">No snapshots saved yet. Click "Create D1 Snapshot" to create a backup now.</div>'
                 : snapshots.map((s) => `
                     <div class="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                         <div class="min-w-0">
                             <div class="font-mono font-bold text-gray-900 dark:text-white truncate">${utils.escapeHtml(s.snapshot_id)} <span class="text-gray-400 font-sans font-normal">(${utils.escapeHtml(s.created_by)})</span></div>
                             <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                                Akun: ${s.accounts_cnt || 0} &bull; Wallet: ${s.wallets_cnt || 0} &bull; Ledger: ${s.ledger_cnt || 0} &bull; Orders: ${s.orders_cnt || 0}
+                                Accounts: ${s.accounts_cnt || 0} &bull; Wallets: ${s.wallets_cnt || 0} &bull; Ledger: ${s.ledger_cnt || 0} &bull; Orders: ${s.orders_cnt || 0}
                             </div>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             <button type="button" data-admin-download-snap="${utils.escapeHtml(s.snapshot_id)}" class="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold transition-colors">
-                                Unduh
+                                Download
                             </button>
                             <button type="button" data-admin-restore-snap="${utils.escapeHtml(s.snapshot_id)}" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-gray-950 font-bold transition-colors">
                                 Restore
@@ -447,10 +447,10 @@ Object.assign(ui, {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
-            this.showToast(`Snapshot ${data.snapshot?.snapshot_id} berhasil dibuat!`, 'success');
+            this.showToast(`Snapshot ${data.snapshot?.snapshot_id} created!`, 'success');
             await this.fetchAdminDashboard();
         } catch (err) {
-            this.showToast('Gagal membuat snapshot: ' + err.message, 'error');
+            this.showToast('Failed to create snapshot: ' + err.message, 'error');
         }
     },
 
@@ -471,9 +471,9 @@ Object.assign(ui, {
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(url), 4000);
-            this.showToast('File backup D1 (.json) diunduh!', 'success');
+            this.showToast('D1 backup file (.json) downloaded!', 'success');
         } catch (err) {
-            this.showToast('Gagal mengunduh snapshot: ' + err.message, 'error');
+            this.showToast('Failed to download snapshot: ' + err.message, 'error');
         }
     },
 
@@ -490,10 +490,10 @@ Object.assign(ui, {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
-            this.showToast(`Database dipulihkan (${data.counts?.accounts || 0} akun, ${data.counts?.credit_ledger || 0} entri ledger)!`, 'success', 5000);
+            this.showToast(`Database restored (${data.counts?.accounts || 0} accounts, ${data.counts?.credit_ledger || 0} ledger entries)!`, 'success', 5000);
             await this.fetchAdminDashboard();
         } catch (err) {
-            this.showToast('Restore gagal: ' + err.message, 'error');
+            this.showToast('Restore failed: ' + err.message, 'error');
         }
     },
 
@@ -516,7 +516,7 @@ Object.assign(ui, {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="7" class="p-8 text-center text-gray-400 font-sans">
-                        ${query ? 'Tidak ada pesanan yang cocok dengan pencarian.' : 'Belum ada data pesanan.'}
+                        ${query ? 'No orders match your search.' : 'No order records yet.'}
                     </td>
                 </tr>
             `;
@@ -533,7 +533,7 @@ Object.assign(ui, {
 
         tbody.innerHTML = filtered.map(o => {
             const badge = statusBadges[o.status] || `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700">${utils.escapeHtml(o.status || 'unknown')}</span>`;
-            const dateStr = o.created_at ? new Date(o.created_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+            const dateStr = o.created_at ? new Date(o.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) : '-';
             const orderDisplay = o.order_id ? `${o.order_id.slice(0, 14)}...` : (o.id || '-');
             const userDisplay = o.user_id ? `${o.user_id.slice(0, 12)}...` : '-';
             const amountStr = `$${Number(o.amount || 0).toFixed(2)}`;
@@ -569,7 +569,7 @@ Object.assign(ui, {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="6" class="p-8 text-center text-gray-400 font-sans">
-                        ${query ? 'Tidak ada akun yang cocok dengan pencarian.' : 'Belum ada pengguna terdaftar.'}
+                        ${query ? 'No accounts match your search.' : 'No registered users yet.'}
                     </td>
                 </tr>
             `;
@@ -583,8 +583,8 @@ Object.assign(ui, {
                 : '<span class="text-gray-400 font-sans text-xs">Standard</span>';
 
             const recoveryBadge = u.has_recovery
-                ? '<span class="text-emerald-500 font-sans text-xs flex items-center gap-1"><i class="fas fa-circle-check"></i> Aktif</span>'
-                : '<span class="text-gray-400 font-sans text-xs flex items-center gap-1"><i class="fas fa-circle-xmark"></i> Belum set</span>';
+                ? '<span class="text-emerald-500 font-sans text-xs flex items-center gap-1"><i class="fas fa-circle-check"></i> Active</span>'
+                : '<span class="text-gray-400 font-sans text-xs flex items-center gap-1"><i class="fas fa-circle-xmark"></i> Not set</span>';
 
             const userTrunc = u.user_id ? `${u.user_id.slice(0, 16)}...` : '-';
             const publicTrunc = u.public_id ? `${u.public_id.slice(0, 14)}...` : '-';
@@ -596,7 +596,7 @@ Object.assign(ui, {
                     <td class="p-3.5 font-bold text-amber-600 dark:text-amber-400">${utils.formatNumber(u.credits || 0)} Cr</td>
                     <td class="p-3.5">${vipBadge}</td>
                     <td class="p-3.5">${recoveryBadge}</td>
-                    <td class="p-3.5 font-sans font-semibold">${u.purchased_count || 0} item</td>
+                    <td class="p-3.5 font-sans font-semibold">${u.purchased_count || 0} ${u.purchased_count === 1 ? 'item' : 'items'}</td>
                 </tr>
             `;
         }).join('');
@@ -624,7 +624,7 @@ Object.assign(ui, {
                         <div class="text-xs text-gray-500 mt-1">${p.credits === 'lifetime' ? 'Unlimited Access' : `${p.credits} Credits`}</div>
                     </div>
                     <div class="text-right">
-                        <div class="text-xl font-black font-mono text-gray-900 dark:text-white">${count} terjual</div>
+                        <div class="text-xl font-black font-mono text-gray-900 dark:text-white">${count} sold</div>
                         <div class="text-xs text-emerald-600 dark:text-emerald-400 font-bold font-mono">$${revenue.toFixed(2)}</div>
                     </div>
                 </div>
@@ -635,7 +635,7 @@ Object.assign(ui, {
     exportAdminOrdersCsv() {
         const orders = state.adminData?.orders || [];
         if (orders.length === 0) {
-            this.showToast('Tidak ada data pesanan untuk diekspor.', 'info');
+            this.showToast('No order data available to export.', 'info');
             return;
         }
 
@@ -666,6 +666,6 @@ Object.assign(ui, {
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-        this.showToast('File CSV berhasil diunduh!', 'success');
+        this.showToast('CSV file downloaded!', 'success');
     },
 });
