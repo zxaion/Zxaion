@@ -183,6 +183,97 @@ function attachImageFallback(imgEl, candidates, { onLoadSuccess, onFinalError, f
     return queue[0] || fallbackSvg || '';
 }
 
+const _authImageSeq    = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+const _trackedBlobUrls = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+
+function revokeTrackedBlobUrl(imgEl) {
+    if (!imgEl || !_trackedBlobUrls) return;
+    const prev = _trackedBlobUrls.get(imgEl);
+    if (prev && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+        try { URL.revokeObjectURL(prev); } catch (_) {}
+    }
+    _trackedBlobUrls.delete(imgEl);
+}
+
+function getAuthenticatedImageCandidates(rawUrl, options = {}) {
+    const seen = new Set();
+    const list = [];
+    const add = (url) => {
+        if (url && typeof url === 'string' && !seen.has(url)) {
+            seen.add(url);
+            list.push(url);
+        }
+    };
+    add(buildWorkerTransformUrl(rawUrl, options));
+    add(encodeImageUrlPath(rawUrl));
+    return list;
+}
+
+async function loadAuthenticatedImage(imgEl, rawUrl, options = {}, { onLoadSuccess, onFinalError, fallbackSvg } = {}) {
+    if (!imgEl) return;
+    const seq = (_authImageSeq?.get(imgEl) || 0) + 1;
+    if (_authImageSeq) _authImageSeq.set(imgEl, seq);
+
+    const candidates = getAuthenticatedImageCandidates(rawUrl, options);
+    const headers = typeof getAuthHeaders === 'function' ? getAuthHeaders() : {};
+
+    imgEl.onload = null;
+    imgEl.onerror = null;
+
+    for (const candidateUrl of candidates) {
+        if (_authImageSeq && _authImageSeq.get(imgEl) !== seq) return;
+        try {
+            const res = await fetch(candidateUrl, {
+                method: 'GET',
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers,
+            });
+            if (!res.ok) continue;
+
+            const blob = await res.blob();
+            if (!blob || blob.size === 0) continue;
+
+            if (_authImageSeq && _authImageSeq.get(imgEl) !== seq) return;
+
+            const objectUrl = URL.createObjectURL(blob);
+            const prevBlobUrl = _trackedBlobUrls?.get(imgEl);
+            if (_trackedBlobUrls) _trackedBlobUrls.set(imgEl, objectUrl);
+
+            imgEl.onload = function() {
+                if (prevBlobUrl && prevBlobUrl !== objectUrl) {
+                    try { URL.revokeObjectURL(prevBlobUrl); } catch (_) {}
+                }
+                if (_authImageSeq && _authImageSeq.get(imgEl) !== seq) return;
+                if (typeof onLoadSuccess === 'function') onLoadSuccess(this);
+            };
+            imgEl.onerror = function() {
+                if (prevBlobUrl && prevBlobUrl !== objectUrl) {
+                    try { URL.revokeObjectURL(prevBlobUrl); } catch (_) {}
+                }
+                if (_authImageSeq && _authImageSeq.get(imgEl) !== seq) return;
+                this.onerror = null;
+                if (typeof onFinalError === 'function') {
+                    onFinalError(this);
+                } else if (fallbackSvg) {
+                    this.src = fallbackSvg;
+                }
+            };
+            imgEl.src = objectUrl;
+            return;
+        } catch (_) {
+            // Try next candidate URL
+        }
+    }
+
+    if (_authImageSeq && _authImageSeq.get(imgEl) !== seq) return;
+    if (typeof onFinalError === 'function') {
+        onFinalError(imgEl);
+    } else if (fallbackSvg) {
+        imgEl.src = fallbackSvg;
+    }
+}
+
 if (typeof window !== 'undefined') {
     window.getCloudflareImageUrl = getCloudflareImageUrl;
 }
@@ -266,5 +357,17 @@ const utils = {
 
     attachImageFallback(imgEl, candidates, hooks = {}) {
         return attachImageFallback(imgEl, candidates, hooks);
+    },
+
+    getAuthenticatedImageCandidates(rawUrl, options = {}) {
+        return getAuthenticatedImageCandidates(rawUrl, options);
+    },
+
+    loadAuthenticatedImage(imgEl, rawUrl, options = {}, hooks = {}) {
+        return loadAuthenticatedImage(imgEl, rawUrl, options, hooks);
+    },
+
+    revokeTrackedBlobUrl(imgEl) {
+        return revokeTrackedBlobUrl(imgEl);
     },
 };

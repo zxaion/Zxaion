@@ -2645,8 +2645,84 @@ test('Public cleanliness, accessibility, legal compliance disclosures, and Engli
   assert.ok(animeJs.includes("'role', 'button'") && animeJs.includes("'tabindex', '0'"));
 });
 
+test('Purchased DTREASURE serves unblurred high-res preview via X-User-Token with auth Vary headers and unified hero search bar placement', async () => {
+  const env = await createLocalEnv();
+  const buyerId = 'u_dtreasure_crisp_01';
+  const photoId = 'dtreasure:vault/crisp_artwork.jpg';
 
+  const treasureBucket = createMockR2Bucket('dtreasure', [
+    { key: 'vault/crisp_artwork.jpg', contentType: 'image/jpeg', bodyText: 'CRISP_FULL_ARTWORK_BYTES' },
+    { key: '_preview/vault/crisp_artwork.jpg', contentType: 'image/jpeg', bodyText: 'WATERMARKED_BLUR_PREVIEW_BYTES' },
+  ]);
 
+  await env.DB.prepare('INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)').bind(buyerId, photoId).run();
 
+  let capturedStep = null;
+  const spyImages = {
+    input(body) {
+      return {
+        transform(step) { capturedStep = step; return this; },
+        async output(opts) {
+          return { response: () => new Response(body, { headers: { 'Content-Type': opts.format } }) };
+        },
+      };
+    },
+  };
 
+  // Purchased user authenticated purely via X-User-Token (no Cookie) gets unblurred w=1400 from original key
+  const purchasedRes = await handleServeImage({
+    request: makeReq('http://localhost/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1400&q=85&fit=scale-down&fmt=webp', {
+      headers: { 'X-User-Token': buyerId },
+    }),
+    url: new URL('http://localhost/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1400&q=85&fit=scale-down&fmt=webp'),
+    path: '/api/dtreasure/img/vault%2Fcrisp_artwork.jpg',
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket,
+    DB: env.DB,
+    IMAGES: spyImages,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
 
+  assert.equal(purchasedRes.status, 200);
+  assert.match(purchasedRes.headers.get('Vary') || '', /X-User-Token/);
+  assert.match(purchasedRes.headers.get('Vary') || '', /Authorization/);
+  assert.equal(purchasedRes.headers.get('Cache-Control'), 'private, no-store');
+  assert.equal(capturedStep.width, 1400);
+  assert.equal(capturedStep.blur, undefined);
+  assert.equal(await purchasedRes.text(), 'CRISP_FULL_ARTWORK_BYTES');
+
+  // Frontend authenticated candidate builder bypasses /cdn-cgi/image/
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const utilsSrc = fs.readFileSync(path.resolve('frontend/src/js/core/utils.js'), 'utf8');
+  const sandbox = { API_BASE: '', URL, URLSearchParams };
+  vm.runInNewContext(utilsSrc, sandbox);
+  const authCandidates = JSON.parse(JSON.stringify(
+    sandbox.getAuthenticatedImageCandidates('/api/dtreasure/img/vault%2Fcrisp_artwork.jpg', { w: 1400, q: 85, fit: 'scale-down', fmt: 'auto' })
+  ));
+  assert.equal(authCandidates.some(u => u.startsWith('/cdn-cgi/image/')), false);
+  assert.equal(authCandidates[0], '/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1400&q=85&fit=scale-down&fmt=auto');
+  assert.equal(authCandidates[1], '/api/dtreasure/img/vault%2Fcrisp_artwork.jpg');
+
+  // Modal & DTREASURE gallery wire unlocked authenticated preview reload
+  const modalJs = fs.readFileSync(path.resolve('frontend/src/js/ui/modal.js'), 'utf8');
+  assert.ok(modalJs.includes('loadAuthenticatedImage'));
+  assert.ok(modalJs.includes('refreshModalLockState'));
+  assert.ok(modalJs.includes('w: 1400'));
+
+  const dtreasureJs = fs.readFileSync(path.resolve('frontend/src/js/ui/dtreasure.js'), 'utf8');
+  assert.ok(dtreasureJs.includes('loadAuthenticatedImage'));
+
+  // Searchbar relocated from nav/mobile-search into spacious unified hero search wrapper
+  const navHtml = fs.readFileSync(path.resolve('frontend/src/partials/layout/nav.html'), 'utf8');
+  const heroHtml = fs.readFileSync(path.resolve('frontend/src/partials/layout/hero.html'), 'utf8');
+  const indexHtml = fs.readFileSync(path.resolve('frontend/src/index.html'), 'utf8');
+  assert.equal(navHtml.includes('id="searchInput"'), false);
+  assert.equal(indexHtml.includes('mobile-search.html'), false);
+  assert.ok(heroHtml.includes('id="hero-search-wrapper"'));
+  assert.ok(heroHtml.includes('id="searchInput"'));
+  assert.ok(heroHtml.includes('id="search-clear"'));
+});

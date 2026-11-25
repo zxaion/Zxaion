@@ -12,7 +12,6 @@ Object.assign(ui, {
         state.searchQuery = '';
 
         if (elements.searchInput)       elements.searchInput.value = '';
-        if (elements.searchInputMobile) elements.searchInputMobile.value = '';
         if (elements.searchClear)       elements.searchClear.classList.add('hidden');
 
         document.querySelectorAll('.cat-btn').forEach(btn => btn.classList.remove('active'));

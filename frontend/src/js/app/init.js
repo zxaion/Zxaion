@@ -12,9 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateCategoryNavTop();
     const _resizeObserver = new ResizeObserver(() => updateCategoryNavTop());
     const _navEl          = document.querySelector('nav');
-    const _searchEl       = document.getElementById('mobile-search-bar');
     if (_navEl)    _resizeObserver.observe(_navEl);
-    if (_searchEl) _resizeObserver.observe(_searchEl);
 
     const autoAccountPromise = api.ensureAutoAccount?.();
     const creditsPromise     = api.fetchCreditBalance();
@@ -27,14 +25,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         ui.checkDeepLink();
     }
 
-    await Promise.allSettled([creditsPromise, comitbasePromise, dtreasurePromise]);
+    await Promise.allSettled([autoAccountPromise, creditsPromise, comitbasePromise, dtreasurePromise]);
     if (state.currentCategory === 'COMITBASE') ui.renderComitbaseGallery();
-    if (state.currentCategory === 'DTREASURE') ui.renderDtreasureGallery();
+    if (state.currentCategory === 'DTREASURE') {
+        ui.invalidateDtreasureSortCache?.();
+        ui.renderDtreasureGallery();
+    }
     const isAdminRoute = window.location.pathname === '/admin' || window.location.hash === '#admin';
     if (isAdminRoute) {
         ui.openAdminSection();
     } else if (!state.currentImageId) {
         ui.checkDeepLink();
+    } else if (state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+        ui.refreshModalLockState(state.currentPhoto);
     }
 
     const nav = document.querySelector('nav');

@@ -12,12 +12,10 @@
 /* ============================================
    SEARCH INPUT
    ============================================ */
-#searchInput:focus {
-    box-shadow: 0 0 0 3px rgba(0,0,0,0.1);
-}
-
-.dark #searchInput:focus {
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.1);
+#searchInput:focus,
+#searchInput:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 
 /* ============================================

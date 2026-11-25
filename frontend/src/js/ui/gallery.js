@@ -88,7 +88,14 @@ Object.assign(ui, {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         const img = entry.target;
-                        if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
+                        if (typeof img._lazyLoadFn === 'function') {
+                            const loadFn = img._lazyLoadFn;
+                            img._lazyLoadFn = null;
+                            loadFn();
+                        } else if (img.dataset.src) {
+                            img.src = img.dataset.src;
+                            delete img.dataset.src;
+                        }
                         observer.unobserve(img);
                     }
                 });
@@ -107,7 +114,10 @@ Object.assign(ui, {
 
             const isDtreasure   = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
             const isFree        = !isDtreasure || state.lifetime || state.purchasedImages.has(photo.id);
-            const transformOpts = isDtreasure ? { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' } : { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' };
+            const useAuthLoad   = isDtreasure && isFree && typeof utils.loadAuthenticatedImage === 'function';
+            const transformOpts = (isDtreasure && isFree)
+                ? { w: 700, q: 82, fit: 'scale-down', fmt: 'auto' }
+                : (isDtreasure ? { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' } : { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' });
             const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
             const fullUrl       = candidates[0] || '';
             const safePhotoId   = utils.escapeHtml(photo.id);
@@ -130,7 +140,7 @@ Object.assign(ui, {
                     ${unlockedBadge}
                     <img
                         src="${placeholderSvg}"
-                        data-src="${utils.escapeHtml(fullUrl)}"
+                        ${useAuthLoad ? '' : `data-src="${utils.escapeHtml(fullUrl)}"`}
                         alt="${utils.escapeHtml(photo.title) || 'Wallpaper'}"
                         loading="lazy"
                         class="loading-shimmer w-full h-auto select-none"
@@ -160,18 +170,34 @@ Object.assign(ui, {
             </div>`;
 
             const img   = item.querySelector('img');
-            utils.attachImageFallback(img, candidates, {
-                fallbackSvg: errorSvg,
-                onLoadSuccess(el) {
-                    if (el.dataset.src) return; // Abaikan onload dari placeholderSvg sebelum lazy-load
-                    el.classList.remove('loading-shimmer');
-                    ui.recordPhotoDimensions(photo, el);
-                },
-                onFinalError(el) {
-                    el.classList.remove('loading-shimmer');
-                    el.src = errorSvg;
-                },
-            });
+            if (useAuthLoad) {
+                img._lazyLoadFn = () => {
+                    utils.loadAuthenticatedImage(img, photo.url, transformOpts, {
+                        fallbackSvg: errorSvg,
+                        onLoadSuccess(el) {
+                            el.classList.remove('loading-shimmer');
+                            ui.recordPhotoDimensions(photo, el);
+                        },
+                        onFinalError(el) {
+                            el.classList.remove('loading-shimmer');
+                            el.src = errorSvg;
+                        },
+                    });
+                };
+            } else {
+                utils.attachImageFallback(img, candidates, {
+                    fallbackSvg: errorSvg,
+                    onLoadSuccess(el) {
+                        if (el.dataset.src) return; // Abaikan onload dari placeholderSvg sebelum lazy-load
+                        el.classList.remove('loading-shimmer');
+                        ui.recordPhotoDimensions(photo, el);
+                    },
+                    onFinalError(el) {
+                        el.classList.remove('loading-shimmer');
+                        el.src = errorSvg;
+                    },
+                });
+            }
             imageObserver.observe(img);
 
             fragment.appendChild(item);

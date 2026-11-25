@@ -24,7 +24,6 @@ const elements = {
     dtreasureTabLibrary:   document.getElementById('dtreasure-tab-library'),
     dtreasureUnlockedCount:document.getElementById('dtreasure-unlocked-count'),
     searchInput:           document.getElementById('searchInput'),
-    searchInputMobile:     document.getElementById('searchInputMobile'),
     searchClear:           document.getElementById('search-clear'),
     imageModal:            document.getElementById('image-modal'),
     modalImg:              document.getElementById('modal-img'),

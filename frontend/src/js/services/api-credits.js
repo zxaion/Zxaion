@@ -26,6 +26,15 @@ Object.assign(api, {
             }
             ui.updateCreditDisplay();
             ui.updateAccountBanner?.();
+            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
+                ui.invalidateDtreasureSortCache?.();
+                ui.renderDtreasureGallery();
+            } else if (state.searchQuery && typeof ui.renderGallery === 'function') {
+                ui.renderGallery();
+            }
+            if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+                ui.refreshModalLockState(state.currentPhoto);
+            }
         } catch (e) {
             console.error('Failed to fetch credits:', e);
         }
@@ -172,8 +181,8 @@ Object.assign(api, {
             if (state.currentImageId && typeof ui.applyModalShield === 'function') {
                 const isUnlocked = state.lifetime || state.purchasedImages.has(state.currentImageId);
                 if (isUnlocked) {
-                    ui.applyModalShield(false);
                     ui.unlockDtreasureThumbnail?.(state.currentImageId);
+                    if (state.currentPhoto) ui.refreshModalLockState?.(state.currentPhoto);
                 }
             }
 

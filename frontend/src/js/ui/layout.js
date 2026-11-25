@@ -1,10 +1,10 @@
 /**
- * ui/layout.js — Hitung otomatis posisi sticky category-nav (tinggi nav + mobile search).
+ * ui/layout.js — Hitung otomatis posisi sticky category-nav (tinggi nav).
  * Depends on: (tidak ada)
  */
 // ============================================================
 // Dynamic sticky top — kalkulasi otomatis berdasarkan tinggi
-// nav + mobile search agar category-nav tidak overlap elemen lain.
+// nav agar category-nav tidak overlap dengan navbar di desktop.
 // ============================================================
 function updateCategoryNavTop() {
     const nav    = document.querySelector('nav');

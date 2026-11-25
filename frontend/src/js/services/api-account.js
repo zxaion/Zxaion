@@ -31,6 +31,13 @@ Object.assign(api, {
                     ui.updateCreditDisplay?.();
                 }
                 ui.updateAccountBanner?.();
+                if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
+                    ui.invalidateDtreasureSortCache?.();
+                    ui.renderDtreasureGallery();
+                }
+                if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+                    ui.refreshModalLockState(state.currentPhoto);
+                }
                 return data;
             }
             return { success: false, error: data.error || 'Failed to provision account' };
@@ -66,6 +73,13 @@ Object.assign(api, {
                 ui.updateCreditDisplay?.();
             }
             ui.updateAccountBanner?.();
+            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
+                ui.invalidateDtreasureSortCache?.();
+                ui.renderDtreasureGallery();
+            }
+            if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+                ui.refreshModalLockState(state.currentPhoto);
+            }
             return data;
         } catch (err) {
             console.error('fetchAccountProfile error:', err);
@@ -160,6 +174,11 @@ Object.assign(api, {
             if (typeof ui.invalidateDtreasureSortCache === 'function') ui.invalidateDtreasureSortCache();
             if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
                 ui.renderDtreasureGallery();
+            } else if (state.searchQuery && typeof ui.renderGallery === 'function') {
+                ui.renderGallery();
+            }
+            if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+                ui.refreshModalLockState(state.currentPhoto);
             }
             return data;
         } catch {
@@ -226,6 +245,13 @@ Object.assign(api, {
                 }
                 ui.updateCreditDisplay?.();
                 ui.updateAccountBanner?.();
+                if (typeof ui.invalidateDtreasureSortCache === 'function') ui.invalidateDtreasureSortCache();
+                if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
+                    ui.renderDtreasureGallery();
+                }
+                if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+                    ui.refreshModalLockState(state.currentPhoto);
+                }
             }
             return data;
         } catch {

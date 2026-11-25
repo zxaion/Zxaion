@@ -24,6 +24,9 @@ Object.assign(ui, {
     unlockDtreasureThumbnail(photoId) {
         if (!photoId) return;
         const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
+        const photo = typeof this.findPhotoById === 'function' ? this.findPhotoById(photoId) : null;
+        const errorSvg = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="16" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
+
         [elements.dtreasureGallery, elements.galleryContainer].forEach(container => {
             const item = container?.querySelector(`.masonry-item[data-photo-id="${safeId}"]`);
             if (!item) return;
@@ -45,17 +48,130 @@ Object.assign(ui, {
                 img.ondragstart   = null;
                 img.removeEventListener('touchstart', preventTouchSave);
                 img.style.removeProperty('-webkit-touch-callout');
+
+                if (photo && photo.url && typeof utils.loadAuthenticatedImage === 'function') {
+                    img._lazyLoadFn = null;
+                    delete img.dataset.src;
+                    img.classList.add('loading-shimmer');
+                    utils.loadAuthenticatedImage(img, photo.url, { w: 700, q: 82, fit: 'scale-down', fmt: 'auto' }, {
+                        fallbackSvg: errorSvg,
+                        onLoadSuccess(el) {
+                            el.classList.remove('loading-shimmer');
+                            ui.recordPhotoDimensions?.(photo, el);
+                        },
+                        onFinalError(el) {
+                            el.classList.remove('loading-shimmer');
+                            el.src = errorSvg;
+                        },
+                    });
+                }
             }
 
             const btn = item.querySelector('.download-btn');
             if (btn) btn.innerHTML = '<i class="fas fa-download"></i> Download';
         });
+
+        if (state.currentImageId === photoId && state.currentPhoto) {
+            this.refreshModalLockState(state.currentPhoto);
+        }
+    },
+
+    loadModalPreviewImage(photo, { isDtreasure, isPurchased }) {
+        if (!elements.modalImg || !photo) return;
+        const targetPhotoId = photo.id;
+        const modalErrorSvg = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
+
+        elements.modalImg.classList.add('loading-shimmer');
+        elements.modalImg.style.minHeight = '200px';
+        elements.modalImg.onerror         = null;
+        elements.modalImg.onload          = null;
+
+        if (isDtreasure && isPurchased && typeof utils.loadAuthenticatedImage === 'function') {
+            utils.loadAuthenticatedImage(
+                elements.modalImg,
+                photo.url,
+                { w: 1400, q: 85, fit: 'scale-down', fmt: 'auto' },
+                {
+                    fallbackSvg: modalErrorSvg,
+                    onLoadSuccess(el) {
+                        if (state.currentImageId !== targetPhotoId) return;
+                        el.classList.remove('loading-shimmer');
+                        el.style.minHeight = '';
+                        el.onload = null;
+                        el.onerror = null;
+                    },
+                    onFinalError(el) {
+                        if (state.currentImageId !== targetPhotoId) return;
+                        el.classList.remove('loading-shimmer');
+                        el.style.minHeight = '';
+                        el.src = modalErrorSvg;
+                        el.onload = null;
+                        el.onerror = null;
+                    },
+                }
+            );
+            return;
+        }
+
+        const previewCandidates = utils.getImageFallbackCandidates(photo.url, {
+            w:   isDtreasure ? 600 : 1400,
+            q:   isDtreasure ? 75  : 85,
+            fit: 'scale-down',
+            fmt: 'auto',
+        });
+
+        const firstPreviewUrl = utils.attachImageFallback(elements.modalImg, previewCandidates, {
+            onLoadSuccess(el) {
+                if (state.currentImageId !== targetPhotoId) return;
+                el.classList.remove('loading-shimmer');
+                el.style.minHeight = '';
+                el.onload = null;
+                el.onerror = null;
+            },
+            onFinalError(el) {
+                if (state.currentImageId !== targetPhotoId) return;
+                el.classList.remove('loading-shimmer');
+                el.style.minHeight = '';
+                el.src = modalErrorSvg;
+                el.onload = null;
+                el.onerror = null;
+            },
+        });
+        elements.modalImg.src = firstPreviewUrl;
+    },
+
+    refreshModalLockState(photo) {
+        if (!photo || state.currentImageId !== photo.id) return;
+        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        if (!isDtreasure) return;
+        const isPurchased = state.lifetime || state.purchasedImages.has(photo.id);
+
+        this.applyModalShield(!isPurchased);
+
+        if (isPurchased) {
+            if (elements.downloadBtn) {
+                elements.downloadBtn.removeAttribute('href');
+                elements.downloadBtn.removeAttribute('download');
+                elements.downloadBtn.onclick = (e) => {
+                    e.preventDefault();
+                    ui.triggerDownload(photo);
+                };
+                elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+            }
+            if (typeof this.selectResolution === 'function') {
+                this.selectResolution(state.selectedResolution || 'original');
+            }
+            this.loadModalPreviewImage(photo, { isDtreasure: true, isPurchased: true });
+        }
     },
 
     closeImageModal(syncHash = true) {
         if (elements.imageModal) {
             elements.imageModal.classList.add('hidden');
             elements.imageModal.classList.remove('flex');
+        }
+        if (elements.modalImg) {
+            utils.revokeTrackedBlobUrl?.(elements.modalImg);
         }
         document.body.style.overflow = '';
         state.currentImageId = null;
@@ -278,37 +394,9 @@ Object.assign(ui, {
 
         const imageUrl    = utils.encodeImageUrlPath(photo.url);
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-        const previewCandidates = utils.getImageFallbackCandidates(photo.url, {
-            w:   isDtreasure ? 600 : 1400,
-            q:   isDtreasure ? 75  : 85,
-            fit: 'scale-down',
-            fmt: 'auto',
-        });
+        const isPurchased = state.lifetime || state.purchasedImages.has(photo.id);
 
-        elements.modalImg.classList.add('loading-shimmer');
-        elements.modalImg.style.minHeight = '200px';
-        elements.modalImg.onerror         = null;
-        elements.modalImg.onload          = null;
-
-        // Load langsung ke modalImg (hindari double-download pada DTREASURE no-store dan guard klik cepat)
-        const firstPreviewUrl = utils.attachImageFallback(elements.modalImg, previewCandidates, {
-            onLoadSuccess(el) {
-                if (state.currentImageId !== targetPhotoId) return;
-                el.classList.remove('loading-shimmer');
-                el.style.minHeight = '';
-                el.onload = null;
-                el.onerror = null;
-            },
-            onFinalError(el) {
-                if (state.currentImageId !== targetPhotoId) return;
-                el.classList.remove('loading-shimmer');
-                el.style.minHeight = '';
-                el.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%231f2937" width="400" height="300"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="18" font-weight="bold" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage unavailable%3C/text%3E%3C/svg%3E';
-                el.onload = null;
-                el.onerror = null;
-            },
-        });
-        elements.modalImg.src = firstPreviewUrl;
+        this.loadModalPreviewImage(photo, { isDtreasure, isPurchased });
 
         elements.modalTitle.textContent         = photo.title || 'Wallpaper';
         elements.modalCategory.textContent      = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
@@ -326,8 +414,6 @@ Object.assign(ui, {
                 if (elements.modalDownloadCount) elements.modalDownloadCount.textContent = utils.formatNumber(d);
             }).catch(() => {});
         }
-
-        const isPurchased = state.lifetime || state.purchasedImages.has(photo.id);
 
         this.applyModalShield(isDtreasure && !isPurchased);
 

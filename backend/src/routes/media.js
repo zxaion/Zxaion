@@ -139,7 +139,7 @@ export async function handleServeImage({ request, ctx, url, path, mainBucket, co
     object.writeHttpMetadata(headers);
     if (object.httpEtag) headers.set('etag', object.httpEtag);
     headers.set('Access-Control-Allow-Origin', resolveAllowedOrigin(origin));
-    headers.set('Vary', 'Accept, Origin');
+    headers.set('Vary', isDtreasure ? 'Accept, Origin, Cookie, Authorization, X-User-Token' : 'Accept, Origin');
     headers.set('Cache-Control', cacheHeader);
 
     const ifNoneMatch = request.headers.get('If-None-Match');

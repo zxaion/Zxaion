@@ -37,17 +37,6 @@ Object.assign(ui, {
                 state.purchasedImages.add(photo.id);
                 ui.updateCreditDisplay();
 
-                if (state.currentImageId === photo.id) {
-                    this.applyModalShield(false);
-                    elements.downloadBtn.removeAttribute('href');
-                    elements.downloadBtn.removeAttribute('download');
-                    elements.downloadBtn.onclick = (e) => {
-                        e.preventDefault();
-                        ui.triggerDownload(photo);
-                    };
-                    elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-                }
-
                 this.unlockDtreasureThumbnail(photo.id);
                 if (typeof this.updateDtreasureTabCounts === 'function') this.updateDtreasureTabCounts();
                 if (state.currentCategory === 'DTREASURE') this.renderDtreasureGallery();
