@@ -12,6 +12,9 @@ function initCreditsEvents() {
     const recoverBtn         = document.getElementById('recover-account-btn');
 
     document.getElementById('buy-credits-btn')?.addEventListener('click', async () => {
+        if (typeof ensurePayPalSdkLoaded === 'function') {
+            ensurePayPalSdkLoaded().catch(() => {});
+        }
         ui.renderCreditPacks();
         ui.setModalOpen(buyCreditsModal, true);
         await api.ensureAutoAccount?.();

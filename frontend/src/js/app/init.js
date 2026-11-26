@@ -14,30 +14,85 @@ document.addEventListener('DOMContentLoaded', async () => {
     const _navEl          = document.querySelector('nav');
     if (_navEl)    _resizeObserver.observe(_navEl);
 
+    const isAdminRoute = window.location.pathname === '/admin' || window.location.hash === '#admin';
+    const initialView  = !isAdminRoute && typeof loadInitialViewState === 'function'
+        ? loadInitialViewState()
+        : { category: 'All', animeAlbum: null, dtreasureTab: 'all', page: 1, comitbasePage: 1, dtreasurePage: 1, aspectFilter: 'all' };
+
+    state.dtreasureTab         = initialView.dtreasureTab;
+    state.aspectFilter         = initialView.aspectFilter;
+    state.currentPage          = initialView.page;
+    state.currentComitbasePage = initialView.comitbasePage;
+    state.currentDtreasurePage = initialView.dtreasurePage;
+
     const autoAccountPromise = api.ensureAutoAccount?.();
     const creditsPromise     = api.fetchCreditBalance();
     const comitbasePromise   = api.fetchComitbaseImages();
     const dtreasurePromise   = api.fetchDtreasureImages();
+    const mainPromise        = api.fetchImages();
 
-    const imagesOk = await api.fetchImages();
-    if (imagesOk) {
-        ui.changeCategory('All', { scroll: false });
-        ui.checkDeepLink();
-    }
-
-    await Promise.allSettled([autoAccountPromise, creditsPromise, comitbasePromise, dtreasurePromise]);
-    if (state.currentCategory === 'COMITBASE') ui.renderComitbaseGallery();
-    if (state.currentCategory === 'DTREASURE') {
-        ui.invalidateDtreasureSortCache?.();
-        ui.renderDtreasureGallery();
-    }
-    const isAdminRoute = window.location.pathname === '/admin' || window.location.hash === '#admin';
     if (isAdminRoute) {
         ui.openAdminSection();
-    } else if (!state.currentImageId) {
-        ui.checkDeepLink();
-    } else if (state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
-        ui.refreshModalLockState(state.currentPhoto);
+    } else if (initialView.category === 'DTREASURE') {
+        ui.changeCategory('DTREASURE', { scroll: false, preservePage: true, persist: false });
+        const dtNeedsCredits = initialView.dtreasureTab === 'library';
+        const [dtOk] = await Promise.all([
+            dtreasurePromise,
+            dtNeedsCredits ? creditsPromise : Promise.resolve(),
+        ]);
+        if (dtOk && state.currentCategory === 'DTREASURE') {
+            ui.invalidateDtreasureSortCache?.();
+            ui.renderDtreasureGallery();
+            ui.checkDeepLink();
+        }
+    } else if (initialView.category === 'COMITBASE') {
+        ui.changeCategory('COMITBASE', { scroll: false, preservePage: true, persist: false });
+        const cbOk = await comitbasePromise;
+        if (cbOk && state.currentCategory === 'COMITBASE') {
+            ui.invalidateComitbaseSortCache?.();
+            ui.renderComitbaseGallery();
+            ui.checkDeepLink();
+        }
+    } else if (initialView.category === 'Anime' && initialView.animeAlbum) {
+        ui.changeCategory('Anime', { scroll: false, preservePage: true, persist: false });
+        await ui.openAnimeAlbum(initialView.animeAlbum, { page: initialView.page, scroll: false, persist: false });
+        const imagesOk = await mainPromise;
+        if (imagesOk && state.currentCategory === 'Anime' && state.currentAnimeAlbum === initialView.animeAlbum) {
+            ui.checkDeepLink();
+        }
+    } else {
+        // Immediately reflect active category chrome while catalog loads
+        if (initialView.category !== 'All') {
+            ui.changeCategory(initialView.category, { scroll: false, preservePage: true, persist: false });
+        }
+        const imagesOk = await mainPromise;
+        if (imagesOk) {
+            if (initialView.category === 'All') {
+                ui.changeCategory('All', { scroll: false, preservePage: true, persist: false });
+            } else if (state.currentCategory === initialView.category) {
+                ui.changeCategory(initialView.category, { scroll: false, preservePage: true, persist: false });
+            }
+            ui.checkDeepLink();
+        }
+    }
+
+    await Promise.allSettled([autoAccountPromise, creditsPromise, comitbasePromise, dtreasurePromise, mainPromise]);
+    if (!isAdminRoute) {
+        if (state.currentCategory === 'COMITBASE') {
+            ui.invalidateComitbaseSortCache?.();
+            ui.renderComitbaseGallery();
+        } else if (state.currentCategory === 'DTREASURE') {
+            ui.invalidateDtreasureSortCache?.();
+            ui.renderDtreasureGallery();
+        } else if (state.currentCategory === 'Anime' && !state.currentAnimeAlbum) {
+            ui.renderAnimeCollections();
+        }
+
+        if (!state.currentImageId) {
+            ui.checkDeepLink();
+        } else if (state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+            ui.refreshModalLockState(state.currentPhoto);
+        }
     }
 
     const nav = document.querySelector('nav');

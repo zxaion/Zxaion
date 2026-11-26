@@ -2730,3 +2730,120 @@ test('Purchased DTREASURE serves unblurred high-res preview via X-User-Token wit
   assert.ok(heroHtml.includes('id="searchInput"'));
   assert.ok(heroHtml.includes('id="search-clear"'));
 });
+
+test('Crypto donation buttons and crypto modal render inline brand SVGs for all 10 networks without broken icon classes', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  const donationHtml = fs.readFileSync(path.resolve('frontend/src/partials/modals/donation-modal.html'), 'utf8');
+  const cryptoModalHtml = fs.readFileSync(path.resolve('frontend/src/partials/modals/crypto-modal.html'), 'utf8');
+  const donationJs = fs.readFileSync(path.resolve('frontend/src/js/events/donation.js'), 'utf8');
+  const assetsJs = fs.readFileSync(path.resolve('frontend/src/js/config/assets.js'), 'utf8');
+
+  const expectedCoins = [
+    'Bitcoin', 'Ethereum', 'Solana', 'BNB', 'Polygon', 'XRP (BSC)',
+    'USDT (TRON)', 'USDT (ETH)', 'USDT (SOL)', 'USDT (BNB)',
+  ];
+  for (const name of expectedCoins) {
+    assert.ok(donationHtml.includes(`data-name="${name}"`), `Missing crypto button for ${name}`);
+  }
+
+  const badgeCount = (donationHtml.match(/class="crypto-logo-badge /g) || []).length;
+  assert.equal(badgeCount, 10);
+  assert.equal((donationHtml.match(/class="crypto-main-svg /g) || []).length, 10);
+
+  for (const badIcon of ['fa-hexagon', 'fa-sun', 'fa-bolt', 'fa-chart-line', 'fa-circle']) {
+    assert.equal(donationHtml.includes(badIcon), false, `Removed broken/generic icon ${badIcon}`);
+  }
+  assert.equal(assetsJs.includes('HEADER/icons/'), false);
+  assert.ok(cryptoModalHtml.includes('id="crypto-icon-badge"'));
+  assert.ok(donationJs.includes('crypto-icon-badge') && donationJs.includes('.crypto-logo-badge'));
+});
+
+test('View state persistence across refresh, Home latest default ordering, and web/image speed optimizations', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  // 1. Home default sortBy is 'latest' (never 'random') in both state.js and navigation.js
+  const stateSrc = fs.readFileSync(path.resolve('frontend/src/js/core/state.js'), 'utf8');
+  const navSrc = fs.readFileSync(path.resolve('frontend/src/js/ui/navigation.js'), 'utf8');
+  const stateSandbox = { URLSearchParams, CATEGORIES: ['All', 'Anime', 'Fantasy', 'Abstract', 'Photography', 'COMITBASE', 'DTREASURE', 'ZMEME', 'OVERLAY'] };
+  const { state: initState, viewState } = vm.runInNewContext(`${stateSrc}\n;({ state, viewState });`, stateSandbox);
+
+  assert.equal(initState.sortBy, 'latest');
+  assert.equal(navSrc.includes("state.sortBy = 'random'"), false);
+  assert.ok(navSrc.includes("state.sortBy = 'latest'"));
+
+  // 2. viewState restores DTREASURE / Anime album / page from sessionStorage and URL without resetting to Home
+  const dtSnap = viewState.parseInitialView({
+    search: '',
+    storageJson: JSON.stringify({
+      category: 'DTREASURE',
+      dtreasureTab: 'library',
+      dtreasurePage: 3,
+      aspectFilter: 'portrait',
+    }),
+  });
+  assert.equal(dtSnap.category, 'DTREASURE');
+  assert.equal(dtSnap.dtreasureTab, 'library');
+  assert.equal(dtSnap.dtreasurePage, 3);
+  assert.equal(dtSnap.aspectFilter, 'portrait');
+
+  const urlOverride = viewState.parseInitialView({
+    search: '?cat=Anime&album=Sousou%20no%20Frieren&page=2',
+    storageJson: JSON.stringify({ category: 'DTREASURE' }),
+  });
+  assert.equal(urlOverride.category, 'Anime');
+  assert.equal(urlOverride.animeAlbum, 'Sousou no Frieren');
+  assert.equal(urlOverride.page, 2);
+
+  assert.equal(viewState.buildUrlSearch({ category: 'All', page: 1, aspectFilter: 'all' }), '');
+  assert.equal(
+    viewState.buildUrlSearch({ category: 'DTREASURE', dtreasureTab: 'library', dtreasurePage: 2, aspectFilter: 'all' }),
+    '?cat=DTREASURE&tab=library&page=2'
+  );
+
+  // init.js & modal.js preserve restored view state instead of hardcoding 'All'
+  const initSrc = fs.readFileSync(path.resolve('frontend/src/js/app/init.js'), 'utf8');
+  const modalSrc = fs.readFileSync(path.resolve('frontend/src/js/ui/modal.js'), 'utf8');
+  assert.ok(initSrc.includes('loadInitialViewState'));
+  assert.ok(modalSrc.includes("params.delete('photo')"));
+
+  // 3. Browser hosts (.workers.dev / .run.app / localhost) skip /cdn-cgi/image/ waterfall cleanly
+  const utilsSrc = fs.readFileSync(path.resolve('frontend/src/js/core/utils.js'), 'utf8');
+  const browserSandbox = {
+    API_BASE: '',
+    URL,
+    URLSearchParams,
+    window: { location: { hostname: 'localhost' } },
+  };
+  vm.runInNewContext(utilsSrc, browserSandbox);
+  const localCandidates = JSON.parse(JSON.stringify(
+    browserSandbox.getImageFallbackCandidates('/api/img/ANIME/pic.jpg', { w: 520, q: 78, fit: 'scale-down', fmt: 'auto' })
+  ));
+  assert.equal(localCandidates.some(u => u.includes('/cdn-cgi/image/')), false);
+  assert.equal(localCandidates[0], '/api/img/ANIME/pic.jpg?w=520&q=78&fit=scale-down&fmt=auto');
+
+  // Above-the-fold eager loading + lazy PayPal SDK + preconnects + immutable anime sample_url
+  const baseSrc = fs.readFileSync(path.resolve('frontend/src/js/ui/base.js'), 'utf8');
+  const indexHtml = fs.readFileSync(path.resolve('frontend/src/index.html'), 'utf8');
+  const paypalSrc = fs.readFileSync(path.resolve('frontend/src/js/integrations/paypal.js'), 'utf8');
+  assert.ok(baseSrc.includes('fetchpriority="high"'));
+  assert.ok(baseSrc.includes("rootMargin = '500px 0px'"));
+  assert.equal(indexHtml.includes('paypal.com/sdk/js'), false);
+  assert.ok(indexHtml.includes('rel="preconnect" href="https://fonts.googleapis.com"'));
+  assert.ok(paypalSrc.includes('ensurePayPalSdkLoaded'));
+
+  const env = await createLocalEnv();
+  const albumsRes = await handleAnimeAlbums({
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(albumsRes.status, 200);
+  const albums = await albumsRes.json();
+  assert.ok(albums.length > 0);
+  assert.match(albums[0].sample_url, /\?v=/);
+});
+

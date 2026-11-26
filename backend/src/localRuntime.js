@@ -332,17 +332,25 @@ export function createMockD1() {
       const grouped = new Map();
       for (const r of images.values()) {
         if (r.bucket === 'main' && (r.category || '').toLowerCase() === 'anime' && r.sub_category) {
-          const entry = grouped.get(r.sub_category) || { count: 0, sample_key: r.r2_key };
+          const entry = grouped.get(r.sub_category) || { count: 0, sample_key: r.r2_key, sample_uploaded: r.uploaded || null };
           entry.count += 1;
           if (!entry.sample_key || (r.r2_key && r.r2_key < entry.sample_key)) {
             entry.sample_key = r.r2_key;
+          }
+          if (r.uploaded && (!entry.sample_uploaded || r.uploaded > entry.sample_uploaded)) {
+            entry.sample_uploaded = r.uploaded;
           }
           grouped.set(r.sub_category, entry);
         }
       }
       const results = Array.from(grouped.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([sub_category, info]) => ({ sub_category, count: info.count, sample_key: info.sample_key }));
+        .map(([sub_category, info]) => ({
+          sub_category,
+          count: info.count,
+          sample_key: info.sample_key,
+          sample_uploaded: info.sample_uploaded,
+        }));
       return { results };
     }
 

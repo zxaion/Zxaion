@@ -138,6 +138,24 @@ function getCloudflareImageUrl(src, options = {}) {
     return `/cdn-cgi/image/${directives.join(',')}/${cleanTarget}`;
 }
 
+let _cdnCgiDisabled = false;
+
+function shouldUseCdnCgiImage() {
+    if (typeof window === 'undefined') return true;
+    if (_cdnCgiDisabled) return false;
+    const host = window.location?.hostname || '';
+    if (
+        !host ||
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host.endsWith('.run.app') ||
+        host.endsWith('.workers.dev')
+    ) {
+        return false;
+    }
+    return true;
+}
+
 function getImageFallbackCandidates(rawUrl, options = {}, extraRawUrls = []) {
     const seen = new Set();
     const list = [];
@@ -148,9 +166,12 @@ function getImageFallbackCandidates(rawUrl, options = {}, extraRawUrls = []) {
         }
     };
 
+    const useCdnCgi = shouldUseCdnCgiImage();
     const sources = [rawUrl, ...(Array.isArray(extraRawUrls) ? extraRawUrls : [])].filter(Boolean);
     for (const src of sources) {
-        add(getCloudflareImageUrl(src, options));
+        if (useCdnCgi) {
+            add(getCloudflareImageUrl(src, options));
+        }
         add(buildWorkerTransformUrl(src, options));
         add(encodeImageUrlPath(src));
     }
@@ -167,7 +188,14 @@ function attachImageFallback(imgEl, candidates, { onLoadSuccess, onFinalError, f
     };
 
     imgEl.onerror = function() {
+        const failedUrl = queue[attempt] || this.src || '';
+        if (typeof failedUrl === 'string' && failedUrl.includes('/cdn-cgi/image/')) {
+            _cdnCgiDisabled = true;
+        }
         attempt++;
+        while (attempt < queue.length && _cdnCgiDisabled && queue[attempt].includes('/cdn-cgi/image/')) {
+            attempt++;
+        }
         if (attempt < queue.length) {
             this.src = queue[attempt];
             return;
@@ -180,11 +208,34 @@ function attachImageFallback(imgEl, candidates, { onLoadSuccess, onFinalError, f
         }
     };
 
-    return queue[0] || fallbackSvg || '';
+    const startIdx = (_cdnCgiDisabled && queue[0]?.includes('/cdn-cgi/image/') && queue.length > 1)
+        ? queue.findIndex(u => !u.includes('/cdn-cgi/image/'))
+        : 0;
+    attempt = startIdx >= 0 ? startIdx : 0;
+    return queue[attempt] || fallbackSvg || '';
 }
 
-const _authImageSeq    = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
-const _trackedBlobUrls = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+const _authImageSeq      = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+const _trackedBlobUrls   = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+const _authBlobCache     = new Map();
+const _authBlobInflight  = new Map();
+const _AUTH_BLOB_MAX     = 48;
+
+function clearAuthenticatedImageCache() {
+    _authBlobCache.clear();
+    _authBlobInflight.clear();
+}
+
+function _cacheAuthBlob(cacheKey, blob) {
+    if (!cacheKey || !blob) return;
+    if (_authBlobCache.has(cacheKey)) {
+        _authBlobCache.delete(cacheKey);
+    } else if (_authBlobCache.size >= _AUTH_BLOB_MAX) {
+        const oldest = _authBlobCache.keys().next().value;
+        if (oldest !== undefined) _authBlobCache.delete(oldest);
+    }
+    _authBlobCache.set(cacheKey, blob);
+}
 
 function revokeTrackedBlobUrl(imgEl) {
     if (!imgEl || !_trackedBlobUrls) return;
@@ -209,6 +260,42 @@ function getAuthenticatedImageCandidates(rawUrl, options = {}) {
     return list;
 }
 
+async function _fetchAuthBlobCached(candidateUrl, headers) {
+    const tokenKey = headers['X-User-Token'] || headers['Authorization'] || 'session';
+    const cacheKey = `${tokenKey}::${candidateUrl}`;
+
+    if (_authBlobCache.has(cacheKey)) {
+        const cachedBlob = _authBlobCache.get(cacheKey);
+        // Refresh LRU order
+        _authBlobCache.delete(cacheKey);
+        _authBlobCache.set(cacheKey, cachedBlob);
+        return cachedBlob;
+    }
+
+    if (_authBlobInflight.has(cacheKey)) {
+        return _authBlobInflight.get(cacheKey);
+    }
+
+    const promise = (async () => {
+        const res = await fetch(candidateUrl, {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+            headers,
+        });
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        if (!blob || blob.size === 0) return null;
+        _cacheAuthBlob(cacheKey, blob);
+        return blob;
+    })().finally(() => {
+        _authBlobInflight.delete(cacheKey);
+    });
+
+    _authBlobInflight.set(cacheKey, promise);
+    return promise;
+}
+
 async function loadAuthenticatedImage(imgEl, rawUrl, options = {}, { onLoadSuccess, onFinalError, fallbackSvg } = {}) {
     if (!imgEl) return;
     const seq = (_authImageSeq?.get(imgEl) || 0) + 1;
@@ -223,16 +310,8 @@ async function loadAuthenticatedImage(imgEl, rawUrl, options = {}, { onLoadSucce
     for (const candidateUrl of candidates) {
         if (_authImageSeq && _authImageSeq.get(imgEl) !== seq) return;
         try {
-            const res = await fetch(candidateUrl, {
-                method: 'GET',
-                credentials: 'same-origin',
-                cache: 'no-store',
-                headers,
-            });
-            if (!res.ok) continue;
-
-            const blob = await res.blob();
-            if (!blob || blob.size === 0) continue;
+            const blob = await _fetchAuthBlobCached(candidateUrl, headers);
+            if (!blob) continue;
 
             if (_authImageSeq && _authImageSeq.get(imgEl) !== seq) return;
 
@@ -360,6 +439,10 @@ const utils = {
 
     loadAuthenticatedImage(imgEl, rawUrl, options = {}, hooks = {}) {
         return loadAuthenticatedImage(imgEl, rawUrl, options, hooks);
+    },
+
+    clearAuthenticatedImageCache() {
+        return clearAuthenticatedImageCache();
     },
 
     revokeTrackedBlobUrl(imgEl) {

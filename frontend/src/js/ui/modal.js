@@ -53,7 +53,7 @@ Object.assign(ui, {
                     img._lazyLoadFn = null;
                     delete img.dataset.src;
                     img.classList.add('loading-shimmer');
-                    utils.loadAuthenticatedImage(img, photo.url, { w: 700, q: 82, fit: 'scale-down', fmt: 'auto' }, {
+                    utils.loadAuthenticatedImage(img, photo.url, { w: 640, q: 80, fit: 'scale-down', fmt: 'auto' }, {
                         fallbackSvg: errorSvg,
                         onLoadSuccess(el) {
                             el.classList.remove('loading-shimmer');
@@ -176,7 +176,11 @@ Object.assign(ui, {
 
         if (syncHash && (window.location.hash.startsWith('#photo=') || window.location.search.includes('photo='))) {
             try {
-                history.replaceState(null, '', window.location.pathname);
+                const params = new URLSearchParams(window.location.search);
+                params.delete('photo');
+                const qs = params.toString();
+                const nextUrl = `${window.location.pathname}${qs ? '?' + qs : ''}`;
+                history.replaceState(null, '', nextUrl);
             } catch (e) {
                 console.warn('Could not reset history hash:', e);
             }

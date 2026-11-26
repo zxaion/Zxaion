@@ -63,7 +63,7 @@ Object.assign(ui, {
 
         if (!append) elements.comitbaseGallery.innerHTML = '';
 
-        const imageObserver = this.getGallerySliceObserver('_comitbaseObserver', { append, rootMargin: '50px' });
+        const imageObserver = this.getGallerySliceObserver('_comitbaseObserver', { append, rootMargin: '500px 0px' });
         const fragment = document.createDocumentFragment();
         photosToShow.forEach((photo, index) => {
             fragment.appendChild(this.createMasonryItemElement(photo, index, imageObserver, {

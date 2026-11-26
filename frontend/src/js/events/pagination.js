@@ -17,37 +17,38 @@ function initPaginationEvents() {
         state.browseMode = mode === 'infinite' ? 'infinite' : 'pagination';
         try { localStorage.setItem('zxaion_browse_mode', state.browseMode); } catch (_) {}
         state.resetPagination();
+        if (typeof saveViewState === 'function') saveViewState();
         ui.syncToolbarUI();
         rerenderActiveSection();
     };
 
     // Main Pagination
     document.getElementById('prev-page')?.addEventListener('click', () => {
-        if (state.currentPage > 1) { state.currentPage--; ui.renderGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        if (state.currentPage > 1) { state.currentPage--; saveViewState?.(); ui.renderGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('next-page')?.addEventListener('click', () => {
         const total = Math.ceil(ui.getMainDisplayPhotos().length / ITEMS_PER_PAGE);
-        if (state.currentPage < total) { state.currentPage++; ui.renderGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        if (state.currentPage < total) { state.currentPage++; saveViewState?.(); ui.renderGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('gallery-load-more-btn')?.addEventListener('click', () => ui.loadMoreGallery());
 
     // COMITBASE pagination & Load More
     document.getElementById('comitbase-prev')?.addEventListener('click', () => {
-        if (state.currentComitbasePage > 1) { state.currentComitbasePage--; ui.renderComitbaseGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        if (state.currentComitbasePage > 1) { state.currentComitbasePage--; saveViewState?.(); ui.renderComitbaseGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('comitbase-next')?.addEventListener('click', () => {
         const total = Math.ceil(ui.getComitbaseDisplayPhotos().length / ITEMS_PER_PAGE);
-        if (state.currentComitbasePage < total) { state.currentComitbasePage++; ui.renderComitbaseGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        if (state.currentComitbasePage < total) { state.currentComitbasePage++; saveViewState?.(); ui.renderComitbaseGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('comitbase-load-more-btn')?.addEventListener('click', () => ui.loadMoreComitbase());
 
     // DTREASURE pagination & Load More
     document.getElementById('dtreasure-prev')?.addEventListener('click', () => {
-        if (state.currentDtreasurePage > 1) { state.currentDtreasurePage--; ui.renderDtreasureGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        if (state.currentDtreasurePage > 1) { state.currentDtreasurePage--; saveViewState?.(); ui.renderDtreasureGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('dtreasure-next')?.addEventListener('click', () => {
         const total = Math.ceil(ui.getDtreasureDisplayPhotos().length / ITEMS_PER_PAGE);
-        if (state.currentDtreasurePage < total) { state.currentDtreasurePage++; ui.renderDtreasureGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        if (state.currentDtreasurePage < total) { state.currentDtreasurePage++; saveViewState?.(); ui.renderDtreasureGallery(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     });
     document.getElementById('dtreasure-load-more-btn')?.addEventListener('click', () => ui.loadMoreDtreasure());
 
@@ -57,6 +58,7 @@ function initPaginationEvents() {
             const sort = btn.dataset.sort || 'latest';
             state.sortBy = sort;
             state.resetPagination();
+            saveViewState?.();
             ui.invalidateMainSortCache();
             ui.invalidateComitbaseSortCache();
             ui.invalidateDtreasureSortCache();
@@ -70,6 +72,7 @@ function initPaginationEvents() {
         btn.addEventListener('click', () => {
             state.aspectFilter = btn.dataset.ratio || 'all';
             state.resetPagination();
+            saveViewState?.();
             ui.syncToolbarUI();
             rerenderActiveSection();
         });
@@ -90,6 +93,7 @@ function initPaginationEvents() {
         btn.addEventListener('click', () => {
             state.dtreasureTab = btn.dataset.dtreasureTab === 'library' ? 'library' : 'all';
             state.currentDtreasurePage = 1;
+            saveViewState?.();
             ui.invalidateDtreasureSortCache();
             ui.renderDtreasureGallery();
         });

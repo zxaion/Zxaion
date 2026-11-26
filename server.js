@@ -2,6 +2,7 @@ import express from 'express';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import worker from './backend/src/index.js';
 import { createLocalEnv } from './backend/src/localRuntime.js';
 import { findPhotoForSeo, injectOpenGraphMetadata, injectBaseSeoOrigin, resolvePublicOrigin } from './backend/src/services/seo.js';
@@ -135,6 +136,41 @@ async function bridgeWorkerRequest(req, res, env, overridePathWithQuery = null) 
 export function createApp(env) {
   const app = express();
 
+  // Lightweight gzip compression for JSON, HTML, CSS, JS, and SVG payloads (>= 1 KB)
+  app.use((req, res, next) => {
+    const acceptEnc = String(req.headers['accept-encoding'] || '');
+    if (!/\bgzip\b/i.test(acceptEnc) || req.method === 'HEAD') return next();
+
+    const origSend = res.send.bind(res);
+    res.send = (body) => {
+      if (res.headersSent || res.getHeader('Content-Encoding') || !body) {
+        return origSend(body);
+      }
+      const cType = String(res.getHeader('Content-Type') || '').toLowerCase();
+      const isCompressible =
+        cType.includes('text/') ||
+        cType.includes('application/javascript') ||
+        cType.includes('application/json') ||
+        cType.includes('image/svg+xml');
+      if (!isCompressible) return origSend(body);
+
+      const rawBuf = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
+      if (rawBuf.length < 1024) return origSend(body);
+
+      try {
+        const gz = gzipSync(rawBuf, { level: 6 });
+        res.setHeader('Content-Encoding', 'gzip');
+        res.removeHeader('Content-Length');
+        const prevVary = res.getHeader('Vary');
+        res.setHeader('Vary', prevVary ? `${prevVary}, Accept-Encoding` : 'Accept-Encoding');
+        return origSend(gz);
+      } catch {
+        return origSend(body);
+      }
+    };
+    next();
+  });
+
   // Simulasi /cdn-cgi/image/<directives>/<source> untuk preview lokal & Node runtime
   app.use('/cdn-cgi/image', (req, res, next) => {
     const translated = translateCdnCgiImagePath(req.originalUrl);
@@ -183,8 +219,8 @@ export function createApp(env) {
     }
   });
 
-  // Serve built frontend static assets
-  app.use(express.static(DIST_DIR));
+  // Serve built frontend static assets with short revalidate cache
+  app.use(express.static(DIST_DIR, { maxAge: '1h' }));
 
   // SPA fallback (including /admin and subroutes)
   app.get('*', (_req, res) => {

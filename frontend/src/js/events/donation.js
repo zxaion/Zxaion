@@ -15,25 +15,34 @@ function initDonationEvents() {
     // Crypto buttons
     document.querySelectorAll('.crypto-btn, .crypto-btn-usdt').forEach(btn => {
         btn.addEventListener('click', function() {
-            const address     = this.dataset.address;
-            const name        = this.dataset.name;
-            const iconMap     = {
-                'Bitcoin':  'fab fa-bitcoin text-3xl text-orange-500',
-                'Ethereum': 'fab fa-ethereum text-3xl text-blue-500',
-                'Solana':   'fas fa-sun text-3xl text-purple-500',
-                'BNB':      'fas fa-bolt text-3xl text-yellow-500',
-                'Polygon':  'fas fa-hexagon text-3xl text-indigo-500',
-                'XRP':      'fas fa-chart-line text-3xl text-cyan-500',
-            };
-            const iconClass = Object.keys(iconMap).find(k => name?.includes(k));
+            const address = this.dataset.address;
+            const name    = this.dataset.name;
 
-            const cryptoTypeEl    = document.getElementById('crypto-type');
-            const cryptoAddressEl = document.getElementById('crypto-address');
-            const cryptoIconEl    = document.getElementById('crypto-icon');
+            const cryptoTypeEl      = document.getElementById('crypto-type');
+            const cryptoAddressEl   = document.getElementById('crypto-address');
+            const cryptoIconEl      = document.getElementById('crypto-icon');
+            const cryptoIconBadgeEl = document.getElementById('crypto-icon-badge');
+            const sourceBadge       = this.querySelector('.crypto-logo-badge');
 
             if (cryptoTypeEl)    cryptoTypeEl.textContent  = name;
             if (cryptoAddressEl) cryptoAddressEl.textContent = address;
-            if (cryptoIconEl)    cryptoIconEl.className    = iconClass ? iconMap[iconClass] : 'fas fa-coins text-3xl text-gray-600 dark:text-gray-400';
+
+            if (cryptoIconBadgeEl && sourceBadge) {
+                cryptoIconBadgeEl.className = sourceBadge.dataset.modalBadgeClass
+                    || 'relative w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center shadow-lg';
+            }
+            if (cryptoIconEl && sourceBadge) {
+                cryptoIconEl.innerHTML = sourceBadge.innerHTML;
+                cryptoIconEl.querySelectorAll('svg.crypto-main-svg').forEach(svg => {
+                    svg.setAttribute('class', 'crypto-main-svg w-9 h-9');
+                });
+                const netBadge = cryptoIconEl.querySelector('span');
+                if (netBadge) {
+                    netBadge.classList.remove('w-4', 'h-4');
+                    netBadge.classList.add('w-6', 'h-6');
+                    netBadge.querySelectorAll('svg').forEach(svg => svg.setAttribute('class', 'w-3.5 h-3.5'));
+                }
+            }
 
             ui.setModalOpen('crypto-modal', true, { lockScroll: false });
         });

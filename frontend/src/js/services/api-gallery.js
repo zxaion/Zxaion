@@ -143,6 +143,7 @@ const api = {
                         const addedAnime  = freshItems.filter(p => p.category && p.category.toLowerCase() === 'anime' && !existingIds.has(p.id));
                         if (addedAnime.length > 0) {
                             state.filteredPhotos = state.filteredPhotos.concat(addedAnime);
+                            ui.invalidateMainSortCache?.();
                             if (typeof ui.updatePagination === 'function') ui.updatePagination();
                         }
                     } else if (state.currentCategory === 'Anime' && state.currentAnimeAlbum) {
@@ -152,12 +153,14 @@ const api = {
                                 photo.category && photo.category.toLowerCase() === 'anime' &&
                                 photo.subCategory && this._matchSubCategory(photo.subCategory, album.folderName, state.currentAnimeAlbum)
                             );
+                            ui.invalidateMainSortCache?.();
                             if (typeof ui.updatePagination === 'function') ui.updatePagination();
                         }
                     } else {
                         state.filteredPhotos = state.allPhotos.filter(photo =>
                             photo.category && photo.category.toLowerCase() === state.currentCategory.toLowerCase()
                         );
+                        ui.invalidateMainSortCache?.();
                         if (typeof ui.updatePagination === 'function') ui.updatePagination();
                     }
                 }
@@ -240,6 +243,9 @@ const api = {
         this.imageCache.totalComitbase = 0;
         this.imageCache.totalDtreasure = 0;
         this.imageCache.timestamp      = 0;
+        if (typeof utils !== 'undefined' && typeof utils.clearAuthenticatedImageCache === 'function') {
+            utils.clearAuthenticatedImageCache();
+        }
     },
 
     async _fetchPaginatedBucket(endpoint, cacheKey, stateKey, errorKey) {
@@ -276,11 +282,13 @@ const api = {
                     if (!Array.isArray(data) || data.length === 0) break;
                     this.imageCache[cacheKey] = (this.imageCache[cacheKey] || []).concat(data);
                     state[stateKey] = this.imageCache[cacheKey];
-                    if (cacheKey === 'comitbase' && state.currentCategory === 'COMITBASE' && typeof ui.updateComitbasePagination === 'function') {
-                        ui.updateComitbasePagination();
+                    if (cacheKey === 'comitbase' && state.currentCategory === 'COMITBASE') {
+                        ui.invalidateComitbaseSortCache?.();
+                        if (typeof ui.updateComitbasePagination === 'function') ui.updateComitbasePagination();
                     }
-                    if (cacheKey === 'dtreasure' && state.currentCategory === 'DTREASURE' && typeof ui.updateDtreasurePagination === 'function') {
-                        ui.updateDtreasurePagination();
+                    if (cacheKey === 'dtreasure' && state.currentCategory === 'DTREASURE') {
+                        ui.invalidateDtreasureSortCache?.();
+                        if (typeof ui.updateDtreasurePagination === 'function') ui.updateDtreasurePagination();
                     }
                     if (data.length < PAGE_SIZE) break;
                     page++;

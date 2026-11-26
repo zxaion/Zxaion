@@ -42,7 +42,7 @@ Object.assign(ui, {
             : null;
 
         photos.forEach((photo, index) => {
-            const candidates = utils.getImageFallbackCandidates(photo.url, { w: 360, h: 640, q: 80, fit: 'cover', fmt: 'auto' });
+            const candidates = utils.getImageFallbackCandidates(photo.url, { w: 300, h: 534, q: 75, fit: 'cover', fmt: 'auto' });
             const fullUrl    = candidates[0] || '';
             const rankColors = ['from-amber-400 to-yellow-500', 'from-gray-300 to-gray-400', 'from-amber-700 to-amber-800'];
             const rankColor  = index < 3 ? rankColors[index] : 'from-gray-700 to-gray-800';
@@ -50,6 +50,12 @@ Object.assign(ui, {
             const isMedal    = index < 3;
             const score      = (photo.viewCount || 0) + (photo.downloadCount || 0);
             const placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='144' height='256'%3E%3Crect fill='%23222' width='144' height='256'/%3E%3C/svg%3E";
+            const isVisibleCard = index < 5;
+            const loadingAttr   = isVisibleCard ? 'eager' : 'lazy';
+            const fetchPrio     = index < 3 ? ' fetchpriority="high"' : '';
+            const srcAttr       = isVisibleCard
+                ? 'src="' + utils.escapeHtml(fullUrl || placeholder) + '"'
+                : 'src="' + placeholder + '" data-src="' + utils.escapeHtml(fullUrl) + '"';
 
             const card = document.createElement('div');
             card.className = 'ranking-card flex-none cursor-pointer group relative rounded-2xl overflow-hidden shadow-lg ring-1 ring-white/10 bg-gray-900';
@@ -57,7 +63,7 @@ Object.assign(ui, {
 
             card.innerHTML =
                 '<div class="relative w-full" style="aspect-ratio:9/16;">' +
-                    '<img src="' + placeholder + '" data-src="' + utils.escapeHtml(fullUrl) + '" alt="' + utils.escapeHtml(photo.title) + '" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-300 ranking-lazy-img" loading="lazy" decoding="async" draggable="false">' +
+                    '<img ' + srcAttr + ' alt="' + utils.escapeHtml(photo.title) + '" class="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-300 ranking-lazy-img" loading="' + loadingAttr + '"' + fetchPrio + ' decoding="async" draggable="false">' +
                     '<div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent pointer-events-none"></div>' +
                     '<div class="absolute top-2 left-2 bg-gradient-to-br ' + rankColor + ' rounded-full w-8 h-8 flex items-center justify-center shadow-lg ' + (isMedal ? 'text-base' : 'text-white text-xs font-black') + '">' + rankLabel + '</div>' +
                     '<div class="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1">' +
@@ -78,8 +84,10 @@ Object.assign(ui, {
                 utils.attachImageFallback(img, candidates, {
                     onFinalError(el) { el.style.opacity = '0.2'; },
                 });
-                if (sharedObserver) sharedObserver.observe(img);
-                else if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
+                if (!isVisibleCard) {
+                    if (sharedObserver) sharedObserver.observe(img);
+                    else if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
+                }
             }
 
             card.addEventListener('click', () => {

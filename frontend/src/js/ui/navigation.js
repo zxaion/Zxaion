@@ -3,12 +3,14 @@
  * Depends on: ui (base.js), state, elements, api, window.headerBackgrounds
  */
 Object.assign(ui, {
-    changeCategory(category, { scroll = true } = {}) {
+    changeCategory(category, { scroll = true, preservePage = false, persist = true } = {}) {
         if (!category) return;
 
         state.currentCategory   = category;
         state.currentAnimeAlbum = null;
-        state.resetPagination();
+        if (!preservePage) {
+            state.resetPagination();
+        }
         state.searchQuery = '';
 
         if (elements.searchInput)       elements.searchInput.value = '';
@@ -41,7 +43,7 @@ Object.assign(ui, {
         }
 
         if (category === 'All') {
-            state.sortBy = 'random';
+            state.sortBy = 'latest';
             this.showToolbar();
             if (elements.galleryContainer) elements.galleryContainer.classList.remove('hidden');
             state.filteredPhotos = state.allPhotos.filter(p => p.category && p.category.toLowerCase() === 'anime');
@@ -96,6 +98,9 @@ Object.assign(ui, {
         }
 
         this.updateHeroSection(category);
+        if (persist && typeof saveViewState === 'function') {
+            saveViewState();
+        }
         if (scroll) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }

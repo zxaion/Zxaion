@@ -198,7 +198,7 @@ const ui = {
         return sorted;
     },
 
-    getGallerySliceObserver(observerKey, { append = false, rootMargin = '100px' } = {}) {
+    getGallerySliceObserver(observerKey, { append = false, rootMargin = '500px 0px' } = {}) {
         if (!append && this[observerKey]) {
             this[observerKey].disconnect();
         }
@@ -293,10 +293,13 @@ const ui = {
         const isFree = !isDtreasureCard || state.lifetime || state.purchasedImages.has(photo.id);
         const useAuthLoad = isDtreasureCard && isFree && typeof authImageLoader === 'function';
         const transformOpts = isDtreasureCard
-            ? (isFree ? { w: 700, q: 82, fit: 'scale-down', fmt: 'auto' } : { w: 600, q: 75, fit: 'scale-down', fmt: 'auto' })
-            : { w: 600, q: 80, fit: 'scale-down', fmt: 'auto' };
+            ? (isFree ? { w: 640, q: 80, fit: 'scale-down', fmt: 'auto' } : { w: 520, q: 75, fit: 'scale-down', fmt: 'auto' })
+            : { w: 520, q: 78, fit: 'scale-down', fmt: 'auto' };
         const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
         const fullUrl       = candidates[0] || '';
+        const isAboveFold   = index < 6;
+        const loadingAttr   = isAboveFold ? 'eager' : 'lazy';
+        const fetchPrioAttr = index < 4 ? ' fetchpriority="high"' : '';
         const safePhotoId   = utils.escapeHtml(photo.id);
         const safeAlt       = utils.escapeHtml(photo.title) || fallbackTitle;
         const viewCount     = utils.formatNumber(photo.viewCount || 0);
@@ -304,14 +307,19 @@ const ui = {
         const buttonText    = isFree ? 'Download' : '10 Credits';
         const buttonIcon    = isFree ? 'fa-download' : 'fa-lock';
 
+        const srcAttr = useAuthLoad
+            ? `src="${placeholderSvg}"`
+            : (isAboveFold
+                ? `src="${utils.escapeHtml(fullUrl || placeholderSvg)}"`
+                : `src="${placeholderSvg}" data-src="${utils.escapeHtml(fullUrl)}"`);
+
         const imgHtml = isDtreasureCard
             ? `<div class="relative" style="line-height:0;">
                 ${isFree ? '<span class="dtreasure-unlocked-badge absolute top-2.5 left-2.5 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-md backdrop-blur-sm"><i class="fas fa-unlock"></i> Unlocked</span>' : ''}
                 <img
-                    src="${placeholderSvg}"
-                    ${useAuthLoad ? '' : `data-src="${utils.escapeHtml(fullUrl)}"`}
+                    ${srcAttr}
                     alt="${safeAlt}"
-                    loading="lazy"
+                    loading="${loadingAttr}"${fetchPrioAttr}
                     class="loading-shimmer w-full h-auto select-none"
                     decoding="async"
                     draggable="false"
@@ -319,10 +327,9 @@ const ui = {
                 ${isFree ? '' : '<div class="dtreasure-thumb-shield absolute inset-0 z-[1]" style="-webkit-tap-highlight-color:transparent; cursor:pointer;"></div>'}
                </div>`
             : `<img
-                src="${placeholderSvg}"
-                data-src="${utils.escapeHtml(fullUrl)}"
+                ${srcAttr}
                 alt="${safeAlt}"
-                loading="lazy"
+                loading="${loadingAttr}"${fetchPrioAttr}
                 class="loading-shimmer w-full h-auto"
                 decoding="async">`;
 
@@ -340,7 +347,7 @@ const ui = {
 
         const img = item.querySelector('img');
         if (useAuthLoad) {
-            img._lazyLoadFn = () => {
+            const triggerAuthLoad = () => {
                 authImageLoader(img, photo.url, transformOpts, {
                     fallbackSvg: errorSvg,
                     onLoadSuccess(el) {
@@ -353,6 +360,12 @@ const ui = {
                     },
                 });
             };
+            if (isAboveFold) {
+                triggerAuthLoad();
+            } else {
+                img._lazyLoadFn = triggerAuthLoad;
+                imageObserver.observe(img);
+            }
         } else {
             utils.attachImageFallback(img, candidates, {
                 fallbackSvg: errorSvg,
@@ -366,8 +379,10 @@ const ui = {
                     el.src = errorSvg;
                 },
             });
+            if (!isAboveFold) {
+                imageObserver.observe(img);
+            }
         }
-        imageObserver.observe(img);
         return item;
     },
 
@@ -436,6 +451,7 @@ const ui = {
         state.aspectFilter = 'all';
         state.resetPagination();
         this.syncToolbarUI();
+        if (typeof saveViewState === 'function') saveViewState();
         if (state.currentCategory === 'COMITBASE') this.renderComitbaseGallery();
         else if (state.currentCategory === 'DTREASURE') this.renderDtreasureGallery();
         else this.renderGallery();
@@ -444,6 +460,7 @@ const ui = {
     switchDtreasureTab(tab) {
         state.dtreasureTab = tab === 'library' ? 'library' : 'all';
         state.currentDtreasurePage = 1;
+        if (typeof saveViewState === 'function') saveViewState();
         this.invalidateDtreasureSortCache?.();
         this.renderDtreasureGallery?.();
     },

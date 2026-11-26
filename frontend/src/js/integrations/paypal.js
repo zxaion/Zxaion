@@ -1,10 +1,50 @@
 /**
- * integrations/paypal.js — Integrasi PayPal Buttons (SDK di-load dari index.html).
+ * integrations/paypal.js — Integrasi PayPal Buttons (SDK dimuat on-demand saat checkout/modal dibuka).
  * Depends on: state, elements, api, ui, getOrCreateUserToken, window.paypal
  */
 // --- PayPal Integration ---
+const PAYPAL_SDK_URL = 'https://www.paypal.com/sdk/js?client-id=AcpluY9gPGFZbJpJF5d1OHDRpiKfR6ZNiTig4KaUIO76LDGZs4-AundI9E9MVCSqGmK-zoAR16bChBf1&currency=USD&intent=capture';
 let paypalButtonsInstance = null;
 let _paypalSdkWaitTimer = null;
+let _paypalSdkLoadPromise = null;
+
+function ensurePayPalSdkLoaded() {
+    if (typeof window !== 'undefined' && window.paypal) {
+        return Promise.resolve(window.paypal);
+    }
+    if (_paypalSdkLoadPromise) return _paypalSdkLoadPromise;
+    if (typeof document === 'undefined') return Promise.reject(new Error('No document'));
+
+    _paypalSdkLoadPromise = new Promise((resolve, reject) => {
+        const existing = document.querySelector('script[data-paypal-sdk="true"]');
+        if (existing) {
+            if (window.paypal) return resolve(window.paypal);
+            existing.addEventListener('load', () => resolve(window.paypal), { once: true });
+            existing.addEventListener('error', () => {
+                _paypalSdkLoadPromise = null;
+                reject(new Error('PayPal SDK failed to load'));
+            }, { once: true });
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = PAYPAL_SDK_URL;
+        script.async = true;
+        script.dataset.paypalSdk = 'true';
+        script.onload = () => {
+            if (window.paypal) resolve(window.paypal);
+            else {
+                _paypalSdkLoadPromise = null;
+                reject(new Error('PayPal SDK loaded without window.paypal'));
+            }
+        };
+        script.onerror = () => {
+            _paypalSdkLoadPromise = null;
+            reject(new Error('PayPal SDK failed to load'));
+        };
+        document.head.appendChild(script);
+    });
+    return _paypalSdkLoadPromise;
+}
 
 function initPayPalPurchase(packKey, price) {
     if (_paypalSdkWaitTimer) {
@@ -17,22 +57,18 @@ function initPayPalPurchase(packKey, price) {
         if (elements.paypalButtons) {
             elements.paypalButtons.innerHTML = '<div class="py-4 text-center text-xs font-semibold text-gray-500 dark:text-gray-400"><i class="fas fa-spinner fa-spin mr-1.5"></i>Loading PayPal Checkout...</div>';
         }
-        let retries = 0;
-        _paypalSdkWaitTimer = setInterval(() => {
-            retries++;
-            if (window.paypal) {
-                clearInterval(_paypalSdkWaitTimer);
-                _paypalSdkWaitTimer = null;
-                _renderPayPalButtons(packKey, price);
-            } else if (retries >= 15) {
-                clearInterval(_paypalSdkWaitTimer);
-                _paypalSdkWaitTimer = null;
+        ensurePayPalSdkLoaded()
+            .then(() => {
+                if (state.selectedCreditPack?.key === packKey) {
+                    _renderPayPalButtons(packKey, price);
+                }
+            })
+            .catch(() => {
                 if (elements.paypalButtons) {
                     elements.paypalButtons.innerHTML = '<p class="py-3 text-center text-xs text-red-500 font-semibold">PayPal SDK unavailable. Please disable blockers or refresh.</p>';
                 }
                 ui.showToast('PayPal SDK failed to load. Please check your connection and refresh.', 'error');
-            }
-        }, 500);
+            });
         return;
     }
     _renderPayPalButtons(packKey, price);

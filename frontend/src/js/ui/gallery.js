@@ -62,7 +62,7 @@ Object.assign(ui, {
 
         if (!append) elements.galleryContainer.innerHTML = '';
 
-        const imageObserver = this.getGallerySliceObserver('_galleryObserver', { append, rootMargin: '100px' });
+        const imageObserver = this.getGallerySliceObserver('_galleryObserver', { append, rootMargin: '500px 0px' });
         const fragment = document.createDocumentFragment();
         photosToShow.forEach((photo, index) => {
             const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';

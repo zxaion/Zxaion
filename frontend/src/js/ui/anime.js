@@ -59,7 +59,11 @@ Object.assign(ui, {
         }
 
         const fragment = document.createDocumentFragment();
-        const cardFallbackSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='480'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%23312e81'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='480' height='480'/%3E%3C/svg%3E";
+        const cardFallbackSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%23312e81'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='360' height='360'/%3E%3C/svg%3E";
+        const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360'%3E%3Crect fill='%231f2937' width='360' height='360'/%3E%3C/svg%3E";
+        const albumObserver = typeof this.getGallerySliceObserver === 'function'
+            ? this.getGallerySliceObserver('_animeAlbumObserver', { append: false, rootMargin: '400px 0px' })
+            : null;
 
         albumTitles.forEach((title, index) => {
             const album = state.animeAlbums[title];
@@ -82,17 +86,20 @@ Object.assign(ui, {
 
             const candidates = utils.getImageFallbackCandidates(
                 primaryRaw,
-                { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' },
+                { w: 360, h: 360, q: 76, fit: 'cover', fmt: 'auto' },
                 extraRaw
             );
 
             const safeTitle = utils.escapeHtml(title);
             const serverCount = state.animeAlbumCounts?.[normTitle] || 0;
             const count = Math.max(album ? album.photos.length : 0, serverCount);
+            const isAboveFold = index < 8;
+            const loadingAttr = isAboveFold ? 'eager' : 'lazy';
+            const fetchPrio   = index < 4 ? ' fetchpriority="high"' : '';
 
             card.innerHTML = `
                 <div class="w-full h-full relative overflow-hidden rounded-2xl">
-                    <img class="anime-thumb-img w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-all duration-500 group-hover:scale-110 loading-shimmer" loading="lazy" decoding="async" alt="${safeTitle}">
+                    <img class="anime-thumb-img w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-all duration-500 group-hover:scale-110 loading-shimmer" loading="${loadingAttr}"${fetchPrio} decoding="async" alt="${safeTitle}">
                     <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-4 pointer-events-none">
                         <h3 class="text-white font-black text-center uppercase text-sm md:text-base leading-tight drop-shadow-lg line-clamp-2">${safeTitle}</h3>
                         <p class="text-white/70 text-center text-xs mt-1 font-semibold">${count} ${count === 1 ? 'item' : 'items'}</p>
@@ -104,13 +111,22 @@ Object.assign(ui, {
             if (img) {
                 const firstSrc = utils.attachImageFallback(img, candidates, {
                     fallbackSvg: cardFallbackSvg,
-                    onLoadSuccess(el) { el.classList.remove('loading-shimmer'); },
+                    onLoadSuccess(el) {
+                        if (el.dataset.src) return;
+                        el.classList.remove('loading-shimmer');
+                    },
                     onFinalError(el) {
                         el.classList.remove('loading-shimmer');
                         el.src = cardFallbackSvg;
                     },
                 });
-                img.src = firstSrc || cardFallbackSvg;
+                if (isAboveFold || !albumObserver) {
+                    img.src = firstSrc || cardFallbackSvg;
+                } else {
+                    img.src = placeholderSvg;
+                    img.dataset.src = firstSrc || cardFallbackSvg;
+                    albumObserver.observe(img);
+                }
             }
 
             card.addEventListener('click', () => this.openAnimeAlbum(title));
@@ -126,9 +142,18 @@ Object.assign(ui, {
         elements.animeGrid.appendChild(fragment);
     },
 
-    async openAnimeAlbum(albumTitle) {
+    async openAnimeAlbum(albumTitle, { page = 1, scroll = true, persist = true } = {}) {
+        state.currentCategory   = 'Anime';
         state.currentAnimeAlbum = albumTitle;
         const album = state.animeAlbums[albumTitle];
+
+        document.querySelectorAll('.cat-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('cat-anime')?.classList.add('active');
+        document.getElementById('ranking-carousel-section')?.classList.add('hidden');
+        if (elements.comitbaseSection) elements.comitbaseSection.classList.add('hidden');
+        if (elements.dtreasureSection) elements.dtreasureSection.classList.add('hidden');
+        if (elements.adminSection)     elements.adminSection.classList.add('hidden');
+        this.updateHeroSection?.('Anime');
 
         state.filteredPhotos = state.allPhotos.filter(photo =>
             photo.category && photo.category.toLowerCase() === 'anime' &&
@@ -153,12 +178,17 @@ Object.assign(ui, {
             actions.appendChild(backBtn);
         }
 
-        state.currentPage = 1;
+        state.currentPage = Math.max(1, Number(page) || 1);
         state.sortBy      = 'latest';
         if (typeof this.invalidateMainSortCache === 'function') this.invalidateMainSortCache();
         this.showToolbar();
         this.renderGallery();
-        elements.galleryContainer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (persist && typeof saveViewState === 'function') {
+            saveViewState();
+        }
+        if (scroll) {
+            elements.galleryContainer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
 
         // Fetch langsung dari server jika cache lokal belum lengkap atau belum memuat sub-album ini
         const needServerFetch = state.filteredPhotos.length === 0 || (api.imageCache?.totalMain || 0) > state.allPhotos.length;

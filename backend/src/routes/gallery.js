@@ -164,7 +164,7 @@ export async function handleAnimeAlbums({ request, env, ctx, DB, corsHeaders }) 
     }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const { results } = await DB.prepare(
-      `SELECT sub_category, COUNT(*) AS count, MIN(r2_key) AS sample_key
+      `SELECT sub_category, COUNT(*) AS count, MIN(r2_key) AS sample_key, MAX(uploaded) AS sample_uploaded
        FROM images
        WHERE bucket = 'main' AND LOWER(category) = 'anime' AND sub_category IS NOT NULL
        GROUP BY sub_category
@@ -174,7 +174,9 @@ export async function handleAnimeAlbums({ request, env, ctx, DB, corsHeaders }) 
     const albums = (results || []).map(row => ({
       sub_category: row.sub_category,
       count:        Number(row.count || 0),
-      sample_url:   row.sample_key ? `/api/img/${encodeURIComponent(row.sample_key)}` : null,
+      sample_url:   row.sample_key
+        ? buildVersionedImagePath('/api/img/', row.sample_key, { uploaded: row.sample_uploaded })
+        : null,
     }));
 
     return sendCachedJson({

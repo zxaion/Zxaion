@@ -133,7 +133,7 @@ export async function handleServeImage({ request, ctx, url, path, mainBucket, co
     const hasVersionParam = Boolean(url.searchParams.get('v'));
     const cacheHeader = isDtreasure
       ? 'private, no-store'
-      : (hasVersionParam ? 'public, max-age=31536000, immutable' : 'public, max-age=300, must-revalidate');
+      : (hasVersionParam ? 'public, max-age=31536000, immutable' : 'public, max-age=3600, stale-while-revalidate=86400');
 
     const headers = new Headers();
     object.writeHttpMetadata(headers);

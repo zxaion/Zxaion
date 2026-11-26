@@ -114,7 +114,7 @@ Object.assign(ui, {
 
         if (!append) elements.dtreasureGallery.innerHTML = '';
 
-        const imageObserver = this.getGallerySliceObserver('_dtreasureObserver', { append, rootMargin: '50px' });
+        const imageObserver = this.getGallerySliceObserver('_dtreasureObserver', { append, rootMargin: '500px 0px' });
         const fragment = document.createDocumentFragment();
         photosToShow.forEach((photo, index) => {
             fragment.appendChild(this.createMasonryItemElement(photo, index, imageObserver, {
