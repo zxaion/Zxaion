@@ -1,5 +1,6 @@
 import { ensureAutoSync } from '../services/r2Sync.js';
 import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
+import { jsonResponse } from '../utils/cors.js';
 
 function buildVersionedImagePath(prefix, r2Key, row) {
   const base = `${prefix}${encodeURIComponent(r2Key)}`;
@@ -7,6 +8,19 @@ function buildVersionedImagePath(prefix, r2Key, row) {
   if (!verSource) return base;
   const ver = String(row.uploaded ? Date.parse(row.uploaded) || row.uploaded : row.size);
   return `${base}?v=${encodeURIComponent(ver)}`;
+}
+
+function parseGalleryQuery(url, { defaultLimit = 500, maxLimit = 500 } = {}) {
+  const rawPage  = parseInt(url.searchParams.get('page')  ?? '1', 10);
+  const rawLimit = parseInt(url.searchParams.get('limit') ?? String(defaultLimit), 10);
+  const page     = Math.max(1, Number.isFinite(rawPage) ? rawPage : 1);
+  const limit    = Math.min(maxLimit, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : defaultLimit));
+  return {
+    page,
+    limit,
+    offset:      (page - 1) * limit,
+    searchQuery: (url.searchParams.get('q') || '').trim() || null,
+  };
 }
 
 function buildFtsMatchQuery(rawSearch) {
@@ -64,6 +78,14 @@ async function queryImagesWithSearch({ DB, baseConditions, baseBindings, searchQ
   return { results: results || [], total: Number(countRow?.total ?? 0) };
 }
 
+function sendCachedJson({ payload, cacheControl, totalCount, corsHeaders, request, ctx }) {
+  const extraHeaders = { 'Cache-Control': cacheControl };
+  if (totalCount !== undefined) extraHeaders['X-Total-Count'] = String(totalCount);
+  const res = jsonResponse(payload, 200, corsHeaders, extraHeaders);
+  if (request) storeEdgeCache(request, res, ctx);
+  return res;
+}
+
 // ================================================================
 // ENDPOINT: List main gallery (supports category, subCategory, q search, pagination)
 // ================================================================
@@ -74,14 +96,9 @@ export async function handleListMain({ request, url, env, ctx, DB, corsHeaders }
       if (cached) return cached;
     }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
-    const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',  10);
-    const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
-    const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
-    const limit       = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 500));
-    const offset      = (page - 1) * limit;
+    const { limit, offset, searchQuery } = parseGalleryQuery(url);
     const category    = (url.searchParams.get('category') || '').trim() || null;
     const subCategory = (url.searchParams.get('subCategory') || '').trim() || null;
-    const searchQuery = (url.searchParams.get('q') || '').trim() || null;
 
     const conditions = ["bucket = 'main'"];
     const bindings   = [];
@@ -122,21 +139,17 @@ export async function handleListMain({ request, url, env, ctx, DB, corsHeaders }
       downloadCount: row.download_count || 0,
     }));
 
-    const res = new Response(JSON.stringify(photos), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type':  'application/json',
-        'Cache-Control': 'public, max-age=60',
-        'X-Total-Count': String(total ?? photos.length),
-      },
+    return sendCachedJson({
+      payload: photos,
+      cacheControl: 'public, max-age=60',
+      totalCount: total ?? photos.length,
+      corsHeaders,
+      request,
+      ctx,
     });
-    if (request) storeEdgeCache(request, res, ctx);
-    return res;
   } catch (e) {
     console.error('/api/list error:', e.message);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'Internal server error' }, 500, corsHeaders);
   }
 }
 
@@ -164,20 +177,16 @@ export async function handleAnimeAlbums({ request, env, ctx, DB, corsHeaders }) 
       sample_url:   row.sample_key ? `/api/img/${encodeURIComponent(row.sample_key)}` : null,
     }));
 
-    const res = new Response(JSON.stringify(albums), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type':  'application/json',
-        'Cache-Control': 'public, max-age=120',
-      },
+    return sendCachedJson({
+      payload: albums,
+      cacheControl: 'public, max-age=120',
+      corsHeaders,
+      request,
+      ctx,
     });
-    if (request) storeEdgeCache(request, res, ctx);
-    return res;
   } catch (e) {
     console.error('/api/anime/albums error:', e.message);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'Internal server error' }, 500, corsHeaders);
   }
 }
 
@@ -185,21 +194,14 @@ export async function handleAnimeAlbums({ request, env, ctx, DB, corsHeaders }) 
 // ENDPOINT: COMITBASE list
 // ================================================================
 export async function handleListComitbase({ request, url, env, ctx, comitbaseBucket, DB, corsHeaders }) {
-  if (!comitbaseBucket) return new Response('[]', {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+  if (!comitbaseBucket) return jsonResponse([], 200, corsHeaders);
   try {
     if (request) {
       const cached = await matchEdgeCache(request);
       if (cached) return cached;
     }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'comitbase' });
-    const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',   10);
-    const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
-    const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
-    const limit       = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 500));
-    const offset      = (page - 1) * limit;
-    const searchQuery = (url.searchParams.get('q') || '').trim() || null;
+    const { limit, offset, searchQuery } = parseGalleryQuery(url);
 
     const { results, total } = await queryImagesWithSearch({
       DB,
@@ -222,21 +224,17 @@ export async function handleListComitbase({ request, url, env, ctx, comitbaseBuc
       downloadCount: row.download_count || 0,
     }));
 
-    const res = new Response(JSON.stringify(photos), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type':  'application/json',
-        'Cache-Control': 'public, max-age=60',
-        'X-Total-Count': String(total ?? photos.length),
-      },
+    return sendCachedJson({
+      payload: photos,
+      cacheControl: 'public, max-age=60',
+      totalCount: total ?? photos.length,
+      corsHeaders,
+      request,
+      ctx,
     });
-    if (request) storeEdgeCache(request, res, ctx);
-    return res;
   } catch (e) {
     console.error('/api/comitbase/list error:', e.message);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'Internal server error' }, 500, corsHeaders);
   }
 }
 
@@ -244,17 +242,10 @@ export async function handleListComitbase({ request, url, env, ctx, comitbaseBuc
 // ENDPOINT: DTREASURE list
 // ================================================================
 export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, corsHeaders }) {
-  if (!treasureBucket) return new Response('[]', {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+  if (!treasureBucket) return jsonResponse([], 200, corsHeaders);
   try {
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'dtreasure' });
-    const rawPage     = parseInt(url.searchParams.get('page')  ?? '1',   10);
-    const rawLimit    = parseInt(url.searchParams.get('limit') ?? '500', 10);
-    const page        = Math.max(1,   Number.isFinite(rawPage)  ? rawPage  : 1);
-    const limit       = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 500));
-    const offset      = (page - 1) * limit;
-    const searchQuery = (url.searchParams.get('q') || '').trim() || null;
+    const { limit, offset, searchQuery } = parseGalleryQuery(url);
 
     const { results, total } = await queryImagesWithSearch({
       DB,
@@ -277,19 +268,13 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
       downloadCount: row.download_count || 0,
     }));
 
-    return new Response(JSON.stringify(photos), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type':  'application/json',
-        'Cache-Control': 'private, max-age=30',
-        'X-Total-Count': String(total ?? photos.length),
-      },
+    return jsonResponse(photos, 200, corsHeaders, {
+      'Cache-Control': 'private, max-age=30',
+      'X-Total-Count': String(total ?? photos.length),
     });
   } catch (e) {
     console.error('/api/dtreasure/list error:', e.message);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'Internal server error' }, 500, corsHeaders);
   }
 }
 
@@ -297,8 +282,7 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
 // ENDPOINT: Top trending images
 // ================================================================
 export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }) {
-  const rawLimit = parseInt(url.searchParams.get('limit') ?? '20', 10);
-  const limit    = Math.min(50, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
+  const { limit } = parseGalleryQuery(url, { defaultLimit: 20, maxLimit: 50 });
 
   try {
     if (request) {
@@ -328,19 +312,15 @@ export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }
       score:         row.score          || 0,
     }));
 
-    const res = new Response(JSON.stringify(photos), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type':  'application/json',
-        'Cache-Control': 'public, max-age=120',
-      },
+    return sendCachedJson({
+      payload: photos,
+      cacheControl: 'public, max-age=120',
+      corsHeaders,
+      request,
+      ctx,
     });
-    if (request) storeEdgeCache(request, res, ctx);
-    return res;
   } catch (e) {
     console.error('/api/trending error:', e.message);
-    return new Response(JSON.stringify([]), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse([], 200, corsHeaders);
   }
 }

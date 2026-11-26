@@ -95,6 +95,32 @@ Object.assign(ui, {
         }
     },
 
+    _createDownloadToast(initialHtml) {
+        document.getElementById('dl-toast')?.remove();
+        const toast = document.createElement('div');
+        toast.id = 'dl-toast';
+        toast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
+        toast.innerHTML = initialHtml;
+        document.body.appendChild(toast);
+        return toast;
+    },
+
+    async _fetchDownloadBlob(downloadUrl, authenticated) {
+        const res = await fetch(downloadUrl, authenticated ? {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: getAuthHeaders(),
+        } : undefined);
+        if (!res.ok) {
+            let errMsg = `Download failed (HTTP ${res.status})`;
+            if (authenticated) {
+                try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
+            }
+            throw new Error(errMsg);
+        }
+        return res.blob();
+    },
+
     async triggerDownload(photo) {
         if (!photo || !photo.url) return;
 
@@ -105,18 +131,6 @@ Object.assign(ui, {
             return this.triggerResolutionDownload(photo, preset);
         }
 
-        const markDownloaded = () => {
-            photo.downloadCount = (photo.downloadCount || 0) + 1;
-            api.recordDownload(photo.id);
-            const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photo.id) : photo.id;
-            document.querySelectorAll(`.download-count[data-id="${safeId}"]`).forEach(el => {
-                el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
-            });
-            if (state.currentImageId === photo.id && elements.modalDownloadCount) {
-                elements.modalDownloadCount.textContent = utils.formatNumber(photo.downloadCount);
-            }
-        };
-
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
         const fullUrl     = utils.encodeImageUrlPath(photo.url).split('?')[0];
         const downloadUrl = `${fullUrl}?download=true`;
@@ -125,40 +139,13 @@ Object.assign(ui, {
         const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + ext;
 
         if (isDtreasure) {
-            const loadingToast = document.createElement('div');
-            loadingToast.id    = 'dl-toast';
-            loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
-            loadingToast.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing download...';
-            document.body.appendChild(loadingToast);
-
+            const loadingToast = this._createDownloadToast('<i class="fas fa-spinner fa-spin"></i> Preparing download...');
             try {
-                const res = await fetch(downloadUrl, {
-                    method:  'GET',
-                    credentials: 'same-origin',
-                    headers: getAuthHeaders(),
-                });
-
-                if (!res.ok) {
-                    let errMsg = `Download failed (HTTP ${res.status})`;
-                    try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
-                    throw new Error(errMsg);
-                }
-
-                const blob      = await res.blob();
-                const objectUrl = URL.createObjectURL(blob);
-                const a         = document.createElement('a');
-                a.href          = objectUrl;
-                a.download      = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-
-                markDownloaded();
-
+                const blob = await this._fetchDownloadBlob(downloadUrl, true);
+                utils.downloadBlob(blob, filename, 5000);
+                this.recordPhotoDownload(photo);
                 loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
                 loadingToast.classList.add('bg-green-800');
-
             } catch (error) {
                 console.error('DTREASURE download error:', error);
                 loadingToast.innerHTML = `<i class="fas fa-times-circle text-red-400"></i> ${utils.escapeHtml(error.message || 'Download error')}`;
@@ -173,7 +160,7 @@ Object.assign(ui, {
                 setTimeout(() => { document.getElementById('dl-toast')?.remove(); }, 3500);
             }
         } else {
-            markDownloaded();
+            this.recordPhotoDownload(photo);
             const a    = document.createElement('a');
             a.href     = downloadUrl;
             a.download = filename;
@@ -189,44 +176,10 @@ Object.assign(ui, {
         const downloadUrl = `${fullUrl}?download=true`;
         const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + `_${preset.tag}.jpg`;
 
-        const loadingToast = document.createElement('div');
-        loadingToast.id    = 'dl-toast';
-        loadingToast.className = 'fixed bottom-6 right-6 z-[9999] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2';
-        loadingToast.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Preparing ${preset.tag} resolution...`;
-        document.body.appendChild(loadingToast);
-
-        const markDownloaded = () => {
-            photo.downloadCount = (photo.downloadCount || 0) + 1;
-            api.recordDownload(photo.id);
-            const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photo.id) : photo.id;
-            document.querySelectorAll(`.download-count[data-id="${safeId}"]`).forEach(el => {
-                el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
-            });
-            if (state.currentImageId === photo.id && elements.modalDownloadCount) {
-                elements.modalDownloadCount.textContent = utils.formatNumber(photo.downloadCount);
-            }
-        };
+        const loadingToast = this._createDownloadToast(`<i class="fas fa-spinner fa-spin"></i> Preparing ${preset.tag} resolution...`);
 
         try {
-            let imageBlob = null;
-            if (isDtreasure) {
-                const res = await fetch(downloadUrl, {
-                    method: 'GET',
-                    credentials: 'same-origin',
-                    headers: getAuthHeaders(),
-                });
-                if (!res.ok) {
-                    let errMsg = `Download failed (HTTP ${res.status})`;
-                    try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
-                    throw new Error(errMsg);
-                }
-                imageBlob = await res.blob();
-            } else {
-                const res = await fetch(downloadUrl);
-                if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-                imageBlob = await res.blob();
-            }
-
+            const imageBlob = await this._fetchDownloadBlob(downloadUrl, isDtreasure);
             const img = new Image();
             const blobUrl = URL.createObjectURL(imageBlob);
 
@@ -269,16 +222,8 @@ Object.assign(ui, {
 
             if (!resizedBlob) throw new Error('Failed to export selected resolution');
 
-            const dlUrl = URL.createObjectURL(resizedBlob);
-            const a = document.createElement('a');
-            a.href = dlUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(dlUrl), 5000);
-
-            markDownloaded();
+            utils.downloadBlob(resizedBlob, filename, 5000);
+            this.recordPhotoDownload(photo);
             loadingToast.innerHTML = `<i class="fas fa-check-circle text-green-400"></i> ${preset.tag} download ready!`;
             loadingToast.classList.add('bg-green-800');
         } catch (err) {

@@ -3,6 +3,14 @@
  * plus dynamic /robots.txt and /sitemap.xml endpoints.
  */
 import { ensureAutoSync } from './r2Sync.js';
+import { escapeHtml } from '../utils/userToken.js';
+
+export async function findPhotoForSeo(DB, photoId) {
+  if (!DB || !photoId) return null;
+  return DB.prepare(
+    'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
+  ).bind(photoId, photoId).first();
+}
 
 export function resolvePublicOrigin(origin, env = null) {
   const configured = env?.APP_URL ? String(env.APP_URL).trim() : '';
@@ -59,19 +67,19 @@ export function injectBaseSeoOrigin(html, origin = '') {
 
   updated = updated.replace(
     /<meta\s+property=["']og:image["']\s+content=["']\/api\/img\/HEADER\/Logo\.png["'][^>]*>/i,
-    `<meta property="og:image" content="${escapeHtmlAttr(logoAbs)}">`
+    `<meta property="og:image" content="${escapeHtml(logoAbs)}">`
   );
   updated = updated.replace(
     /<meta\s+name=["']twitter:image["']\s+content=["']\/api\/img\/HEADER\/Logo\.png["'][^>]*>/i,
-    `<meta name="twitter:image" content="${escapeHtmlAttr(logoAbs)}">`
+    `<meta name="twitter:image" content="${escapeHtml(logoAbs)}">`
   );
   updated = updated.replace(
     /<meta\s+property=["']og:url["']\s+content=["'][^"']*["'][^>]*>/i,
-    `<meta property="og:url" content="${escapeHtmlAttr(`${base}/`)}">`
+    `<meta property="og:url" content="${escapeHtml(`${base}/`)}">`
   );
   updated = updated.replace(
     /<link\s+rel=["']canonical["']\s+href=["'][^"']*["'][^>]*>/i,
-    `<link rel="canonical" href="${escapeHtmlAttr(`${base}/`)}">`
+    `<link rel="canonical" href="${escapeHtml(`${base}/`)}">`
   );
   return updated;
 }
@@ -91,27 +99,27 @@ export function injectOpenGraphMetadata(html, photo, origin = '') {
 
   // 1. Update <title>
   if (updated.includes('<title>')) {
-    updated = updated.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtmlAttr(pageTitle)}</title>`);
+    updated = updated.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(pageTitle)}</title>`);
   }
 
   // 2. Update or inject meta description
   if (/name=["']description["']/i.test(updated)) {
-    updated = updated.replace(/<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${escapeHtmlAttr(description)}">`);
+    updated = updated.replace(/<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${escapeHtml(description)}">`);
   }
 
   // 3. Update or inject OpenGraph meta tags
   const ogTags = [
     `<meta property="og:type" content="article">`,
-    `<meta property="og:title" content="${escapeHtmlAttr(title)}">`,
-    `<meta property="og:description" content="${escapeHtmlAttr(description)}">`,
-    `<meta property="og:url" content="${escapeHtmlAttr(canonicalUrl)}">`,
-    `<meta property="og:image" content="${escapeHtmlAttr(imageUrl)}">`,
-    `<meta property="og:image:alt" content="${escapeHtmlAttr(photo.title || 'Wallpaper Preview')}">`,
+    `<meta property="og:title" content="${escapeHtml(title)}">`,
+    `<meta property="og:description" content="${escapeHtml(description)}">`,
+    `<meta property="og:url" content="${escapeHtml(canonicalUrl)}">`,
+    `<meta property="og:image" content="${escapeHtml(imageUrl)}">`,
+    `<meta property="og:image:alt" content="${escapeHtml(photo.title || 'Wallpaper Preview')}">`,
     `<meta name="twitter:card" content="summary_large_image">`,
-    `<meta name="twitter:title" content="${escapeHtmlAttr(title)}">`,
-    `<meta name="twitter:description" content="${escapeHtmlAttr(description)}">`,
-    `<meta name="twitter:image" content="${escapeHtmlAttr(imageUrl)}">`,
-    `<link rel="canonical" href="${escapeHtmlAttr(canonicalUrl)}">`,
+    `<meta name="twitter:title" content="${escapeHtml(title)}">`,
+    `<meta name="twitter:description" content="${escapeHtml(description)}">`,
+    `<meta name="twitter:image" content="${escapeHtml(imageUrl)}">`,
+    `<link rel="canonical" href="${escapeHtml(canonicalUrl)}">`,
     `<script type="application/ld+json" id="zx-schema-photo">\n${jsonLd}\n</script>`,
   ].join('\n    ');
 
@@ -224,20 +232,5 @@ export async function handleSitemapXml({ DB, env, ctx, origin, url, corsHeaders 
 
 function escapeXml(str) {
   if (!str || typeof str !== 'string') return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-function escapeHtmlAttr(str) {
-  if (!str || typeof str !== 'string') return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return escapeHtml(str).replace(/&#39;/g, '&apos;');
 }

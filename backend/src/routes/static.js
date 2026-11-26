@@ -1,7 +1,7 @@
 import { ALLOWED_ORIGINS } from '../config/constants.js';
 import { MIME_TYPES } from '../config/mimeTypes.js';
 import { CONTENT_SECURITY_POLICY } from '../config/security.js';
-import { injectOpenGraphMetadata } from '../services/seo.js';
+import { findPhotoForSeo, injectOpenGraphMetadata } from '../services/seo.js';
 
 // ================================================================
 // Serve static files dari R2
@@ -47,9 +47,7 @@ export async function handleStatic({ path, url, mainBucket, DB, origin }) {
       if (url && DB && url.searchParams.has('photo')) {
         const photoId = url.searchParams.get('photo');
         try {
-          const photo = await DB.prepare(
-            'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
-          ).bind(photoId, photoId).first();
+          const photo = await findPhotoForSeo(DB, photoId);
           if (photo) {
             const rawBody = typeof object.text === 'function' ? await object.text() : await new Response(object.body).text();
             const transformed = injectOpenGraphMetadata(rawBody, photo, origin);

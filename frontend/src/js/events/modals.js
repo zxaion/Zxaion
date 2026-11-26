@@ -5,21 +5,21 @@
 function initModalEvents() {
     // ZVERSE modal
     const zverseModal = document.getElementById('zverse-modal');
-    document.getElementById('zverse-btn')?.addEventListener('click', () => { zverseModal?.classList.remove('hidden'); zverseModal?.classList.add('flex'); });
-    document.getElementById('close-zverse')?.addEventListener('click', () => { zverseModal?.classList.add('hidden'); zverseModal?.classList.remove('flex'); });
+    document.getElementById('zverse-btn')?.addEventListener('click', () => ui.setModalOpen(zverseModal, true, { lockScroll: false }));
+    document.getElementById('close-zverse')?.addEventListener('click', () => ui.setModalOpen(zverseModal, false));
 
     // MENU modal
     const menuModal = document.getElementById('menu-modal');
     document.getElementById('menu-btn')?.addEventListener('click', () => {
         ui.loadQuicklinks();
-        menuModal?.classList.remove('hidden'); menuModal?.classList.add('flex');
+        ui.setModalOpen(menuModal, true, { lockScroll: false });
     });
-    document.getElementById('close-menu')?.addEventListener('click', () => { menuModal?.classList.add('hidden'); menuModal?.classList.remove('flex'); });
+    document.getElementById('close-menu')?.addEventListener('click', () => ui.setModalOpen(menuModal, false));
 
     // Quicklink content modal
     const quicklinkContentModal = document.getElementById('quicklink-content-modal');
     document.getElementById('close-quicklink-content')?.addEventListener('click', () => {
-        quicklinkContentModal?.classList.add('hidden'); quicklinkContentModal?.classList.remove('flex');
+        ui.setModalOpen(quicklinkContentModal, false);
     });
 
     // Image modal close & share
@@ -65,16 +65,16 @@ function initModalEvents() {
         const code = (elements.purchaseSuccessCode?.textContent || state.lastRecoveryCode || '').trim();
         if (!code || code === 'ZX-XXXX-XXXX-XXXX') return;
         try {
-            await navigator.clipboard.writeText(code);
+            await utils.copyText(code);
             const label = document.getElementById('copy-purchase-recovery-label');
             if (label) {
                 const prev = label.textContent;
-                label.textContent = 'Tersalin!';
+                label.textContent = 'Copied!';
                 setTimeout(() => { label.textContent = prev; }, 2000);
             }
-            ui.showToast('Recovery Key berhasil disalin!', 'success');
+            ui.showToast('Recovery Key copied!', 'success');
         } catch {
-            ui.showToast(`Kode Pemulihan: ${code}`, 'info');
+            ui.showToast(`Recovery Code: ${code}`, 'info');
         }
     });
 
@@ -93,17 +93,6 @@ function initModalEvents() {
                 document.querySelector('.category-nav')?.classList.remove('hidden');
             }
             ui.handleHashChange();
-        }
-    });
-
-    // Escape key closes modals
-    window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            if (elements.imageModal && !elements.imageModal.classList.contains('hidden')) {
-                ui.closeImageModal();
-            } else if (purchaseSuccessModal && !purchaseSuccessModal.classList.contains('hidden')) {
-                ui.closePurchaseSuccessModal();
-            }
         }
     });
 }

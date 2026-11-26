@@ -5,6 +5,33 @@
  */
 
 Object.assign(ui, {
+    _adminHeaders(token = state.adminToken, extra = {}) {
+        return { 'X-Admin-Token': token, ...extra };
+    },
+
+    _setRescanAlert(type, title, detail) {
+        const alertEl = elements.adminRescanAlert;
+        if (!alertEl) return;
+        const isSuccess = type === 'success';
+        alertEl.className = `p-4 rounded-2xl text-sm flex items-center justify-between border ${
+            isSuccess
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                : 'bg-red-50 text-red-800 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800'
+        }`;
+        alertEl.innerHTML = `
+            <div class="flex items-center gap-2">
+                <i class="fas ${isSuccess ? 'fa-check-circle text-emerald-500' : 'fa-exclamation-triangle text-red-500'} text-lg"></i>
+                <div>
+                    <div class="font-bold">${utils.escapeHtml(title)}</div>
+                    <div class="text-xs opacity-90">${utils.escapeHtml(detail)}</div>
+                </div>
+            </div>
+            <button type="button" class="text-xs font-bold underline ml-4">Dismiss</button>
+        `;
+        alertEl.querySelector('button')?.addEventListener('click', () => alertEl.classList.add('hidden'));
+        alertEl.classList.remove('hidden');
+    },
+
     isAdminOpen() {
         return elements.adminSection && !elements.adminSection.classList.contains('hidden');
     },
@@ -85,13 +112,9 @@ Object.assign(ui, {
         }
 
         try {
-            const url = `${API_BASE}/api/admin/dashboard`;
-            const res = await fetch(url, {
+            const res = await fetch(`${API_BASE}/api/admin/dashboard`, {
                 method: 'GET',
-                headers: {
-                    'X-Admin-Token': cleanToken,
-                    'Content-Type': 'application/json',
-                },
+                headers: this._adminHeaders(cleanToken, { 'Content-Type': 'application/json' }),
             });
 
             if (!res.ok) {
@@ -149,13 +172,9 @@ Object.assign(ui, {
         if (refreshBtn) refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span class="hidden sm:inline">Loading...</span>';
 
         try {
-            const url = `${API_BASE}/api/admin/dashboard`;
-            const res = await fetch(url, {
+            const res = await fetch(`${API_BASE}/api/admin/dashboard`, {
                 method: 'GET',
-                headers: {
-                    'X-Admin-Token': state.adminToken,
-                    'Content-Type': 'application/json',
-                },
+                headers: this._adminHeaders(state.adminToken, { 'Content-Type': 'application/json' }),
             });
 
             if (res.status === 401) {
@@ -194,10 +213,7 @@ Object.assign(ui, {
         try {
             const res = await fetch(`${API_BASE}/api/admin/rescan`, {
                 method: 'POST',
-                headers: {
-                    'X-Admin-Token': state.adminToken,
-                    'Content-Type': 'application/json',
-                },
+                headers: this._adminHeaders(state.adminToken, { 'Content-Type': 'application/json' }),
             });
 
             if (!res.ok) {
@@ -217,22 +233,11 @@ Object.assign(ui, {
                 totalImages += s.scanned ?? s.totalInBucket ?? 0;
             });
 
-            const alertEl = elements.adminRescanAlert;
-            if (alertEl) {
-                alertEl.className = 'p-4 rounded-2xl text-sm flex items-center justify-between border bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800';
-                alertEl.innerHTML = `
-                    <div class="flex items-center gap-2">
-                        <i class="fas fa-check-circle text-emerald-500 text-lg"></i>
-                        <div>
-                            <div class="font-bold">R2 Force-Rescan Complete!</div>
-                            <div class="text-xs opacity-90">${totalUpserted} added/updated files, ${totalRemoved} removed files. Current total: ${totalImages} images in database.</div>
-                        </div>
-                    </div>
-                    <button type="button" class="text-xs font-bold underline ml-4" onclick="this.parentElement.classList.add('hidden')">Dismiss</button>
-                `;
-                alertEl.classList.remove('hidden');
-            }
-
+            this._setRescanAlert(
+                'success',
+                'R2 Force-Rescan Complete!',
+                `${totalUpserted} added/updated files, ${totalRemoved} removed files. Current total: ${totalImages} images in database.`
+            );
             this.showToast(`R2 Rescan Complete: +${totalUpserted} added, -${totalRemoved} removed!`, 'success', 5000);
 
             // Reload admin metrics and public image cache
@@ -240,21 +245,7 @@ Object.assign(ui, {
             api.fetchImages().catch(() => {});
         } catch (err) {
             console.error('[Admin] Rescan error:', err);
-            const alertEl = elements.adminRescanAlert;
-            if (alertEl) {
-                alertEl.className = 'p-4 rounded-2xl text-sm flex items-center justify-between border bg-red-50 text-red-800 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800';
-                alertEl.innerHTML = `
-                    <div class="flex items-center gap-2">
-                        <i class="fas fa-exclamation-triangle text-red-500 text-lg"></i>
-                        <div>
-                            <div class="font-bold">Failed to run R2 force-rescan</div>
-                            <div class="text-xs opacity-90">${utils.escapeHtml(err.message)}</div>
-                        </div>
-                    </div>
-                    <button type="button" class="text-xs font-bold underline ml-4" onclick="this.parentElement.classList.add('hidden')">Dismiss</button>
-                `;
-                alertEl.classList.remove('hidden');
-            }
+            this._setRescanAlert('error', 'Failed to run R2 force-rescan', err.message || 'Unknown error');
             this.showToast('Rescan failed: ' + err.message, 'error');
         } finally {
             if (btn) btn.disabled = false;
@@ -443,7 +434,7 @@ Object.assign(ui, {
         try {
             const res = await fetch(`${API_BASE}/api/admin/backup/snapshot`, {
                 method: 'POST',
-                headers: { 'X-Admin-Token': state.adminToken },
+                headers: this._adminHeaders(),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
@@ -459,18 +450,11 @@ Object.assign(ui, {
         try {
             const qs = snapshotId ? `?id=${encodeURIComponent(snapshotId)}` : '';
             const res = await fetch(`${API_BASE}/api/admin/backup/download${qs}`, {
-                headers: { 'X-Admin-Token': state.adminToken },
+                headers: this._adminHeaders(),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `zxaion-d1-backup-${snapshotId || 'latest'}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            utils.downloadBlob(blob, `zxaion-d1-backup-${snapshotId || 'latest'}.json`, 4000);
             this.showToast('D1 backup file (.json) downloaded!', 'success');
         } catch (err) {
             this.showToast('Failed to download snapshot: ' + err.message, 'error');
@@ -482,10 +466,7 @@ Object.assign(ui, {
         try {
             const res = await fetch(`${API_BASE}/api/admin/backup/restore`, {
                 method: 'POST',
-                headers: {
-                    'X-Admin-Token': state.adminToken,
-                    'Content-Type': 'application/json',
-                },
+                headers: this._adminHeaders(state.adminToken, { 'Content-Type': 'application/json' }),
                 body: JSON.stringify(payload),
             });
             const data = await res.json().catch(() => ({}));
@@ -657,14 +638,7 @@ Object.assign(ui, {
         ].join('\r\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `zxaion_paypal_orders_${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        utils.downloadBlob(blob, `zxaion_paypal_orders_${new Date().toISOString().slice(0, 10)}.csv`, 5000);
 
         this.showToast('CSV file downloaded!', 'success');
     },

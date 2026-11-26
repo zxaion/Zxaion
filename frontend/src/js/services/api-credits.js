@@ -3,6 +3,36 @@
  * Depends on: api (api-gallery.js), API_BASE, state, ui, getOrCreateUserToken
  */
 Object.assign(api, {
+    _applyWalletState({
+        requiresLogin = false,
+        account = null,
+        wallet = null,
+        refreshSearch = false,
+        refreshBanner = true,
+    } = {}) {
+        state.requiresLogin = Boolean(requiresLogin);
+        if (account) {
+            state.account = { ...(state.account || {}), ...account };
+        }
+        if (wallet) {
+            state.credits         = wallet.credits || 0;
+            state.lifetime        = Boolean(wallet.lifetime);
+            state.purchasedImages = new Set(wallet.purchased || []);
+        }
+        ui.updateCreditDisplay?.();
+        if (refreshBanner) ui.updateAccountBanner?.();
+
+        if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
+            ui.invalidateDtreasureSortCache?.();
+            ui.renderDtreasureGallery();
+        } else if (refreshSearch && state.searchQuery && typeof ui.renderGallery === 'function') {
+            ui.renderGallery();
+        }
+        if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
+            ui.refreshModalLockState(state.currentPhoto);
+        }
+    },
+
     async fetchCreditBalance() {
         try {
             const res   = await fetch(`${API_BASE}/api/credits/balance`, {
@@ -11,54 +41,23 @@ Object.assign(api, {
             });
             if (!res.ok) { console.error('fetchCreditBalance failed:', res.status); return; }
             const data = await res.json();
-            state.requiresLogin   = !!data.requiresLogin;
-            state.credits         = data.credits  || 0;
-            state.lifetime        = data.lifetime || false;
-            state.purchasedImages = new Set(data.purchased || []);
-            if (data.accountId) {
-                state.account = {
-                    ...(state.account || {}),
+            this._applyWalletState({
+                requiresLogin: !!data.requiresLogin,
+                account: data.accountId ? {
                     accountId:     data.accountId,
                     email:         data.email ?? state.account?.email ?? null,
                     emailVerified: data.emailVerified ?? state.account?.emailVerified ?? false,
                     hasPassword:   data.hasPassword ?? state.account?.hasPassword ?? false,
-                };
-            }
-            ui.updateCreditDisplay();
-            ui.updateAccountBanner?.();
-            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
-                ui.invalidateDtreasureSortCache?.();
-                ui.renderDtreasureGallery();
-            } else if (state.searchQuery && typeof ui.renderGallery === 'function') {
-                ui.renderGallery();
-            }
-            if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
-                ui.refreshModalLockState(state.currentPhoto);
-            }
+                } : null,
+                wallet: {
+                    credits:   data.credits || 0,
+                    lifetime:  data.lifetime || false,
+                    purchased: data.purchased || [],
+                },
+                refreshSearch: true,
+            });
         } catch (e) {
             console.error('Failed to fetch credits:', e);
-        }
-    },
-
-    async preparePayer() {
-        try {
-            const res = await fetch(`${API_BASE}/api/credits/prepare`, {
-                method:  'POST',
-                credentials: 'same-origin',
-                headers: getAuthHeaders(),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok && data.success && typeof data.payerRef === 'string' && data.payerRef.startsWith('pub_')) {
-                if (data.accountId) {
-                    state.account = { ...(state.account || {}), accountId: data.accountId };
-                    ui.updateAccountBanner?.();
-                }
-                return data.payerRef;
-            }
-            return null;
-        } catch (e) {
-            console.error('preparePayer failed:', e);
-            return null;
         }
     },
 
@@ -166,24 +165,19 @@ Object.assign(api, {
             }
 
             localStorage.setItem('zx_user_token', data.userToken);
-            state.credits         = data.credits || 0;
-            state.lifetime        = !!data.lifetime;
-            state.purchasedImages = new Set(data.purchased || []);
-            ui.updateCreditDisplay();
-            if (typeof ui.invalidateDtreasureSortCache === 'function') {
-                ui.invalidateDtreasureSortCache();
-            }
+            ui.invalidateDtreasureSortCache?.();
+            this._applyWalletState({
+                requiresLogin: false,
+                wallet: {
+                    credits:   data.credits || 0,
+                    lifetime:  data.lifetime || false,
+                    purchased: data.purchased || [],
+                },
+                refreshBanner: false,
+            });
 
-            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
-                ui.renderDtreasureGallery();
-            }
-
-            if (state.currentImageId && typeof ui.applyModalShield === 'function') {
-                const isUnlocked = state.lifetime || state.purchasedImages.has(state.currentImageId);
-                if (isUnlocked) {
-                    ui.unlockDtreasureThumbnail?.(state.currentImageId);
-                    if (state.currentPhoto) ui.refreshModalLockState?.(state.currentPhoto);
-                }
+            if (state.currentImageId && (state.lifetime || state.purchasedImages.has(state.currentImageId))) {
+                ui.unlockDtreasureThumbnail?.(state.currentImageId);
             }
 
             return {

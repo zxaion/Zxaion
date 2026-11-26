@@ -83,16 +83,27 @@ Object.assign(ui, {
             recBox?.classList.remove('hidden');
         }
 
-        elements.purchaseSuccessModal.classList.remove('hidden');
-        elements.purchaseSuccessModal.classList.add('flex');
-        document.body.style.overflow = 'hidden';
+        this.setModalOpen(elements.purchaseSuccessModal, true);
     },
 
     closePurchaseSuccessModal() {
-        if (!elements.purchaseSuccessModal) return;
-        elements.purchaseSuccessModal.classList.add('hidden');
-        elements.purchaseSuccessModal.classList.remove('flex');
-        document.body.style.overflow = '';
+        this.setModalOpen(elements.purchaseSuccessModal, false);
+    },
+
+    closeBuyCreditsModal() {
+        if (typeof _paypalSdkWaitTimer !== 'undefined' && _paypalSdkWaitTimer) {
+            clearInterval(_paypalSdkWaitTimer);
+            _paypalSdkWaitTimer = null;
+        }
+        if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
+            try { paypalButtonsInstance.close(); } catch (e) { console.warn('PayPal close error:', e); }
+            paypalButtonsInstance = null;
+        }
+        this.setModalOpen('buy-credits-modal', false);
+        if (elements.paypalButtonContainer) elements.paypalButtonContainer.classList.add('hidden');
+        if (elements.paypalButtons) elements.paypalButtons.innerHTML = '';
+        document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
+        state.selectedCreditPack = null;
     },
 
     downloadReceiptFile(recoveryCode, packKey) {
@@ -100,8 +111,7 @@ Object.assign(ui, {
             const token = typeof getOrCreateUserToken === 'function' ? getOrCreateUserToken() : (localStorage.getItem('zx_user_token') || 'N/A');
             const accountId = state.account?.accountId || 'N/A';
             const code = recoveryCode || state.lastRecoveryCode || 'N/A';
-            const now = new Date();
-            const dateStr = now.toUTCString();
+            const dateStr = new Date().toUTCString();
             const packDef = (typeof CREDIT_PACKS !== 'undefined' && packKey && CREDIT_PACKS[packKey]) ? CREDIT_PACKS[packKey] : state.selectedCreditPack;
             const packName = packDef ? `${packDef.label} ($${packDef.price})` : (packKey ? `Pack ${packKey}` : 'Credits Purchase');
             const statusStr = state.lifetime ? 'LIFETIME ACCESS (Unlimited DTREASURE)' : `${state.credits} Credits`;
@@ -133,15 +143,8 @@ Object.assign(ui, {
             ].join('\r\n');
 
             const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
             const cleanCode = code.replace(/[^A-Za-z0-9_-]/g, '');
-            a.download = `zxaion-backup-receipt-${cleanCode || 'key'}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 1500);
+            utils.downloadBlob(blob, `zxaion-backup-receipt-${cleanCode || 'key'}.txt`, 1500);
             ui.showToast('Backup receipt (.txt) downloaded!', 'success', 4000);
         } catch (e) {
             console.error('Download receipt error:', e);

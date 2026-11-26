@@ -1,6 +1,5 @@
 import { handleHealth }          from './health.js';
 import {
-  handleAdminSync,
   handleAdminRescan,
   handleAdminDashboard,
   handleAdminBackupList,
@@ -40,7 +39,6 @@ export const routes = [
   { method: 'GET',  path: '/api/health',                 handler: handleHealth },
   { method: 'GET',  path: '/api/admin/dashboard',        handler: handleAdminDashboard },
   { method: 'POST', path: '/api/admin/rescan',           handler: handleAdminRescan },
-  { method: 'POST', path: '/api/admin/sync',             handler: handleAdminSync },
   { method: 'GET',  path: '/api/admin/backup',           handler: handleAdminBackupList },
   { method: 'POST', path: '/api/admin/backup/snapshot',  handler: handleAdminBackupCreate },
   { method: 'GET',  path: '/api/admin/backup/download',  handler: handleAdminBackupDownload },

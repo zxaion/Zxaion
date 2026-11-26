@@ -1,13 +1,7 @@
 // Transactional email dispatch service (Resend HTTPS API or Cloudflare Email Service binding)
 // Never fabricates delivery when credentials are unconfigured.
 
-function escapeHtml(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+import { escapeHtml } from '../utils/userToken.js';
 
 export function buildVerificationEmailContent({ purpose, code, accountId, expiresMinutes = 15 }) {
   const isRecovery = purpose === 'recover_account';

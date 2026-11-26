@@ -1,6 +1,7 @@
 import { PACK_BY_CENTS, PACKS, PACK_BY_PRICE } from '../config/packs.js';
 import { maskTokenForLog } from '../utils/userToken.js';
 import { appendCreditLedgerStatement, ensureAutoAccount } from '../services/accountAuth.js';
+import { claimPayPalOrderProcessing, settleClaimedPayPalOrder } from '../services/paypal.js';
 
 const STALE_PROCESSING_MS = 5 * 60 * 1000;
 
@@ -252,22 +253,16 @@ export async function handlePayPalWebhook({ request, DB, PAYPAL_WEBHOOK_ID, PAYP
 
     const publicId      = rawCustomId && rawCustomId.startsWith('pub_') ? rawCustomId : null;
     const packDollarKey = `${amountCents / 100}$`;
-    const nowIso        = new Date().toISOString();
 
-    const claim = await DB.prepare(`
-      INSERT INTO payment_orders (id, user_id, order_id, capture_id, pack_key, amount, status, error_message, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'processing', NULL, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        user_id       = excluded.user_id,
-        capture_id    = COALESCE(excluded.capture_id, payment_orders.capture_id),
-        pack_key      = excluded.pack_key,
-        amount        = excluded.amount,
-        status        = 'processing',
-        error_message = NULL,
-        created_at    = excluded.created_at
-      WHERE payment_orders.status IN ('created', 'failed')
-         OR (payment_orders.status = 'processing' AND payment_orders.created_at < ?)
-    `).bind(`order:${orderId}`, userId, orderId, captureId, packDollarKey, capturedAmount, nowIso, staleCutoffIso).run();
+    const claim = await claimPayPalOrderProcessing({
+      DB,
+      orderId,
+      userId,
+      captureId,
+      packKey: packDollarKey,
+      amount: capturedAmount,
+      staleProcessingMs: STALE_PROCESSING_MS,
+    });
 
     if (!claim.meta || claim.meta.changes === 0) {
       console.log(`Webhook: order ${orderId} already claimed — skipping duplicate credit`);
@@ -275,50 +270,23 @@ export async function handlePayPalWebhook({ request, DB, PAYPAL_WEBHOOK_ID, PAYP
     }
 
     try {
-      const { account } = await ensureAutoAccount(DB, { userId, request: null, issueSession: false });
-      const totalCredits = packData.lifetime ? 0 : (packData.credits + (packData.bonus || 0));
-
-      const creditStmt = packData.lifetime
-        ? DB.prepare(
-            `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
-             VALUES (?, ?, 0, 1)
-             ON CONFLICT(user_id) DO UPDATE SET lifetime = 1, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
-          ).bind(userId, publicId)
-        : DB.prepare(
-            `INSERT INTO user_credits (user_id, public_id, credits, lifetime)
-             VALUES (?, ?, ?, 0)
-             ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?, public_id = COALESCE(user_credits.public_id, excluded.public_id)`
-          ).bind(userId, publicId, totalCredits, totalCredits);
-
-      const completedAt = new Date().toISOString();
-      const completeStmt = DB.prepare(
-        `UPDATE payment_orders SET status = 'completed', completed_at = ?, capture_id = COALESCE(?, capture_id) WHERE id = ?`
-      ).bind(completedAt, captureId, `order:${orderId}`);
-
-      const ledgerStmt = appendCreditLedgerStatement(DB, {
-        id: `led:order:${orderId}`,
-        accountId: account?.account_id,
+      await settleClaimedPayPalOrder({
+        DB,
+        orderId,
         userId,
-        txType: packData.lifetime ? 'lifetime_unlock' : 'purchase',
-        amount: totalCredits,
-        referenceType: 'paypal_order',
-        referenceId: orderId,
-        description: packData.lifetime
-          ? `Lifetime DTREASURE Pass (${packDollarKey})`
-          : `Purchased ${totalCredits} credits (${packDollarKey}) via PayPal Webhook`,
-        metadata: { pack: packDollarKey, captureId, amountUsd: capturedAmount },
-        createdAt: completedAt,
+        publicId,
+        captureId,
+        packKey: packDollarKey,
+        amountUsd: capturedAmount,
+        packData,
+        request: null,
+        viaWebhook: true,
       });
-
-      await DB.batch([creditStmt, completeStmt, ledgerStmt]);
 
       const maskedRef = await maskTokenForLog(userId);
       console.log(`Webhook: credited user ${maskedRef} for order ${orderId} ($${capturedAmount})`);
     } catch (creditError) {
       console.error(`Webhook: failed to credit order ${orderId}:`, creditError.message);
-      await DB.prepare(
-        `UPDATE payment_orders SET status = 'failed', error_message = ? WHERE id = ?`
-      ).bind(creditError.message, `order:${orderId}`).run();
       // Kembalikan 500 agar PayPal menjadwalkan retry otomatis
       return new Response('Credit processing error', { status: 500 });
     }

@@ -346,11 +346,6 @@ const utils = {
         return getCloudflareImageUrl(src, options);
     },
 
-    // Alias kompatibilitas yang dipakai modul UI galeri untuk optimasi gambar.
-    buildImageUrl(rawUrl, options = {}) {
-        return getCloudflareImageUrl(rawUrl, options);
-    },
-
     getImageFallbackCandidates(rawUrl, options = {}, extraRawUrls = []) {
         return getImageFallbackCandidates(rawUrl, options, extraRawUrls);
     },
@@ -369,5 +364,34 @@ const utils = {
 
     revokeTrackedBlobUrl(imgEl) {
         return revokeTrackedBlobUrl(imgEl);
+    },
+
+    downloadBlob(blob, filename, revokeMs = 4000) {
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = filename || 'download';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), revokeMs);
+    },
+
+    async copyText(text) {
+        const value = String(text ?? '');
+        if (!value) throw new Error('Nothing to copy');
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(value);
+            return;
+        }
+        const temp = document.createElement('textarea');
+        temp.value = value;
+        temp.style.position = 'fixed';
+        temp.style.opacity = '0';
+        document.body.appendChild(temp);
+        temp.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(temp);
+        if (!ok) throw new Error('Clipboard copy failed');
     },
 };

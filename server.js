@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker from './backend/src/index.js';
 import { createLocalEnv } from './backend/src/localRuntime.js';
-import { injectOpenGraphMetadata, injectBaseSeoOrigin, resolvePublicOrigin } from './backend/src/services/seo.js';
+import { findPhotoForSeo, injectOpenGraphMetadata, injectBaseSeoOrigin, resolvePublicOrigin } from './backend/src/services/seo.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, 'frontend', 'dist');
@@ -165,9 +165,7 @@ export function createApp(env) {
       const photoId = req.query.photo;
 
       if (photoId && env.DB) {
-        const photo = await env.DB.prepare(
-          'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
-        ).bind(photoId, photoId).first();
+        const photo = await findPhotoForSeo(env.DB, photoId);
 
         if (photo) {
           const transformedHtml = injectOpenGraphMetadata(rawHtml, photo, publicOrigin);

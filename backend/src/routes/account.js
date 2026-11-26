@@ -1,9 +1,13 @@
 // Virtual Account, Email Verification, Recovery, Sessions & Credit Ledger Routes
 import {
+  LEDGER_SELECT_COLUMNS,
+  ORDER_SELECT_COLUMNS,
   buildSessionCookie,
   clearSessionCookie,
   createUserSession,
   ensureAutoAccount,
+  getAccountByEmail,
+  getAccountById,
   resolveSessionAuth,
   sanitizeAccountView,
 } from '../services/accountAuth.js';
@@ -16,6 +20,7 @@ import {
   sha256Hex,
   verifyPassword,
 } from '../utils/userToken.js';
+import { jsonResponse } from '../utils/cors.js';
 
 const MAX_LOGIN_FAILURES = 5;
 const LOCKOUT_MINUTES = 15;
@@ -23,14 +28,9 @@ const OTP_EXPIRY_MINUTES = 15;
 const MAX_OTP_ATTEMPTS = 5;
 
 function jsonRes(payload, status = 200, corsHeaders = {}, extraHeaders = {}) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-      ...extraHeaders,
-    },
+  return jsonResponse(payload, status, corsHeaders, {
+    'Cache-Control': 'no-store',
+    ...extraHeaders,
   });
 }
 
@@ -123,11 +123,11 @@ export async function handleAccountMe({ request, DB, corsHeaders, getUserToken }
     const wallet = await fetchWalletSnapshot(DB, auth.userId);
 
     const ledgerRes = await DB.prepare(
-      'SELECT id, account_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      `SELECT ${LEDGER_SELECT_COLUMNS} FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
     ).bind(auth.userId, 20, 0).all();
 
     const ordersRes = await DB.prepare(
-      'SELECT id, order_id, capture_id, pack_key, amount, status, created_at, completed_at FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 20'
+      `SELECT ${ORDER_SELECT_COLUMNS} FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
     ).bind(auth.userId).all();
 
     return jsonRes({
@@ -236,9 +236,7 @@ export async function handleRegisterAccount({ request, env, DB, corsHeaders, get
       WHERE account_id = ?
     `).bind(email, passwordHash, displayName || account.display_name || null, nowIso, account.account_id).run();
 
-    const updatedAccount = await DB.prepare(
-      'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, created_at, updated_at, last_login_at FROM accounts WHERE account_id = ? LIMIT 1'
-    ).bind(account.account_id).first();
+    const updatedAccount = await getAccountById(DB, account.account_id);
 
     const session = await createUserSession(DB, account.account_id, request);
     const wallet  = await fetchWalletSnapshot(DB, auth.userId);
@@ -382,9 +380,7 @@ export async function handleVerifyEmail({ request, DB, corsHeaders, getUserToken
       DB.prepare('UPDATE accounts SET email_verified = 1, updated_at = ? WHERE account_id = ?').bind(nowIso, auth.account.account_id),
     ]);
 
-    const updated = await DB.prepare(
-      'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, created_at, updated_at, last_login_at FROM accounts WHERE account_id = ? LIMIT 1'
-    ).bind(auth.account.account_id).first();
+    const updated = await getAccountById(DB, auth.account.account_id);
 
     return jsonRes({
       success: true,
@@ -430,9 +426,7 @@ export async function handleLoginAccount({ request, DB, corsHeaders, checkRateLi
   }
 
   try {
-    const account = await DB.prepare(
-      'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at FROM accounts WHERE email = ? LIMIT 1'
-    ).bind(email).first();
+    const account = await getAccountByEmail(DB, email);
 
     if (!account || !account.password_hash) {
       return jsonRes({ success: false, error: 'Invalid email or password' }, 401, corsHeaders);
@@ -475,9 +469,7 @@ export async function handleLoginAccount({ request, DB, corsHeaders, checkRateLi
     ).bind(nowIso, nowIso, account.account_id).run();
 
     const session = await createUserSession(DB, account.account_id, request);
-    const updated = await DB.prepare(
-      'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, created_at, updated_at, last_login_at FROM accounts WHERE account_id = ? LIMIT 1'
-    ).bind(account.account_id).first();
+    const updated = await getAccountById(DB, account.account_id);
     const wallet = await fetchWalletSnapshot(DB, account.user_id);
 
     return jsonRes({
@@ -660,9 +652,7 @@ export async function handleRecoverConfirm({ request, DB, corsHeaders, checkRate
     ]);
 
     const session = await createUserSession(DB, account.account_id, request);
-    const updated = await DB.prepare(
-      'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, created_at, updated_at, last_login_at FROM accounts WHERE account_id = ? LIMIT 1'
-    ).bind(account.account_id).first();
+    const updated = await getAccountById(DB, account.account_id);
     const wallet = await fetchWalletSnapshot(DB, account.user_id);
 
     return jsonRes({
@@ -700,10 +690,10 @@ export async function handleAccountLedger({ request, url, DB, corsHeaders, getUs
   try {
     const stmt = txType
       ? DB.prepare(
-          'SELECT id, account_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at FROM credit_ledger WHERE user_id = ? AND tx_type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+          `SELECT ${LEDGER_SELECT_COLUMNS} FROM credit_ledger WHERE user_id = ? AND tx_type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
         ).bind(auth.userId, txType, limit, offset)
       : DB.prepare(
-          'SELECT id, account_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+          `SELECT ${LEDGER_SELECT_COLUMNS} FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
         ).bind(auth.userId, limit, offset);
 
     const rows = await stmt.all();
@@ -829,10 +819,10 @@ export async function handleAccountExport({ request, DB, corsHeaders, getUserTok
     const { account } = await ensureAutoAccount(DB, { userId: auth.userId, request, issueSession: false });
     const wallet = await fetchWalletSnapshot(DB, auth.userId);
     const ledgerRes = await DB.prepare(
-      'SELECT id, account_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      `SELECT ${LEDGER_SELECT_COLUMNS} FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
     ).bind(auth.userId, 500, 0).all();
     const ordersRes = await DB.prepare(
-      'SELECT id, order_id, capture_id, pack_key, amount, status, created_at, completed_at FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 50'
+      `SELECT ${ORDER_SELECT_COLUMNS} FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`
     ).bind(auth.userId).all();
 
     const exportPayload = {

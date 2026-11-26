@@ -6,12 +6,10 @@ function initDonationEvents() {
     // Donation modal
     const donationModal = document.getElementById('donation-modal');
     document.getElementById('donation-btn')?.addEventListener('click', () => {
-        donationModal?.classList.remove('hidden');
-        donationModal?.classList.add('flex');
+        ui.setModalOpen(donationModal, true, { lockScroll: false });
     });
     document.getElementById('close-donation')?.addEventListener('click', () => {
-        donationModal?.classList.add('hidden');
-        donationModal?.classList.remove('flex');
+        ui.setModalOpen(donationModal, false);
     });
 
     // Crypto buttons
@@ -19,7 +17,6 @@ function initDonationEvents() {
         btn.addEventListener('click', function() {
             const address     = this.dataset.address;
             const name        = this.dataset.name;
-            const cryptoModal = document.getElementById('crypto-modal');
             const iconMap     = {
                 'Bitcoin':  'fab fa-bitcoin text-3xl text-orange-500',
                 'Ethereum': 'fab fa-ethereum text-3xl text-blue-500',
@@ -38,25 +35,27 @@ function initDonationEvents() {
             if (cryptoAddressEl) cryptoAddressEl.textContent = address;
             if (cryptoIconEl)    cryptoIconEl.className    = iconClass ? iconMap[iconClass] : 'fas fa-coins text-3xl text-gray-600 dark:text-gray-400';
 
-            if (cryptoModal) { cryptoModal.classList.remove('hidden'); cryptoModal.classList.add('flex'); }
+            ui.setModalOpen('crypto-modal', true, { lockScroll: false });
         });
     });
 
     // Copy crypto address
-    document.getElementById('copy-crypto-address')?.addEventListener('click', function() {
+    document.getElementById('copy-crypto-address')?.addEventListener('click', async function() {
         const address = document.getElementById('crypto-address')?.textContent;
         if (!address) return;
-        navigator.clipboard.writeText(address).then(() => {
+        try {
+            await utils.copyText(address);
             const originalText = this.innerHTML;
             this.innerHTML = '<i class="fas fa-check mr-2"></i>Copied!';
             this.classList.add('bg-green-600');
             setTimeout(() => { this.innerHTML = originalText; this.classList.remove('bg-green-600'); }, 2000);
-        }).catch(() => alert('Failed to copy address'));
+        } catch {
+            ui.showToast('Failed to copy address.', 'error');
+        }
     });
 
     // Close crypto modal
-    const cryptoModal = document.getElementById('crypto-modal');
     document.getElementById('close-crypto-modal')?.addEventListener('click', () => {
-        cryptoModal?.classList.add('hidden'); cryptoModal?.classList.remove('flex');
+        ui.setModalOpen('crypto-modal', false);
     });
 }

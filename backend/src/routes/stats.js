@@ -1,10 +1,11 @@
+import { jsonResponse } from '../utils/cors.js';
+
 function extractPhotoId(path, prefix) {
   if (!path.startsWith(prefix)) return null;
   const raw = path.slice(prefix.length);
   if (!raw) return null;
   try {
-    const decoded = decodeURIComponent(raw);
-    return decoded || null;
+    return decodeURIComponent(raw) || null;
   } catch {
     return null;
   }
@@ -16,24 +17,20 @@ function extractPhotoId(path, prefix) {
 export async function handleStats({ path, DB, corsHeaders }) {
   const photoId = extractPhotoId(path, '/api/stats/');
   if (!photoId) {
-    return new Response(JSON.stringify({ error: 'Invalid photo ID' }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'Invalid photo ID' }, 400, corsHeaders);
   }
   try {
     const row = await DB.prepare(
       'SELECT view_count, download_count FROM images WHERE id = ?'
     ).bind(photoId).first();
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       views:     row?.view_count     || 0,
       downloads: row?.download_count || 0,
-    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }, 200, corsHeaders);
   } catch (e) {
     console.error('/api/stats error:', e.message);
-    return new Response(JSON.stringify({ views: 0, downloads: 0 }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ views: 0, downloads: 0 }, 200, corsHeaders);
   }
 }
 
@@ -45,33 +42,43 @@ function resolveStatsActor(request, getUserToken) {
   return { rateLimitKey, dedupActor };
 }
 
-// ================================================================
-// ENDPOINT: Record unique view per actor/IP
-// ================================================================
-export async function handleRecordView({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const photoId = extractPhotoId(path, '/api/view/');
+async function handleRecordEngagement({
+  kind,
+  prefix,
+  rateLimitMax,
+  tableName,
+  countColumn,
+  request,
+  ctx,
+  path,
+  DB,
+  corsHeaders,
+  getUserToken,
+  checkRateLimit,
+}) {
+  const photoId = extractPhotoId(path, prefix);
   if (!photoId) {
     return new Response(null, { status: 400, headers: corsHeaders });
   }
   const { rateLimitKey, dedupActor } = resolveStatsActor(request, getUserToken);
 
-  if (!await checkRateLimit('view', rateLimitKey, 100, 3600)) {
+  if (!await checkRateLimit(kind, rateLimitKey, rateLimitMax, 3600)) {
     return new Response(null, { status: 429, headers: corsHeaders });
   }
 
   ctx.waitUntil((async () => {
     try {
       const inserted = await DB.prepare(
-        'INSERT OR IGNORE INTO views (photo_id, user_id) VALUES (?, ?)'
+        `INSERT OR IGNORE INTO ${tableName} (photo_id, user_id) VALUES (?, ?)`
       ).bind(photoId, dedupActor).run();
 
       if (inserted?.meta?.changes > 0) {
         await DB.prepare(
-          'UPDATE images SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?'
+          `UPDATE images SET ${countColumn} = COALESCE(${countColumn}, 0) + 1 WHERE id = ?`
         ).bind(photoId).run();
       }
     } catch (e) {
-      console.error('[view] DB error:', e.message);
+      console.error(`[${kind}] DB error:`, e.message);
     }
   })());
 
@@ -79,34 +86,29 @@ export async function handleRecordView({ request, ctx, path, DB, corsHeaders, ge
 }
 
 // ================================================================
+// ENDPOINT: Record unique view per actor/IP
+// ================================================================
+export function handleRecordView(args) {
+  return handleRecordEngagement({
+    ...args,
+    kind: 'view',
+    prefix: '/api/view/',
+    rateLimitMax: 100,
+    tableName: 'views',
+    countColumn: 'view_count',
+  });
+}
+
+// ================================================================
 // ENDPOINT: Record unique download per actor/IP
 // ================================================================
-export async function handleRecordDownload({ request, ctx, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const photoId = extractPhotoId(path, '/api/download/');
-  if (!photoId) {
-    return new Response(null, { status: 400, headers: corsHeaders });
-  }
-  const { rateLimitKey, dedupActor } = resolveStatsActor(request, getUserToken);
-
-  if (!await checkRateLimit('download', rateLimitKey, 50, 3600)) {
-    return new Response(null, { status: 429, headers: corsHeaders });
-  }
-
-  ctx.waitUntil((async () => {
-    try {
-      const inserted = await DB.prepare(
-        'INSERT OR IGNORE INTO downloads (photo_id, user_id) VALUES (?, ?)'
-      ).bind(photoId, dedupActor).run();
-
-      if (inserted?.meta?.changes > 0) {
-        await DB.prepare(
-          'UPDATE images SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?'
-        ).bind(photoId).run();
-      }
-    } catch (e) {
-      console.error('[download] DB error:', e.message);
-    }
-  })());
-
-  return new Response(null, { status: 204, headers: corsHeaders });
+export function handleRecordDownload(args) {
+  return handleRecordEngagement({
+    ...args,
+    kind: 'download',
+    prefix: '/api/download/',
+    rateLimitMax: 50,
+    tableName: 'downloads',
+    countColumn: 'download_count',
+  });
 }

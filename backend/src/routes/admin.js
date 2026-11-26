@@ -5,6 +5,11 @@ import {
   listBackupSnapshots,
   restoreFromSnapshot,
 } from '../services/backup.js';
+import { jsonResponse } from '../utils/cors.js';
+
+function unauthorizedAdmin(corsHeaders) {
+  return jsonResponse({ error: 'Unauthorized: Invalid admin token' }, 401, corsHeaders);
+}
 
 // ================================================================
 // Helper: Extract & Validate Admin Secret Token
@@ -36,33 +41,20 @@ export function validateAdminAuth(request, env) {
 // ENDPOINT: Manual R2 Sync / Force-Rescan Trigger (POST /api/admin/rescan)
 // ================================================================
 export async function handleAdminRescan({ request, env, corsHeaders }) {
-  if (!validateAdminAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
   try {
     const stats = await handleScheduled(env);
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       message: 'R2 Force Rescan and Catalog Sync completed successfully',
       stats,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, 200, corsHeaders);
   } catch (e) {
     console.error('[Admin] Rescan failed:', e);
-    return new Response(JSON.stringify({ success: false, error: e.message || 'Rescan failed' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ success: false, error: e.message || 'Rescan failed' }, 500, corsHeaders);
   }
 }
-
-// Backward-compatible alias
-export const handleAdminSync = handleAdminRescan;
 
 // ================================================================
 // ENDPOINT: Complete Admin Dashboard Data (GET /api/admin/dashboard)
@@ -70,12 +62,7 @@ export const handleAdminSync = handleAdminRescan;
 // recovery codes, and catalog synchronization metrics.
 // ================================================================
 export async function handleAdminDashboard({ request, env, corsHeaders }) {
-  if (!validateAdminAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
   try {
     // 1. Fetch Orders from D1
@@ -202,7 +189,7 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
       snapshots = await listBackupSnapshots(env.DB, 15);
     } catch {}
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       timestamp: new Date().toISOString(),
       metrics: {
@@ -234,15 +221,10 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
       accounts,
       ledger,
       snapshots,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, 200, corsHeaders);
   } catch (err) {
     console.error('[Admin] Dashboard error:', err);
-    return new Response(JSON.stringify({ success: false, error: err.message || 'Internal error' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ success: false, error: err.message || 'Internal error' }, 500, corsHeaders);
   }
 }
 
@@ -250,56 +232,30 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
 // ENDPOINTS: Database Backup Snapshots & Verified Restore (/api/admin/backup*)
 // ================================================================
 export async function handleAdminBackupList({ request, env, corsHeaders }) {
-  if (!validateAdminAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
   try {
     const snapshots = await listBackupSnapshots(env.DB, 25);
-    return new Response(JSON.stringify({ success: true, snapshots }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-    });
+    return jsonResponse({ success: true, snapshots }, 200, corsHeaders, { 'Cache-Control': 'no-store' });
   } catch (err) {
-    return new Response(JSON.stringify({ success: false, error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ success: false, error: err.message }, 500, corsHeaders);
   }
 }
 
 export async function handleAdminBackupCreate({ request, env, corsHeaders }) {
-  if (!validateAdminAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
   try {
     const snapshot = await createD1Snapshot(env, 'admin-manual');
-    return new Response(JSON.stringify({ success: true, snapshot }), {
-      status: 201,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-    });
+    return jsonResponse({ success: true, snapshot }, 201, corsHeaders, { 'Cache-Control': 'no-store' });
   } catch (err) {
     console.error('[Admin] Backup snapshot error:', err);
-    return new Response(JSON.stringify({ success: false, error: err.message || 'Snapshot failed' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ success: false, error: err.message || 'Snapshot failed' }, 500, corsHeaders);
   }
 }
 
 export async function handleAdminBackupDownload({ request, url, env, corsHeaders }) {
-  if (!validateAdminAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
   try {
     let snapshotId = (url.searchParams.get('id') || '').trim();
@@ -314,10 +270,7 @@ export async function handleAdminBackupDownload({ request, url, env, corsHeaders
 
     const row = await getBackupSnapshot(env.DB, snapshotId);
     if (!row) {
-      return new Response(JSON.stringify({ success: false, error: 'Snapshot not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ success: false, error: 'Snapshot not found' }, 404, corsHeaders);
     }
 
     return new Response(row.payload_json, {
@@ -329,29 +282,18 @@ export async function handleAdminBackupDownload({ request, url, env, corsHeaders
       },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ success: false, error: err.message || 'Download failed' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ success: false, error: err.message || 'Download failed' }, 500, corsHeaders);
   }
 }
 
 export async function handleAdminBackupRestore({ request, env, corsHeaders }) {
-  if (!validateAdminAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized: Invalid admin token' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ success: false, error: 'Invalid JSON body' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
   }
 
   try {
@@ -359,30 +301,19 @@ export async function handleAdminBackupRestore({ request, env, corsHeaders }) {
     if (!snapshotPayload && body?.snapshotId) {
       const row = await getBackupSnapshot(env.DB, String(body.snapshotId).trim());
       if (!row) {
-        return new Response(JSON.stringify({ success: false, error: 'Snapshot not found' }), {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ success: false, error: 'Snapshot not found' }, 404, corsHeaders);
       }
       snapshotPayload = JSON.parse(row.payload_json);
     }
 
     if (!snapshotPayload) {
-      return new Response(JSON.stringify({ success: false, error: 'Provide snapshotId or snapshot JSON payload' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ success: false, error: 'Provide snapshotId or snapshot JSON payload' }, 400, corsHeaders);
     }
 
     const result = await restoreFromSnapshot(env.DB, snapshotPayload);
-    return new Response(JSON.stringify({ success: true, ...result }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-    });
+    return jsonResponse({ success: true, ...result }, 200, corsHeaders, { 'Cache-Control': 'no-store' });
   } catch (err) {
     console.error('[Admin] Restore error:', err);
-    return new Response(JSON.stringify({ success: false, error: err.message || 'Restore failed' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ success: false, error: err.message || 'Restore failed' }, 400, corsHeaders);
   }
 }

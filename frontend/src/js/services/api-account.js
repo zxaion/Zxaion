@@ -22,22 +22,11 @@ Object.assign(api, {
                 return { success: false, requiresLogin: true, error: data.error };
             }
             if (res.ok && data.success) {
-                state.requiresLogin = false;
                 state.account = data.account || null;
-                if (data.wallet) {
-                    state.credits = data.wallet.credits || 0;
-                    state.lifetime = !!data.wallet.lifetime;
-                    state.purchasedImages = new Set(data.wallet.purchased || []);
-                    ui.updateCreditDisplay?.();
-                }
-                ui.updateAccountBanner?.();
-                if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
-                    ui.invalidateDtreasureSortCache?.();
-                    ui.renderDtreasureGallery();
-                }
-                if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
-                    ui.refreshModalLockState(state.currentPhoto);
-                }
+                this._applyWalletState({
+                    requiresLogin: false,
+                    wallet: data.wallet || null,
+                });
                 return data;
             }
             return { success: false, error: data.error || 'Failed to provision account' };
@@ -62,24 +51,13 @@ Object.assign(api, {
             if (!res.ok || !data.success) {
                 return { success: false, error: data.error || 'Failed to load profile' };
             }
-            state.requiresLogin = false;
             state.account = data.account || null;
             state.accountLedger = data.recentLedger || [];
             state.accountOrders = data.recentOrders || [];
-            if (data.wallet) {
-                state.credits = data.wallet.credits || 0;
-                state.lifetime = !!data.wallet.lifetime;
-                state.purchasedImages = new Set(data.wallet.purchased || []);
-                ui.updateCreditDisplay?.();
-            }
-            ui.updateAccountBanner?.();
-            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
-                ui.invalidateDtreasureSortCache?.();
-                ui.renderDtreasureGallery();
-            }
-            if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
-                ui.refreshModalLockState(state.currentPhoto);
-            }
+            this._applyWalletState({
+                requiresLogin: false,
+                wallet: data.wallet || null,
+            });
             return data;
         } catch (err) {
             console.error('fetchAccountProfile error:', err);
@@ -162,24 +140,13 @@ Object.assign(api, {
             }
             if (data.userToken) localStorage.setItem('zx_user_token', data.userToken);
             if (data.sessionToken) setSessionToken(data.sessionToken);
-            state.requiresLogin = false;
             state.account = data.account || null;
-            if (data.wallet) {
-                state.credits = data.wallet.credits || 0;
-                state.lifetime = !!data.wallet.lifetime;
-                state.purchasedImages = new Set(data.wallet.purchased || []);
-            }
-            ui.updateCreditDisplay?.();
-            ui.updateAccountBanner?.();
-            if (typeof ui.invalidateDtreasureSortCache === 'function') ui.invalidateDtreasureSortCache();
-            if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
-                ui.renderDtreasureGallery();
-            } else if (state.searchQuery && typeof ui.renderGallery === 'function') {
-                ui.renderGallery();
-            }
-            if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
-                ui.refreshModalLockState(state.currentPhoto);
-            }
+            ui.invalidateDtreasureSortCache?.();
+            this._applyWalletState({
+                requiresLogin: false,
+                wallet: data.wallet || null,
+                refreshSearch: true,
+            });
             return data;
         } catch {
             return { success: false, error: 'Network error' };
@@ -236,22 +203,12 @@ Object.assign(api, {
             if (res.ok && data.success) {
                 if (data.userToken) localStorage.setItem('zx_user_token', data.userToken);
                 if (data.sessionToken) setSessionToken(data.sessionToken);
-                state.requiresLogin = false;
                 state.account = data.account || null;
-                if (data.wallet) {
-                    state.credits = data.wallet.credits || 0;
-                    state.lifetime = !!data.wallet.lifetime;
-                    state.purchasedImages = new Set(data.wallet.purchased || []);
-                }
-                ui.updateCreditDisplay?.();
-                ui.updateAccountBanner?.();
-                if (typeof ui.invalidateDtreasureSortCache === 'function') ui.invalidateDtreasureSortCache();
-                if (state.currentCategory === 'DTREASURE' && typeof ui.renderDtreasureGallery === 'function') {
-                    ui.renderDtreasureGallery();
-                }
-                if (state.currentImageId && state.currentPhoto && typeof ui.refreshModalLockState === 'function') {
-                    ui.refreshModalLockState(state.currentPhoto);
-                }
+                ui.invalidateDtreasureSortCache?.();
+                this._applyWalletState({
+                    requiresLogin: false,
+                    wallet: data.wallet || null,
+                });
             }
             return data;
         } catch {
@@ -335,14 +292,7 @@ Object.assign(api, {
                 return { success: false, error: err.error || `HTTP ${res.status}` };
             }
             const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `zxaion-wallet-${state.account?.accountId || 'backup'}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            utils.downloadBlob(blob, `zxaion-wallet-${state.account?.accountId || 'backup'}.json`, 4000);
             return { success: true };
         } catch {
             return { success: false, error: 'Network error' };

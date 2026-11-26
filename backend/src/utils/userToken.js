@@ -1,4 +1,4 @@
-// Utilitas token user, Account ID permanen, password hashing (PBKDF2-SHA256), OTP, dan HMAC-SHA256.
+// Utilitas token user, Account ID permanen, password hashing (PBKDF2-SHA256), OTP, dan HTML escaping.
 
 export function isAccountIdFormat(value) {
   return /^ZXA-[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(String(value || '').trim());
@@ -153,25 +153,12 @@ export async function verifyPassword(password, storedHash) {
   return constantTimeEqual(toHex(bits), expectedHex);
 }
 
-export async function signToken(userId, secret) {
-  if (!secret) return userId;
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(userId));
-  return `${userId}.${toHex(sig).slice(0, 32)}`;
-}
-
-export async function verifySignedToken(token, secret) {
-  if (!token || !secret) return null;
-  const dotIdx = token.lastIndexOf('.');
-  if (dotIdx <= 0) return null;
-  const userId = token.slice(0, dotIdx);
-  const sig    = token.slice(dotIdx + 1);
-  const expected = await signToken(userId, secret);
-  return expected === `${userId}.${sig}` ? userId : null;
+export function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }

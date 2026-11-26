@@ -11,6 +11,25 @@ import {
 export const SESSION_COOKIE_NAME = 'zx_sid';
 const SESSION_TTL_DAYS = 30;
 
+export const ACCOUNT_SELECT_COLUMNS =
+  'account_id, user_id, email, email_verified, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at';
+export const LEDGER_SELECT_COLUMNS =
+  'id, account_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at';
+export const ORDER_SELECT_COLUMNS =
+  'id, order_id, capture_id, pack_key, amount, status, created_at, completed_at';
+
+export async function getAccountById(DB, accountId) {
+  return DB.prepare(`SELECT ${ACCOUNT_SELECT_COLUMNS} FROM accounts WHERE account_id = ? LIMIT 1`).bind(accountId).first();
+}
+
+export async function getAccountByUserId(DB, userId) {
+  return DB.prepare(`SELECT ${ACCOUNT_SELECT_COLUMNS} FROM accounts WHERE user_id = ? LIMIT 1`).bind(userId).first();
+}
+
+export async function getAccountByEmail(DB, email) {
+  return DB.prepare(`SELECT ${ACCOUNT_SELECT_COLUMNS} FROM accounts WHERE email = ? LIMIT 1`).bind(email).first();
+}
+
 export function parseCookies(request) {
   const header = request?.headers?.get?.('Cookie') || '';
   const cookies = {};
@@ -105,9 +124,7 @@ export async function resolveSessionAuth({ request, DB, getUserToken }) {
       const nowIso = new Date().toISOString();
       const expired = sessionRow.expires_at && sessionRow.expires_at <= nowIso;
       if (!sessionRow.revoked_at && !expired) {
-        const account = await DB.prepare(
-          'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at FROM accounts WHERE account_id = ? LIMIT 1'
-        ).bind(sessionRow.account_id).first();
+        const account = await getAccountById(DB, sessionRow.account_id);
 
         if (account && account.status === 'active') {
           try {
@@ -158,9 +175,7 @@ export async function resolveSessionAuth({ request, DB, getUserToken }) {
     };
   }
 
-  const account = await DB.prepare(
-    'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at FROM accounts WHERE user_id = ? LIMIT 1'
-  ).bind(userId).first();
+  const account = await getAccountByUserId(DB, userId);
 
   if (account && account.password_hash) {
     // Registered account MUST present a valid session — device token alone is blocked
@@ -223,9 +238,7 @@ export async function ensureAutoAccount(DB, { userId, request, issueSession = fa
   const publicId = await derivePublicPayerRef(userId);
   const nowIso   = new Date().toISOString();
 
-  let account = await DB.prepare(
-    'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at FROM accounts WHERE user_id = ? LIMIT 1'
-  ).bind(userId).first();
+  let account = await getAccountByUserId(DB, userId);
 
   let created = false;
   if (!account) {
@@ -252,9 +265,7 @@ export async function ensureAutoAccount(DB, { userId, request, issueSession = fa
       }
     }
 
-    account = await DB.prepare(
-      'SELECT account_id, user_id, email, email_verified, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at FROM accounts WHERE user_id = ? LIMIT 1'
-    ).bind(userId).first();
+    account = await getAccountByUserId(DB, userId);
   } else {
     // Guarantee user_credits row exists for older accounts
     await DB.prepare(`

@@ -8,8 +8,6 @@ export function getPayPalBase(env) {
     : PAYPAL_LIVE_BASE;
 }
 
-export const PAYPAL_BASE = PAYPAL_LIVE_BASE;
-
 export const ALLOWED_ORIGINS = [
   'https://zxaion-verse.pages.dev',
   'https://zxaionverse.site',

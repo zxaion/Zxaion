@@ -36,11 +36,8 @@ Object.assign(ui, {
     },
 
     openAccountModal(initialTab = 'overview') {
-        const modal = elements.accountModal || document.getElementById('account-modal');
+        const modal = this.setModalOpen(elements.accountModal || 'account-modal', true);
         if (!modal) return;
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-        document.body.style.overflow = 'hidden';
 
         this.switchAccountTab(state.requiresLogin ? 'security' : initialTab);
         this.renderAccountDashboard();
@@ -48,11 +45,7 @@ Object.assign(ui, {
     },
 
     closeAccountModal() {
-        const modal = elements.accountModal || document.getElementById('account-modal');
-        if (!modal) return;
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-        document.body.style.overflow = '';
+        this.setModalOpen(elements.accountModal || 'account-modal', false);
     },
 
     switchAccountTab(tabName) {

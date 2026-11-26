@@ -13,40 +13,19 @@ function initCreditsEvents() {
 
     document.getElementById('buy-credits-btn')?.addEventListener('click', async () => {
         ui.renderCreditPacks();
-        buyCreditsModal?.classList.remove('hidden');
-        buyCreditsModal?.classList.add('flex');
-        document.body.style.overflow = 'hidden';
+        ui.setModalOpen(buyCreditsModal, true);
         await api.ensureAutoAccount?.();
         ui.updateAccountBanner?.();
     });
 
     document.getElementById('buy-credits-open-account-btn')?.addEventListener('click', () => {
-        buyCreditsModal?.classList.add('hidden');
-        buyCreditsModal?.classList.remove('flex');
-        document.body.style.overflow = '';
+        ui.closeBuyCreditsModal();
         ui.openAccountModal?.(state.requiresLogin ? 'security' : 'overview');
     });
 
-    const closeBuyCredits = document.getElementById('close-buy-credits');
-    if (closeBuyCredits && buyCreditsModal) {
-        closeBuyCredits.addEventListener('click', () => {
-            if (typeof _paypalSdkWaitTimer !== 'undefined' && _paypalSdkWaitTimer) {
-                clearInterval(_paypalSdkWaitTimer);
-                _paypalSdkWaitTimer = null;
-            }
-            if (typeof paypalButtonsInstance !== 'undefined' && paypalButtonsInstance) {
-                try { paypalButtonsInstance.close(); } catch (e) { console.warn('PayPal close error:', e); }
-                paypalButtonsInstance = null;
-            }
-            buyCreditsModal.classList.add('hidden');
-            buyCreditsModal.classList.remove('flex');
-            document.body.style.overflow = '';
-            if (elements.paypalButtonContainer) elements.paypalButtonContainer.classList.add('hidden');
-            if (elements.paypalButtons) elements.paypalButtons.innerHTML = '';
-            document.querySelectorAll('.credit-pack-card').forEach(c => c.classList.remove('selected'));
-            state.selectedCreditPack = null;
-        });
-    }
+    document.getElementById('close-buy-credits')?.addEventListener('click', () => {
+        ui.closeBuyCreditsModal();
+    });
 
     generateBtn?.addEventListener('click', async () => {
         const prevText = generateBtn.textContent;
@@ -70,7 +49,7 @@ function initCreditsEvents() {
         const code = recoveryDisplay?.textContent?.trim();
         if (!code) return;
         try {
-            await navigator.clipboard.writeText(code);
+            await utils.copyText(code);
             ui.showToast('Recovery code copied to clipboard!', 'success');
         } catch {
             ui.showToast(`Code: ${code}`, 'info');

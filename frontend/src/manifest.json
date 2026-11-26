@@ -52,7 +52,6 @@
     "js/events/global.js",
     "js/events/index.js",
     "js/integrations/paypal.js",
-    "js/app/globals.js",
     "js/app/init.js"
   ]
 }

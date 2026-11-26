@@ -64,25 +64,23 @@ function initAdminEvents() {
     // 8. Search Input in Admin Dashboard (Orders & Users)
     const searchInput = elements.adminSearchInput || document.getElementById('admin-search-input');
     const searchClear = elements.adminSearchClear || document.getElementById('admin-search-clear');
+    const rerenderAdminTables = () => {
+        if (!state.adminData) return;
+        ui.renderAdminOrdersTable(state.adminData.orders || []);
+        ui.renderAdminUsersTable(state.adminData.users || []);
+    };
 
     searchInput?.addEventListener('input', (e) => {
         state.adminSearch = e.target.value || '';
         searchClear?.classList.toggle('hidden', !state.adminSearch);
-
-        if (state.adminData) {
-            ui.renderAdminOrdersTable(state.adminData.orders || []);
-            ui.renderAdminUsersTable(state.adminData.users || []);
-        }
+        rerenderAdminTables();
     });
 
     searchClear?.addEventListener('click', () => {
         if (searchInput) searchInput.value = '';
         state.adminSearch = '';
         searchClear.classList.add('hidden');
-        if (state.adminData) {
-            ui.renderAdminOrdersTable(state.adminData.orders || []);
-            ui.renderAdminUsersTable(state.adminData.users || []);
-        }
+        rerenderAdminTables();
     });
 
     // 9. Export Orders to CSV
@@ -90,14 +88,7 @@ function initAdminEvents() {
         ui.exportAdminOrdersCsv();
     });
 
-    // 10. Footer Admin Link Click
-    document.getElementById('footer-admin-link')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.location.hash = '#admin';
-        ui.openAdminSection();
-    });
-
-    // 11. Admin Backup Snapshot, Download & Restore
+    // 10. Admin Backup Snapshot, Download & Restore
     document.getElementById('admin-backup-create-btn')?.addEventListener('click', () => {
         ui.createAdminBackupSnapshot?.();
     });

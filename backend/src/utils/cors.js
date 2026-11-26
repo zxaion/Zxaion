@@ -17,3 +17,14 @@ export function buildCorsHeaders(origin) {
     'Vary':                         'Origin',
   };
 }
+
+export function jsonResponse(payload, status = 200, corsHeaders = {}, extraHeaders = {}) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+      ...extraHeaders,
+    },
+  });
+}

@@ -26,7 +26,7 @@ function initAccountEvents() {
         const acctId = state.account?.accountId;
         if (!acctId) return;
         try {
-            await navigator.clipboard.writeText(acctId);
+            await utils.copyText(acctId);
             ui.showToast(`Account ID ${acctId} copied!`, 'success');
         } catch {
             ui.showToast(`Account ID: ${acctId}`, 'info');

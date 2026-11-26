@@ -10,7 +10,8 @@ import { parseImageMeta } from '../src/services/imageMeta.js';
 import { getPayPalBase } from '../src/config/constants.js';
 import { CREDIT_PACK_DEFINITIONS } from '../src/config/packs.js';
 import { MIME_TYPES } from '../src/config/mimeTypes.js';
-import { getUserToken, generateRecoveryCode, signToken, verifySignedToken, derivePublicPayerRef, isAccountIdFormat, generateAccountId, hashPassword, verifyPassword } from '../src/utils/userToken.js';
+import { getUserToken, generateRecoveryCode, escapeHtml, derivePublicPayerRef, isAccountIdFormat, generateAccountId, hashPassword, verifyPassword } from '../src/utils/userToken.js';
+import { jsonResponse } from '../src/utils/cors.js';
 import { createLocalEnv, createMockD1, createMockImagesBinding, createMockR2Bucket } from '../src/localRuntime.js';
 import { handleRequest } from '../src/router.js';
 import { handleStatic } from '../src/routes/static.js';
@@ -61,7 +62,7 @@ import {
   handleAdminBackupDownload,
   handleAdminBackupRestore,
 } from '../src/routes/admin.js';
-import { injectOpenGraphMetadata, buildPhotoCanonicalUrl, buildPhotoImageUrl, handleRobotsTxt, handleSitemapXml } from '../src/services/seo.js';
+import { injectOpenGraphMetadata, buildPhotoCanonicalUrl, buildPhotoImageUrl, findPhotoForSeo, handleRobotsTxt, handleSitemapXml } from '../src/services/seo.js';
 import { sha256Hex } from '../src/utils/userToken.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
@@ -102,7 +103,7 @@ test('getPayPalBase switches between live and sandbox environments', () => {
   assert.equal(getPayPalBase({}), 'https://api-m.paypal.com');
 });
 
-test('userToken utilities validate length, recovery code format, and HMAC signing', async () => {
+test('userToken and shared response utilities validate length, recovery codes, escapeHtml, jsonResponse, and SEO lookup', async () => {
   const validReq = makeReq('http://localhost/test', { headers: { 'X-User-Token': '  u_abc_123  ' } });
   assert.equal(getUserToken(validReq), 'u_abc_123');
 
@@ -112,9 +113,12 @@ test('userToken utilities validate length, recovery code format, and HMAC signin
   const code = generateRecoveryCode();
   assert.match(code, /^ZX-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
 
-  const signed = await signToken('u_test_1', 'my-secret-key');
-  assert.equal(await verifySignedToken(signed, 'my-secret-key'), 'u_test_1');
-  assert.equal(await verifySignedToken(`${signed}tamper`, 'my-secret-key'), null);
+  assert.equal(escapeHtml(`<script>"a&b"</script>`), '&lt;script&gt;&quot;a&amp;b&quot;&lt;/script&gt;');
+  const res = jsonResponse({ ok: true }, 201, corsHeaders, { 'X-Custom': '1' });
+  assert.equal(res.status, 201);
+  assert.equal(res.headers.get('X-Custom'), '1');
+  assert.deepEqual(await res.json(), { ok: true });
+  assert.equal(typeof findPhotoForSeo, 'function');
 });
 
 test('gallery routes filter by category, subCategory, search q, expose X-Total-Count, and list anime albums', async () => {

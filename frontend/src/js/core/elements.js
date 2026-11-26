@@ -32,7 +32,6 @@ const elements = {
     modalViewCount:        document.getElementById('modal-view-count'),
     modalDownloadCount:    document.getElementById('modal-download-count'),
     downloadBtn:           document.getElementById('download-btn'),
-    shareBtn:              document.getElementById('share-btn'),
     originalCount:         document.getElementById('original-count'),
     creditBalance:         document.getElementById('credit-balance'),
     paypalButtonContainer: document.getElementById('paypal-button-container'),
@@ -62,8 +61,6 @@ const elements = {
     adminOrdersTableBody:    document.getElementById('admin-orders-table-body'),
     adminUsersTableBody:     document.getElementById('admin-users-table-body'),
     adminPacksGrid:          document.getElementById('admin-packs-grid'),
-    accountBtn:              document.getElementById('account-btn'),
     accountModal:            document.getElementById('account-modal'),
-    closeAccountModalBtn:    document.getElementById('close-account-modal'),
     accountIdBadge:          document.getElementById('account-id-badge'),
 };

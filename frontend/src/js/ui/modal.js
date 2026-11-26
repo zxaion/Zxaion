@@ -166,14 +166,10 @@ Object.assign(ui, {
     },
 
     closeImageModal(syncHash = true) {
-        if (elements.imageModal) {
-            elements.imageModal.classList.add('hidden');
-            elements.imageModal.classList.remove('flex');
-        }
+        this.setModalOpen(elements.imageModal, false);
         if (elements.modalImg) {
             utils.revokeTrackedBlobUrl?.(elements.modalImg);
         }
-        document.body.style.overflow = '';
         state.currentImageId = null;
         state.currentPhoto = null;
         this.restoreDefaultSocialMeta();
@@ -346,18 +342,7 @@ Object.assign(ui, {
         }
 
         try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                await navigator.clipboard.writeText(shareUrl);
-            } else {
-                const temp = document.createElement('textarea');
-                temp.value = shareUrl;
-                temp.style.position = 'fixed';
-                temp.style.opacity = '0';
-                document.body.appendChild(temp);
-                temp.select();
-                document.execCommand('copy');
-                document.body.removeChild(temp);
-            }
+            await utils.copyText(shareUrl);
             ui.showToast('Wallpaper link copied to clipboard!', 'success', 3000);
         } catch (e) {
             console.error('Share fallback copy error:', e);
@@ -442,15 +427,7 @@ Object.assign(ui, {
                     ui.triggerDownload(photo);
                     return;
                 }
-                photo.downloadCount = (photo.downloadCount || 0) + 1;
-                api.recordDownload(photo.id);
-                const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photo.id) : photo.id;
-                document.querySelectorAll(`.download-count[data-id="${safeId}"]`).forEach(el => {
-                    el.textContent = utils.formatNumber(utils.parseFormattedCount(el.textContent) + 1);
-                });
-                if (elements.modalDownloadCount) {
-                    elements.modalDownloadCount.textContent = utils.formatNumber(photo.downloadCount);
-                }
+                this.recordPhotoDownload(photo);
             };
             elements.downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
         }
@@ -460,9 +437,6 @@ Object.assign(ui, {
             this.selectResolution(state.selectedResolution || 'original');
         }
 
-        elements.imageModal.classList.remove('hidden');
-        elements.imageModal.classList.add('flex');
-
-        document.body.style.overflow = 'hidden';
+        this.setModalOpen(elements.imageModal, true);
     },
 });
