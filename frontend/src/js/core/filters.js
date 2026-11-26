@@ -14,6 +14,19 @@ function classifyAspectRatio(width, height) {
     return 'square';
 }
 
+function parsePhotoTimestamp(raw) {
+    if (!raw) return 0;
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+    const str = String(raw).trim();
+    if (!str) return 0;
+    // Normalize SQLite "YYYY-MM-DD HH:MM:SS" into ISO UTC for cross-browser Date.parse compatibility
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(str)
+        ? `${str.replace(' ', 'T')}${/[zZ]|[+-]\d{2}:?\d{2}$/.test(str) ? '' : 'Z'}`
+        : str;
+    const ts = Date.parse(normalized);
+    return Number.isFinite(ts) ? ts : 0;
+}
+
 function sortPhotosList(photos, sortBy = 'latest', shuffleFn = null) {
     const list = Array.isArray(photos) ? [...photos] : [];
     switch (sortBy) {
@@ -32,9 +45,9 @@ function sortPhotosList(photos, sortBy = 'latest', shuffleFn = null) {
         case 'latest':
         default:
             return list.sort((a, b) => {
-                const ta = a && a.uploaded ? Date.parse(a.uploaded) : 0;
-                const tb = b && b.uploaded ? Date.parse(b.uploaded) : 0;
-                return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+                const diff = parsePhotoTimestamp(b && b.uploaded) - parsePhotoTimestamp(a && a.uploaded);
+                if (diff !== 0) return diff;
+                return String((b && b.id) || '').localeCompare(String((a && a.id) || ''));
             });
     }
 }

@@ -60,19 +60,16 @@ Object.assign(ui, {
         const renderStart  = append ? Math.min(previousCount, slice.end) : slice.start;
         const photosToShow = displayPhotos.slice(renderStart, slice.end);
 
-        if (!append) elements.galleryContainer.innerHTML = '';
-
         const imageObserver = this.getGallerySliceObserver('_galleryObserver', { append, rootMargin: '500px 0px' });
-        const fragment = document.createDocumentFragment();
-        photosToShow.forEach((photo, index) => {
-            const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
-            fragment.appendChild(this.createMasonryItemElement(photo, index, imageObserver, {
-                isDtreasureCard: isDtreasure,
+        this.renderMasonryItems(elements.galleryContainer, photosToShow, {
+            append,
+            startIndex: renderStart,
+            imageObserver,
+            getItemOptions: (photo) => ({
+                isDtreasureCard: photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE',
                 fallbackTitle: 'Wallpaper',
-            }));
+            }),
         });
-
-        elements.galleryContainer.appendChild(fragment);
         this.setupGalleryEventListeners();
         this.updatePagination(displayPhotos.length);
     },

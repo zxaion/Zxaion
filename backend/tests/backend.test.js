@@ -2847,3 +2847,55 @@ test('View state persistence across refresh, Home latest default ordering, and w
   assert.match(albums[0].sample_url, /\?v=/);
 });
 
+test('DTREASURE gallery sorts newest-first with deterministic SQLite/ISO dates and row-first masonry columns', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  // 1. sortPhotosList handles SQLite space-separated timestamps, ISO timestamps, and id tie-breaking
+  const filtersSrc = fs.readFileSync(path.resolve('frontend/src/js/core/filters.js'), 'utf8');
+  const filtersSandbox = {};
+  const { sortPhotosList } = vm.runInNewContext(`${filtersSrc}\n;({ sortPhotosList });`, filtersSandbox);
+
+  const mixedDates = [
+    { id: 'dtreasure:a.jpg', uploaded: '2026-11-20 10:00:00' },
+    { id: 'dtreasure:c.jpg', uploaded: '2026-11-26T08:00:00.000Z' },
+    { id: 'dtreasure:b.jpg', uploaded: '2026-11-26T08:00:00.000Z' },
+    { id: 'dtreasure:old.jpg', uploaded: '2026-10-01 00:00:00' },
+  ];
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sortPhotosList(mixedDates, 'latest').map(p => p.id))),
+    ['dtreasure:c.jpg', 'dtreasure:b.jpg', 'dtreasure:a.jpg', 'dtreasure:old.jpg']
+  );
+
+  // 2. /api/dtreasure/list returns strictly descending uploaded order (newest first)
+  const env = await createLocalEnv();
+  const dtRes = await handleListDtreasure({
+    url: new URL('http://localhost/api/dtreasure/list?page=1&limit=50'),
+    env,
+    ctx: { waitUntil: () => {} },
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    corsHeaders,
+  });
+  assert.equal(dtRes.status, 200);
+  const dtList = await dtRes.json();
+  assert.ok(dtList.length >= 4);
+  for (let i = 1; i < dtList.length; i++) {
+    assert.ok(
+      Date.parse(dtList[i - 1].uploaded) >= Date.parse(dtList[i].uploaded),
+      `Expected item ${i - 1} (${dtList[i - 1].uploaded}) >= item ${i} (${dtList[i].uploaded})`
+    );
+  }
+
+  // 3. DTREASURE UI & masonry CSS use row-first horizontal columns rather than vertical CSS column-count
+  const masonryCss = fs.readFileSync(path.resolve('frontend/src/css/01-masonry.css'), 'utf8');
+  const baseSrc = fs.readFileSync(path.resolve('frontend/src/js/ui/base.js'), 'utf8');
+  const dtreasureSrc = fs.readFileSync(path.resolve('frontend/src/js/ui/dtreasure.js'), 'utf8');
+  assert.equal(masonryCss.includes('column-count:'), false);
+  assert.ok(masonryCss.includes('.masonry-column'));
+  assert.ok(masonryCss.includes('.masonry-layout.hidden'));
+  assert.ok(baseSrc.includes('renderMasonryItems'));
+  assert.ok(dtreasureSrc.includes('renderMasonryItems'));
+  assert.ok(dtreasureSrc.includes('state.purchasedImages.size'));
+});
+

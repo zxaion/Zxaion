@@ -61,17 +61,15 @@ Object.assign(ui, {
         const renderStart  = append ? Math.min(previousCount, slice.end) : slice.start;
         const photosToShow = displayPhotos.slice(renderStart, slice.end);
 
-        if (!append) elements.comitbaseGallery.innerHTML = '';
-
         const imageObserver = this.getGallerySliceObserver('_comitbaseObserver', { append, rootMargin: '500px 0px' });
-        const fragment = document.createDocumentFragment();
-        photosToShow.forEach((photo, index) => {
-            fragment.appendChild(this.createMasonryItemElement(photo, index, imageObserver, {
+        this.renderMasonryItems(elements.comitbaseGallery, photosToShow, {
+            append,
+            startIndex: renderStart,
+            imageObserver,
+            getItemOptions: () => ({
                 isDtreasureCard: false,
-            }));
+            }),
         });
-
-        elements.comitbaseGallery.appendChild(fragment);
         this.setupComitbaseEventListeners();
         this.updateComitbasePagination(displayPhotos.length);
     },

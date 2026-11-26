@@ -30,7 +30,7 @@ Object.assign(ui, {
             purchasedSet: state.purchasedImages,
             lifetime:     state.lifetime,
         });
-        const key = `${state.dtreasureTab}:${state.sortBy}:${base.length}:${base[0]?.id || ''}:${state.lifetime ? 1 : 0}`;
+        const key = `${state.dtreasureTab}:${state.sortBy}:${base.length}:${base[0]?.id || ''}:${base[base.length - 1]?.id || ''}:${state.purchasedImages.size}:${state.lifetime ? 1 : 0}`;
         return this.getCachedSortedPhotos('dtreasure', base, key);
     },
 
@@ -63,8 +63,9 @@ Object.assign(ui, {
         }
 
         if (state.dtreasureTab === 'library' && tabPhotos.length === 0) {
+            elements.dtreasureGallery._masonryCols = null;
             elements.dtreasureGallery.innerHTML = `
-            <div class="col-span-full text-center py-16 px-4 bg-white/80 dark:bg-gray-900/80 rounded-2xl border border-dashed border-amber-300 dark:border-amber-800/70" style="column-span:all;">
+            <div class="w-full col-span-full text-center py-16 px-4 bg-white/80 dark:bg-gray-900/80 rounded-2xl border border-dashed border-amber-300 dark:border-amber-800/70">
                 <div class="w-16 h-16 mx-auto mb-4 bg-amber-100 dark:bg-amber-900/40 rounded-full flex items-center justify-center">
                     <i class="fas fa-unlock-keyhole text-2xl text-amber-500"></i>
                 </div>
@@ -112,18 +113,16 @@ Object.assign(ui, {
         const renderStart  = append ? Math.min(previousCount, slice.end) : slice.start;
         const photosToShow = displayPhotos.slice(renderStart, slice.end);
 
-        if (!append) elements.dtreasureGallery.innerHTML = '';
-
         const imageObserver = this.getGallerySliceObserver('_dtreasureObserver', { append, rootMargin: '500px 0px' });
-        const fragment = document.createDocumentFragment();
-        photosToShow.forEach((photo, index) => {
-            fragment.appendChild(this.createMasonryItemElement(photo, index, imageObserver, {
+        this.renderMasonryItems(elements.dtreasureGallery, photosToShow, {
+            append,
+            startIndex: renderStart,
+            imageObserver,
+            getItemOptions: () => ({
                 isDtreasureCard: true,
                 authImageLoader: utils.loadAuthenticatedImage,
-            }));
+            }),
         });
-
-        elements.dtreasureGallery.appendChild(fragment);
         this.setupDtreasureEventListeners();
         this.updateDtreasurePagination(displayPhotos.length);
     },

@@ -31,6 +31,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dtreasurePromise   = api.fetchDtreasureImages();
     const mainPromise        = api.fetchImages();
 
+    let initialBucketSig = null;
+
     if (isAdminRoute) {
         ui.openAdminSection();
     } else if (initialView.category === 'DTREASURE') {
@@ -43,6 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (dtOk && state.currentCategory === 'DTREASURE') {
             ui.invalidateDtreasureSortCache?.();
             ui.renderDtreasureGallery();
+            initialBucketSig = `DTREASURE:${state.dtreasurePhotos.length}:${state.lifetime ? 1 : 0}:${state.purchasedImages.size}`;
             ui.checkDeepLink();
         }
     } else if (initialView.category === 'COMITBASE') {
@@ -51,6 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (cbOk && state.currentCategory === 'COMITBASE') {
             ui.invalidateComitbaseSortCache?.();
             ui.renderComitbaseGallery();
+            initialBucketSig = `COMITBASE:${state.comitbasePhotos.length}`;
             ui.checkDeepLink();
         }
     } else if (initialView.category === 'Anime' && initialView.animeAlbum) {
@@ -79,11 +83,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     await Promise.allSettled([autoAccountPromise, creditsPromise, comitbasePromise, dtreasurePromise, mainPromise]);
     if (!isAdminRoute) {
         if (state.currentCategory === 'COMITBASE') {
-            ui.invalidateComitbaseSortCache?.();
-            ui.renderComitbaseGallery();
+            const nextSig = `COMITBASE:${state.comitbasePhotos.length}`;
+            if (nextSig !== initialBucketSig || !elements.comitbaseGallery?.children?.length) {
+                ui.invalidateComitbaseSortCache?.();
+                ui.renderComitbaseGallery();
+            }
         } else if (state.currentCategory === 'DTREASURE') {
-            ui.invalidateDtreasureSortCache?.();
-            ui.renderDtreasureGallery();
+            const nextSig = `DTREASURE:${state.dtreasurePhotos.length}:${state.lifetime ? 1 : 0}:${state.purchasedImages.size}`;
+            if (nextSig !== initialBucketSig || !elements.dtreasureGallery?.children?.length) {
+                ui.invalidateDtreasureSortCache?.();
+                ui.renderDtreasureGallery();
+            }
         } else if (state.currentCategory === 'Anime' && !state.currentAnimeAlbum) {
             ui.renderAnimeCollections();
         }

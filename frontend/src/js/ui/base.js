@@ -224,8 +224,9 @@ const ui = {
 
     renderRatioEmptyBanner(container, contextLabel) {
         if (!container) return;
+        container._masonryCols = null;
         container.innerHTML = `
-        <div class="col-span-full text-center py-16 bg-white/70 dark:bg-gray-900/70 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700" style="column-span:all;">
+        <div class="w-full col-span-full text-center py-16 bg-white/70 dark:bg-gray-900/70 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700">
             <i class="fas fa-crop-simple text-3xl text-gray-400 mb-3"></i>
             <p class="text-gray-600 dark:text-gray-300 font-semibold mb-3">No ${utils.escapeHtml(state.aspectFilter)} wallpapers found in ${utils.escapeHtml(contextLabel)} yet.</p>
             <button type="button" data-action="reset-aspect-filter" class="px-5 py-2 rounded-full bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 cursor-pointer dark:bg-white dark:text-black">
@@ -236,8 +237,9 @@ const ui = {
 
     renderBucketErrorOrEmpty(container, { isError, retryAction, errorLabel, emptyIcon, emptyLabel }) {
         if (!container) return;
+        container._masonryCols = null;
         container.innerHTML = isError
-            ? `<div class="col-span-full text-center py-20" style="column-span:all;">
+            ? `<div class="w-full col-span-full text-center py-20">
                 <div class="w-20 h-20 mx-auto mb-4 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
                     <i class="fas fa-exclamation-triangle text-3xl text-red-500"></i>
                 </div>
@@ -246,7 +248,7 @@ const ui = {
                     <i class="fas fa-sync-alt mr-1.5"></i>Try Again
                 </button>
             </div>`
-            : `<div class="col-span-full text-center py-20" style="column-span:all;">
+            : `<div class="w-full col-span-full text-center py-20">
                 <div class="w-20 h-20 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center dark:bg-gray-700">
                     <i class="fas ${utils.escapeHtml(emptyIcon)} text-3xl text-gray-400"></i>
                 </div>
@@ -384,6 +386,111 @@ const ui = {
             }
         }
         return item;
+    },
+
+    getMasonryColumnCount() {
+        const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+        if (w >= 1536) return 5;
+        if (w >= 1024) return 4;
+        if (w >= 640) return 3;
+        return 2;
+    },
+
+    _initMasonryResizeListener() {
+        if (this._masonryResizeBound || typeof window === 'undefined') return;
+        this._masonryResizeBound = true;
+        window.addEventListener('resize', () => {
+            const targetCols = this.getMasonryColumnCount();
+            document.querySelectorAll('.masonry-layout').forEach((container) => {
+                if (!container._masonryCols || container._masonryColCount === targetCols) return;
+                this.reflowMasonryContainer(container, targetCols);
+            });
+        }, { passive: true });
+    },
+
+    reflowMasonryContainer(container, targetCols = this.getMasonryColumnCount()) {
+        if (!container || !container._masonryCols) return;
+        const items = Array.from(container.querySelectorAll('.masonry-item'))
+            .sort((a, b) => (Number(a.dataset.masonryIndex) || 0) - (Number(b.dataset.masonryIndex) || 0));
+
+        const cols = Array.from({ length: targetCols }, () => {
+            const col = document.createElement('div');
+            col.className = 'masonry-column';
+            return col;
+        });
+        const heights = new Array(targetCols).fill(0);
+
+        items.forEach((item) => {
+            let bestCol = 0;
+            for (let c = 1; c < targetCols; c++) {
+                if (heights[c] < heights[bestCol] - 1e-6) bestCol = c;
+            }
+            cols[bestCol].appendChild(item);
+            const aspect = parseFloat(item.dataset.masonryAspect || '1');
+            heights[bestCol] += Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+        });
+
+        const frag = document.createDocumentFragment();
+        cols.forEach((col) => frag.appendChild(col));
+        container.innerHTML = '';
+        container.appendChild(frag);
+        container._masonryCols = cols;
+        container._masonryColHeights = heights;
+        container._masonryColCount = targetCols;
+        container._masonryNextIdx = items.length;
+    },
+
+    renderMasonryItems(container, photosToShow, { append = false, startIndex = 0, imageObserver, getItemOptions } = {}) {
+        if (!container) return;
+        this._initMasonryResizeListener();
+
+        const colCount = this.getMasonryColumnCount();
+        if (!append || !Array.isArray(container._masonryCols) || container._masonryCols.length !== colCount) {
+            if (append && Array.isArray(container._masonryCols)) {
+                this.reflowMasonryContainer(container, colCount);
+            } else {
+                const cols = Array.from({ length: colCount }, () => {
+                    const col = document.createElement('div');
+                    col.className = 'masonry-column';
+                    return col;
+                });
+                const frag = document.createDocumentFragment();
+                cols.forEach((col) => frag.appendChild(col));
+                container.innerHTML = '';
+                container.appendChild(frag);
+                container._masonryCols = cols;
+                container._masonryColHeights = new Array(colCount).fill(0);
+                container._masonryColCount = colCount;
+                container._masonryNextIdx = 0;
+            }
+        }
+
+        const cols = container._masonryCols;
+        const heights = container._masonryColHeights;
+        const colFragments = Array.from({ length: colCount }, () => document.createDocumentFragment());
+
+        photosToShow.forEach((photo, idx) => {
+            const globalIdx = append ? (startIndex + idx) : idx;
+            const opts = typeof getItemOptions === 'function' ? getItemOptions(photo, globalIdx) : {};
+            const item = this.createMasonryItemElement(photo, globalIdx, imageObserver, opts);
+            const aspect = (photo && Number(photo.width) > 0 && Number(photo.height) > 0)
+                ? Math.min(2.4, Math.max(0.4, Number(photo.height) / Number(photo.width)))
+                : 1;
+            const seqIdx = container._masonryNextIdx++;
+            item.dataset.masonryIndex = String(seqIdx);
+            item.dataset.masonryAspect = aspect.toFixed(3);
+
+            let bestCol = 0;
+            for (let c = 1; c < colCount; c++) {
+                if (heights[c] < heights[bestCol] - 1e-6) bestCol = c;
+            }
+            colFragments[bestCol].appendChild(item);
+            heights[bestCol] += aspect;
+        });
+
+        colFragments.forEach((frag, c) => {
+            if (frag.childNodes.length > 0) cols[c].appendChild(frag);
+        });
     },
 
     loadMoreSection(displayPhotos, pageStateKey, renderFn) {

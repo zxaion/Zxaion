@@ -79,16 +79,17 @@ export function createSvgArtwork(key, bucketName, { isPreview = false } = {}) {
 export function createMockR2Bucket(name, seedItems = []) {
   const objects = new Map();
 
-  for (const item of seedItems) {
+  const baseTs = Date.now();
+  seedItems.forEach((item, idx) => {
     objects.set(item.key, {
       key: item.key,
       size: item.size || 245760,
-      uploaded: item.uploaded || new Date(Date.now() - Math.random() * 86400000 * 30).toISOString(),
+      uploaded: item.uploaded || new Date(baseTs - idx * 3600_000).toISOString(),
       httpEtag: `"${Buffer.from(item.key).toString('base64url').slice(0, 12)}"`,
       contentType: item.contentType || 'image/svg+xml',
       bodyText: item.bodyText ?? null,
     });
-  }
+  });
 
   return {
     async list({ cursor, limit = 1000 } = {}) {
