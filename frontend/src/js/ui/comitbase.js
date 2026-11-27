@@ -101,4 +101,27 @@ Object.assign(ui, {
             onLoadMore: () => this.loadMoreComitbase(),
         });
     },
+
+    openComitbaseSubmitModal() {
+        const modal = document.getElementById('comitbase-submit-modal');
+        if (!modal) return;
+        const form = document.getElementById('comitbase-submit-form');
+        const previewImg = document.getElementById('comitbase-preview-img');
+        const placeholder = document.getElementById('comitbase-upload-placeholder');
+        const errBox = document.getElementById('comitbase-submit-error');
+        const fileMeta = document.getElementById('comitbase-file-meta');
+        form?.reset();
+        if (previewImg) {
+            previewImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            previewImg.classList.add('hidden');
+        }
+        placeholder?.classList.remove('hidden');
+        errBox?.classList.add('hidden');
+        if (fileMeta) fileMeta.textContent = 'Dimensions will be recorded automatically';
+        this.setModalOpen(modal, true);
+    },
+
+    closeComitbaseSubmitModal() {
+        this.setModalOpen('comitbase-submit-modal', false);
+    },
 });

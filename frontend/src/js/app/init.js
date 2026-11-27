@@ -111,6 +111,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, { passive: true });
 
     const rankingCarousel = document.getElementById('ranking-carousel');
+    document.getElementById('ranking-mode-tabs')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-carousel-mode]');
+        if (btn && btn.dataset.carouselMode) {
+            ui.renderTopRankingCarousel?.(btn.dataset.carouselMode);
+        }
+    });
     document.getElementById('carousel-scroll-left')?.addEventListener('click', () => {
         rankingCarousel?.scrollBy({ left: -420, behavior: 'smooth' });
     });

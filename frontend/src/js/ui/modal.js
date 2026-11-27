@@ -21,6 +21,121 @@ Object.assign(ui, {
         }
     },
 
+    setMockupMode(mode = 'original') {
+        const normalized = mode === 'phone' || mode === 'desktop' ? mode : 'original';
+        state.currentMockupMode = normalized;
+
+        const stage = document.getElementById('modal-mockup-stage');
+        const phoneChrome = document.getElementById('modal-phone-chrome');
+        const desktopChrome = document.getElementById('modal-desktop-chrome');
+        const desktopStand = document.getElementById('modal-desktop-stand');
+
+        if (stage) {
+            stage.classList.remove('mockup-original', 'mockup-phone', 'mockup-desktop');
+            stage.classList.add(`mockup-${normalized}`);
+        }
+        if (phoneChrome) phoneChrome.classList.toggle('hidden', normalized !== 'phone');
+        if (desktopChrome) desktopChrome.classList.toggle('hidden', normalized !== 'desktop');
+        if (desktopStand) desktopStand.classList.toggle('hidden', normalized !== 'desktop');
+
+        document.querySelectorAll('#modal-mockup-bar .mockup-mode-btn').forEach((btn) => {
+            const active = btn.dataset.mockupMode === normalized;
+            btn.classList.toggle('active', active);
+            btn.classList.toggle('bg-amber-500', active);
+            btn.classList.toggle('text-gray-950', active);
+            btn.classList.toggle('text-gray-300', !active);
+            btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+    },
+
+    getRelatedPhotos(photo, limit = 6) {
+        if (!photo) return [];
+        const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
+        const isComitbase = photo.category === 'COMITBASE' || photo.searchCategory === 'COMITBASE';
+        const pool = isDtreasure
+            ? (state.dtreasurePhotos || [])
+            : (isComitbase ? (state.comitbasePhotos || []) : (state.allPhotos || []));
+
+        const targetSub = String(photo.subCategory || '').trim().toLowerCase();
+        const targetCat = String(photo.category || '').trim().toLowerCase();
+
+        const scored = [];
+        for (const item of pool) {
+            if (!item || !item.id || item.id === photo.id) continue;
+            if (item.path && item.path.toLowerCase().startsWith('header/')) continue;
+            const sub = String(item.subCategory || '').trim().toLowerCase();
+            const cat = String(item.category || '').trim().toLowerCase();
+            let tier = 1;
+            if (targetSub && sub && sub === targetSub) tier = 3;
+            else if (targetCat && cat && cat === targetCat) tier = 2;
+            const eng = (item.loveCount || 0) * 3 + (item.downloadCount || 0) * 2 + (item.viewCount || 0);
+            scored.push({ item, tier, eng });
+        }
+
+        scored.sort((a, b) => {
+            if (b.tier !== a.tier) return b.tier - a.tier;
+            return b.eng - a.eng;
+        });
+
+        return scored.slice(0, limit).map(s => s.item);
+    },
+
+    renderRelatedWallpapers(photo) {
+        const section = document.getElementById('modal-related-section');
+        const grid = document.getElementById('modal-related-grid');
+        if (!section || !grid) return;
+
+        const related = this.getRelatedPhotos(photo, 6);
+        this._relatedPhotoMap = new Map(related.map(p => [p.id, p]));
+
+        if (related.length === 0) {
+            section.classList.add('hidden');
+            grid.innerHTML = '';
+            return;
+        }
+
+        section.classList.remove('hidden');
+        grid.innerHTML = '';
+        const frag = document.createDocumentFragment();
+        const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%22160%22%3E%3Crect fill=%22%231f2937%22 width=%22160%22 height=%22160%22/%3E%3C/svg%3E';
+
+        related.forEach((rel) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'group relative aspect-[3/4] rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-900 border border-gray-200/80 dark:border-gray-700 hover:border-amber-500 transition-all cursor-pointer text-left';
+            btn.dataset.relatedId = rel.id;
+            btn.setAttribute('aria-label', `Preview ${rel.title || 'related wallpaper'}`);
+
+            const img = document.createElement('img');
+            img.alt = rel.title || 'Related wallpaper';
+            img.className = 'w-full h-full object-cover group-hover:scale-105 transition-transform duration-300';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+
+            const isRelDt = rel.category === 'DTREASURE' || rel.searchCategory === 'DTREASURE';
+            const relUnlocked = !isRelDt || state.lifetime || state.purchasedImages.has(rel.id);
+            const opts = { w: 240, h: 320, q: 72, fit: 'cover', fmt: 'auto' };
+
+            if (isRelDt && relUnlocked && typeof utils.loadAuthenticatedImage === 'function') {
+                img.src = placeholderSvg;
+                utils.loadAuthenticatedImage(img, rel.url, opts, { fallbackSvg: placeholderSvg });
+            } else {
+                const candidates = utils.getImageFallbackCandidates(rel.url, opts);
+                img.src = utils.attachImageFallback(img, candidates, { fallbackSvg: placeholderSvg }) || placeholderSvg;
+            }
+
+            const caption = document.createElement('span');
+            caption.className = 'absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 via-black/30 to-transparent text-[10px] font-bold text-white truncate pointer-events-none';
+            caption.textContent = rel.title || 'Wallpaper';
+
+            btn.appendChild(img);
+            btn.appendChild(caption);
+            frag.appendChild(btn);
+        });
+
+        grid.appendChild(frag);
+    },
+
     unlockDtreasureThumbnail(photoId) {
         if (!photoId) return;
         const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
@@ -213,11 +328,18 @@ Object.assign(ui, {
         setMeta('property', 'og:title', title);
         setMeta('property', 'og:description', desc);
         setMeta('property', 'og:image', fullImageUrl);
+        setMeta('property', 'og:image:secure_url', fullImageUrl);
+        setMeta('property', 'og:image:alt', title);
+        if (Number(photo.width) > 0 && Number(photo.height) > 0) {
+            setMeta('property', 'og:image:width', String(Math.round(Number(photo.width))));
+            setMeta('property', 'og:image:height', String(Math.round(Number(photo.height))));
+        }
         setMeta('property', 'og:url', canonicalUrl);
         setMeta('name', 'description', desc);
         setMeta('name', 'twitter:title', title);
         setMeta('name', 'twitter:description', desc);
         setMeta('name', 'twitter:image', fullImageUrl);
+        setMeta('name', 'twitter:image:alt', title);
 
         let schemaEl = document.getElementById('zx-schema-photo');
         if (!schemaEl) {
@@ -241,7 +363,7 @@ Object.assign(ui, {
         document.title = 'ZXAION GALLERY';
         const defaultDesc = 'ZXAION GALLERY — Curated 4K anime, fantasy, abstract, photography wallpapers, COMITBASE community art, and exclusive DTREASURE vault editions.';
         const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
-        const defaultImage = `${origin}/api/img/HEADER/Logo.png`;
+        const defaultImage = `${origin}/assets/brand-logo.jpg`;
 
         const setMeta = (attr, key, val) => {
             const el = document.querySelector(`meta[${attr}="${key}"]`);
@@ -251,6 +373,7 @@ Object.assign(ui, {
         setMeta('property', 'og:title', 'ZXAION GALLERY');
         setMeta('property', 'og:description', 'Curated 4K wallpapers, anime collections, community art, and exclusive DTREASURE digital vault editions.');
         setMeta('property', 'og:image', defaultImage);
+        setMeta('property', 'og:image:secure_url', defaultImage);
         setMeta('name', 'description', defaultDesc);
         setMeta('name', 'twitter:title', 'ZXAION GALLERY');
         setMeta('name', 'twitter:description', defaultDesc);
@@ -331,14 +454,36 @@ Object.assign(ui, {
         const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
         const shareUrl = `${origin}/?photo=${encodeURIComponent(target.id)}`;
         const title = target.title || 'ZXAION Wallpaper';
+        const isDtreasure = target.category === 'DTREASURE' || target.searchCategory === 'DTREASURE';
+        const isPurchased = state.lifetime || state.purchasedImages.has(target.id);
 
         if (typeof navigator !== 'undefined' && navigator.share) {
             try {
-                await navigator.share({
+                const sharePayload = {
                     title: `${title} — ZXAION GALLERY`,
                     text: `Check out "${title}" wallpaper on ZXAION GALLERY!`,
                     url: shareUrl,
-                });
+                };
+                if ((!isDtreasure || isPurchased) && typeof File !== 'undefined' && typeof navigator.canShare === 'function') {
+                    try {
+                        const previewCandidates = utils.getImageFallbackCandidates(target.url, { w: 1080, q: 82, fit: 'scale-down', fmt: 'jpeg' });
+                        const imgUrl = previewCandidates[0];
+                        if (imgUrl) {
+                            const headers = isDtreasure && typeof getAuthHeaders === 'function' ? getAuthHeaders() : {};
+                            const imgRes = await fetch(imgUrl, { headers });
+                            if (imgRes.ok) {
+                                const blob = await imgRes.blob();
+                                const file = new File([blob], `${(title || 'wallpaper').replace(/[^a-z0-9_\-]+/gi, '_')}.jpg`, {
+                                    type: blob.type || 'image/jpeg',
+                                });
+                                if (navigator.canShare({ files: [file] })) {
+                                    sharePayload.files = [file];
+                                }
+                            }
+                        }
+                    } catch (_) {}
+                }
+                await navigator.share(sharePayload);
                 return;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
@@ -347,10 +492,24 @@ Object.assign(ui, {
 
         try {
             await utils.copyText(shareUrl);
-            ui.showToast('Wallpaper link copied to clipboard!', 'success', 3000);
-        } catch (e) {
-            console.error('Share fallback copy error:', e);
-            ui.showToast('Failed to copy wallpaper link.', 'error');
+            ui.showToast('Share link (with Rich Image Preview) copied to clipboard!', 'success', 3200);
+        } catch {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = shareUrl;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                const ok = document.execCommand?.('copy');
+                document.body.removeChild(ta);
+                if (ok) {
+                    ui.showToast('Share link (with Rich Image Preview) copied to clipboard!', 'success', 3200);
+                    return;
+                }
+            } catch (_) {}
+            ui.showToast(`Share URL ready: ${shareUrl}`, 'info', 4500);
         }
     },
 
@@ -360,6 +519,8 @@ Object.assign(ui, {
         const targetPhotoId = photo.id;
         state.currentImageId = targetPhotoId;
         state.currentPhoto = photo;
+
+        this.setMockupMode('original');
 
         // Synchronize deep link URL hash
         const targetHash = `#photo=${encodeURIComponent(photo.id)}`;
@@ -380,6 +541,8 @@ Object.assign(ui, {
 
         const displayViews     = photo.viewCount;
         const displayDownloads = photo.downloadCount || 0;
+        const displayLoves     = Number(state.photoLoveCounts?.[photo.id] ?? photo.loveCount ?? 0);
+        const isLoved          = Boolean(state.lovedPhotos?.has(photo.id));
 
         const imageUrl    = utils.encodeImageUrlPath(photo.url);
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
@@ -391,16 +554,35 @@ Object.assign(ui, {
         elements.modalCategory.textContent      = `${photo.category || photo.searchCategory || ''}${photo.subCategory ? ' / ' + photo.subCategory : ''}`;
         elements.modalViewCount.textContent     = utils.formatNumber(displayViews);
         elements.modalDownloadCount.textContent = utils.formatNumber(displayDownloads);
+        this.syncLoveUi(photo.id, displayLoves, isLoved);
+
+        const dimBadge = document.getElementById('modal-dimensions-badge');
+        if (dimBadge) {
+            if (Number(photo.width) > 0 && Number(photo.height) > 0) {
+                dimBadge.textContent = `${Math.round(Number(photo.width))} × ${Math.round(Number(photo.height))}`;
+                dimBadge.classList.remove('hidden');
+            } else {
+                dimBadge.classList.add('hidden');
+            }
+        }
+
+        this.renderRelatedWallpapers(photo);
 
         if (typeof api.fetchImageStats === 'function') {
             api.fetchImageStats(photo.id).then(fresh => {
                 if (state.currentImageId !== targetPhotoId || !fresh) return;
                 const v = Math.max(photo.viewCount || 0, fresh.views || 0);
                 const d = Math.max(photo.downloadCount || 0, fresh.downloads || 0);
+                const l = Math.max(0, Number(fresh.loves ?? photo.loveCount ?? 0));
                 photo.viewCount = v;
                 photo.downloadCount = d;
+                photo.loveCount = l;
+                state.photoLoveCounts[photo.id] = l;
+                if (fresh.loved) state.lovedPhotos.add(photo.id);
+                else state.lovedPhotos.delete(photo.id);
                 if (elements.modalViewCount) elements.modalViewCount.textContent = utils.formatNumber(v);
                 if (elements.modalDownloadCount) elements.modalDownloadCount.textContent = utils.formatNumber(d);
+                this.syncLoveUi(photo.id, l, Boolean(fresh.loved));
             }).catch(() => {});
         }
 

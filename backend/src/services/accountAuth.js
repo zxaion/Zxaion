@@ -12,7 +12,7 @@ export const SESSION_COOKIE_NAME = 'zx_sid';
 const SESSION_TTL_DAYS = 30;
 
 export const ACCOUNT_SELECT_COLUMNS =
-  'account_id, user_id, email, email_verified, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at';
+  'account_id, user_id, email, email_verified, verify_bonus_claimed, checkin_streak, last_checkin_date, password_hash, display_name, status, failed_login_attempts, locked_until, created_at, updated_at, last_login_at';
 export const LEDGER_SELECT_COLUMNS =
   'id, account_id, tx_type, amount, balance_after, reference_type, reference_id, description, metadata_json, created_at';
 export const ORDER_SELECT_COLUMNS =
@@ -88,15 +88,20 @@ export function extractSessionToken(request) {
 
 export function sanitizeAccountView(account) {
   if (!account) return null;
+  const todayUtc = new Date().toISOString().slice(0, 10);
   return {
-    accountId:     account.account_id,
-    email:         account.email || null,
-    emailVerified: !!account.email_verified,
-    hasPassword:   !!account.password_hash,
-    displayName:   account.display_name || null,
-    status:        account.status || 'active',
-    createdAt:     account.created_at || null,
-    lastLoginAt:   account.last_login_at || null,
+    accountId:          account.account_id,
+    email:              account.email || null,
+    emailVerified:      !!account.email_verified,
+    verifyBonusClaimed: !!account.verify_bonus_claimed,
+    checkinStreak:      Number(account.checkin_streak) || 0,
+    lastCheckinDate:    account.last_checkin_date || null,
+    checkedInToday:     account.last_checkin_date === todayUtc,
+    hasPassword:        !!account.password_hash,
+    displayName:        account.display_name || null,
+    status:             account.status || 'active',
+    createdAt:          account.created_at || null,
+    lastLoginAt:        account.last_login_at || null,
   };
 }
 

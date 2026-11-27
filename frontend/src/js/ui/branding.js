@@ -6,10 +6,20 @@ Object.assign(ui, {
     initLogo() {
         if (!window.customLogo?.enabled || !window.customLogo?.url) return;
 
-        const setupLogoImage = (imgEl, textEl, url, alt) => {
+        const setupLogoImage = (imgEl, textEl, url, alt, fallbackUrl) => {
             if (!imgEl) return;
             const resolvedUrl = typeof utils !== 'undefined' ? utils.encodeImageUrlPath(url) : url;
+            const resolvedFallback = fallbackUrl
+                ? (typeof utils !== 'undefined' ? utils.encodeImageUrlPath(fallbackUrl) : fallbackUrl)
+                : (imgEl.dataset?.fallbackSrc || '');
+            let triedFallback = false;
+
             imgEl.onerror = function() {
+                if (!triedFallback && resolvedFallback && this.src !== resolvedFallback) {
+                    triedFallback = true;
+                    this.src = resolvedFallback;
+                    return;
+                }
                 this.onerror = null;
                 this.classList.add('hidden');
                 if (textEl) textEl.classList.remove('hidden');
@@ -24,8 +34,8 @@ Object.assign(ui, {
             imgEl.classList.remove('hidden');
         };
 
-        setupLogoImage(document.getElementById('logo-image'),        document.getElementById('logo-text'),        window.customLogo.url, window.customLogo.alt);
-        setupLogoImage(document.getElementById('footer-logo-image'), document.getElementById('footer-logo-text'), window.customLogo.url, window.customLogo.alt);
+        setupLogoImage(document.getElementById('logo-image'),        document.getElementById('logo-text'),        window.customLogo.url, window.customLogo.alt, window.customLogo.fallbackUrl);
+        setupLogoImage(document.getElementById('footer-logo-image'), document.getElementById('footer-logo-text'), window.customLogo.url, window.customLogo.alt, window.customLogo.fallbackUrl);
     },
 
     initCategoryAndHeaderImages() {

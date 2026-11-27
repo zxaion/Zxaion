@@ -309,6 +309,35 @@ const api = {
         }
     },
 
+    async submitComitbaseArtwork({ title, creator, imageData }) {
+        try {
+            const headers = typeof getAuthHeaders === 'function'
+                ? getAuthHeaders({ 'Content-Type': 'application/json' })
+                : { 'X-User-Token': getOrCreateUserToken(), 'Content-Type': 'application/json' };
+            const res = await fetch(`${API_BASE}/api/comitbase/submit`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers,
+                body: JSON.stringify({ title, creator, imageData }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || `Upload failed (HTTP ${res.status})` };
+            }
+            if (data.photo) {
+                const existing = Array.isArray(state.comitbasePhotos) ? state.comitbasePhotos : [];
+                state.comitbasePhotos = [data.photo, ...existing.filter(p => p.id !== data.photo.id)];
+                this.imageCache.comitbase = state.comitbasePhotos;
+                this.imageCache.totalComitbase = state.comitbasePhotos.length;
+                ui.invalidateComitbaseSortCache?.();
+            }
+            return data;
+        } catch (e) {
+            console.error('submitComitbaseArtwork error:', e);
+            return { success: false, error: 'Network error while uploading artwork.' };
+        }
+    },
+
     async fetchDtreasureImages() {
         try {
             state.dtreasureError = false;

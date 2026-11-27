@@ -1,10 +1,18 @@
-import { handleScheduled } from '../services/r2Sync.js';
+import { handleScheduled, resolveBucketTarget, buildUpsertStatement } from '../services/r2Sync.js';
 import {
   createD1Snapshot,
   getBackupSnapshot,
   listBackupSnapshots,
   restoreFromSnapshot,
 } from '../services/backup.js';
+import {
+  parseImageMeta,
+  extractImageDimensions,
+  decodeBase64DataUrl,
+  buildWatermarkedPreviewSvg,
+} from '../services/imageMeta.js';
+import { appendCreditLedgerStatement, ensureAutoAccount } from '../services/accountAuth.js';
+import { derivePublicPayerRef } from '../utils/userToken.js';
 import { jsonResponse } from '../utils/cors.js';
 
 function unauthorizedAdmin(corsHeaders) {
@@ -315,5 +323,259 @@ export async function handleAdminBackupRestore({ request, env, corsHeaders }) {
   } catch (err) {
     console.error('[Admin] Restore error:', err);
     return jsonResponse({ success: false, error: err.message || 'Restore failed' }, 400, corsHeaders);
+  }
+}
+
+// ================================================================
+// ENDPOINT: Admin User Credit & VIP Management (POST /api/admin/credits)
+// ================================================================
+export async function handleAdminAdjustCredits({ request, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
+  }
+
+  const userId = String(body?.userId || '').trim();
+  const mode = String(body?.mode || 'add').trim().toLowerCase();
+  const reason = String(body?.reason || '').trim().slice(0, 140) || 'Admin wallet adjustment';
+  if (!userId || userId === 'anonymous') {
+    return jsonResponse({ success: false, error: 'Valid userId is required' }, 400, corsHeaders);
+  }
+  if (!['add', 'set', 'lifetime'].includes(mode)) {
+    return jsonResponse({ success: false, error: 'Unsupported credit adjustment mode' }, 400, corsHeaders);
+  }
+
+  try {
+    const publicId = await derivePublicPayerRef(userId);
+    const { account } = await ensureAutoAccount(env.DB, { userId, request, issueSession: false });
+    const existing = await env.DB.prepare(
+      'SELECT credits, lifetime, recovery_hash FROM user_credits WHERE user_id = ?'
+    ).bind(userId).first();
+    const prevCredits = Number(existing?.credits || 0);
+    const prevLifetime = !!existing?.lifetime;
+
+    let nextCredits = prevCredits;
+    let nextLifetime = prevLifetime;
+    let delta = 0;
+
+    if (mode === 'add') {
+      const amount = Math.round(Number(body?.amount));
+      if (!Number.isFinite(amount) || amount === 0) {
+        return jsonResponse({ success: false, error: 'Provide a non-zero integer credit delta' }, 400, corsHeaders);
+      }
+      nextCredits = Math.max(0, prevCredits + amount);
+      delta = nextCredits - prevCredits;
+    } else if (mode === 'set') {
+      const targetBalance = Math.round(Number(body?.amount));
+      if (!Number.isFinite(targetBalance) || targetBalance < 0) {
+        return jsonResponse({ success: false, error: 'Balance must be a non-negative integer' }, 400, corsHeaders);
+      }
+      nextCredits = targetBalance;
+      delta = nextCredits - prevCredits;
+    } else if (mode === 'lifetime') {
+      nextLifetime = Boolean(body?.lifetime);
+      if (body?.amount !== undefined && body?.amount !== null && body?.amount !== '') {
+        const bonus = Math.round(Number(body.amount));
+        if (Number.isFinite(bonus) && bonus !== 0) {
+          nextCredits = Math.max(0, prevCredits + bonus);
+          delta = nextCredits - prevCredits;
+        }
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const statements = [
+      env.DB.prepare(
+        'UPDATE user_credits SET credits = ?, public_id = COALESCE(public_id, ?) WHERE user_id = ?'
+      ).bind(nextCredits, publicId, userId),
+    ];
+
+    if (nextLifetime !== prevLifetime) {
+      if (nextLifetime) {
+        statements.push(
+          env.DB.prepare(`
+            INSERT INTO user_credits (user_id, public_id, credits, lifetime)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(user_id) DO UPDATE SET lifetime = 1, public_id = COALESCE(user_credits.public_id, excluded.public_id)
+          `).bind(userId, publicId, nextCredits)
+        );
+      } else {
+        statements.push(
+          env.DB.prepare('UPDATE user_credits SET lifetime = 0 WHERE user_id = ?').bind(userId)
+        );
+      }
+    }
+
+    statements.push(
+      appendCreditLedgerStatement(env.DB, {
+        accountId: account?.account_id || 'admin-adjust',
+        userId,
+        txType: 'admin_adjust',
+        amount: delta,
+        referenceType: 'admin_console',
+        referenceId: `adj_${Date.now()}`,
+        description: mode === 'lifetime'
+          ? `${reason} (VIP Lifetime: ${nextLifetime ? 'Enabled' : 'Disabled'})`
+          : reason,
+        metadata: { mode, prevCredits, nextCredits, prevLifetime, nextLifetime },
+        createdAt: nowIso,
+      })
+    );
+
+    await env.DB.batch(statements);
+
+    return jsonResponse({
+      success: true,
+      user: {
+        user_id: userId,
+        public_id: publicId,
+        credits: nextCredits,
+        lifetime: nextLifetime,
+        has_recovery: Boolean(existing?.recovery_hash),
+      },
+      wallet: {
+        credits: nextCredits,
+        lifetime: nextLifetime,
+      },
+    }, 200, corsHeaders, { 'Cache-Control': 'no-store' });
+  } catch (err) {
+    console.error('[Admin] Adjust credits error:', err.message);
+    return jsonResponse({ success: false, error: err.message || 'Failed to adjust credits' }, 500, corsHeaders);
+  }
+}
+
+// ================================================================
+// ENDPOINT: Admin Direct Media Upload (POST /api/admin/upload)
+// Supports main / comitbase / dtreasure + auto watermarked _preview/<key> for dtreasure
+// ================================================================
+function sanitizePathSegment(raw, fallback = '') {
+  return String(raw || '')
+    .trim()
+    .replace(/\.\./g, '')
+    .replace(/[\\/\0<>:"|?*]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 48) || fallback;
+}
+
+export async function handleAdminUpload({ request, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
+  }
+
+  const bucketInput = String(body?.bucket || 'main').trim().toLowerCase();
+  const target = resolveBucketTarget(bucketInput, env);
+  if (!target || !target.bucket) {
+    return jsonResponse({ success: false, error: 'Invalid or unconfigured target bucket' }, 400, corsHeaders);
+  }
+
+  const decoded = decodeBase64DataUrl(body?.imageData, { maxBytes: 8 * 1024 * 1024 });
+  if (decoded.error) {
+    return jsonResponse({ success: false, error: decoded.error }, decoded.status || 400, corsHeaders);
+  }
+
+  const rawTitle = String(body?.title || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  if (rawTitle.length < 2) {
+    return jsonResponse({ success: false, error: 'Please provide an artwork title (at least 2 characters).' }, 400, corsHeaders);
+  }
+
+  const slug = rawTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'artwork';
+  const fileName = `${slug}_${Date.now()}.${decoded.ext}`;
+
+  let r2Key = '';
+  let categoryLabel = '';
+  if (target.name === 'main') {
+    const folder = sanitizePathSegment(body?.category || 'ANIME', 'ANIME').toUpperCase();
+    const sub = sanitizePathSegment(body?.subCategory || '', '');
+    r2Key = sub ? `${folder}/${sub}/${fileName}` : `${folder}/${fileName}`;
+    categoryLabel = folder;
+  } else if (target.name === 'comitbase') {
+    const folder = sanitizePathSegment(body?.category || 'community', 'community').toLowerCase();
+    r2Key = `${folder}/${fileName}`;
+    categoryLabel = 'COMITBASE';
+  } else {
+    const folder = sanitizePathSegment(body?.category || 'vault', 'vault').toLowerCase();
+    r2Key = `${folder}/${fileName}`;
+    categoryLabel = 'DTREASURE';
+  }
+
+  const uploadedIso = new Date().toISOString();
+  const dims = extractImageDimensions(decoded.bytes, decoded.mimeType);
+  const uploader = body?.uploader ? String(body.uploader).trim().slice(0, 60) : 'Admin';
+
+  try {
+    await target.bucket.put(r2Key, decoded.bytes, {
+      contentType: decoded.mimeType,
+      size: decoded.bytes.byteLength,
+      uploaded: uploadedIso,
+    });
+
+    let watermarkPreviewKey = null;
+    if (target.name === 'dtreasure') {
+      watermarkPreviewKey = `_preview/${r2Key}`;
+      const previewSvg = buildWatermarkedPreviewSvg({
+        title: rawTitle,
+        category: 'DTREASURE',
+        previewDataUri: decoded.ext === 'svg' ? '' : String(body?.previewDataUri || body?.imageData || ''),
+        width: dims.width || 480,
+        height: dims.height || 640,
+      });
+      await target.bucket.put(watermarkPreviewKey, previewSvg, {
+        contentType: 'image/svg+xml',
+        size: previewSvg.length,
+        uploaded: uploadedIso,
+      });
+    }
+
+    const parsed = parseImageMeta(r2Key, target.name) || {
+      id: `${target.name}:${r2Key}`,
+      r2_key: r2Key,
+      bucket: target.name,
+      title: rawTitle,
+      category: categoryLabel,
+      sub_category: null,
+      url: target.name === 'dtreasure'
+        ? `/api/dtreasure/img/${encodeURIComponent(r2Key)}`
+        : target.name === 'comitbase'
+          ? `/api/comitbase/img/${encodeURIComponent(r2Key)}`
+          : `/api/img/${encodeURIComponent(r2Key)}`,
+    };
+    const meta = { ...parsed, title: rawTitle };
+
+    await buildUpsertStatement(env.DB, meta, decoded.bytes.byteLength, uploadedIso, uploadedIso, {
+      width: dims.width,
+      height: dims.height,
+      uploader,
+    }).run();
+
+    return jsonResponse({
+      success: true,
+      watermarkPreviewKey,
+      photo: {
+        id: meta.id,
+        bucket: target.name,
+        r2Key,
+        title: rawTitle,
+        category: meta.category,
+        subCategory: meta.sub_category,
+        url: meta.url,
+        width: dims.width,
+        height: dims.height,
+        size: decoded.bytes.byteLength,
+        uploaded: uploadedIso,
+      },
+    }, 201, corsHeaders, { 'Cache-Control': 'no-store' });
+  } catch (err) {
+    console.error('[Admin] Direct upload error:', err.message);
+    return jsonResponse({ success: false, error: err.message || 'Upload failed' }, 500, corsHeaders);
   }
 }

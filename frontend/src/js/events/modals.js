@@ -37,6 +37,29 @@ function initModalEvents() {
         ui.sharePhoto(state.currentPhoto);
     });
 
+    document.getElementById('modal-love-btn')?.addEventListener('click', () => {
+        if (state.currentPhoto) {
+            ui.togglePhotoLove(state.currentPhoto);
+        }
+    });
+
+    document.getElementById('modal-mockup-bar')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-mockup-mode]');
+        if (btn && btn.dataset.mockupMode) {
+            ui.setMockupMode(btn.dataset.mockupMode);
+        }
+    });
+
+    document.getElementById('modal-related-grid')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-related-id]');
+        if (!btn) return;
+        const relatedId = btn.dataset.relatedId;
+        const relPhoto = ui._relatedPhotoMap?.get(relatedId) || ui.findPhotoById(relatedId);
+        if (relPhoto) {
+            ui.openImageModal(relPhoto);
+        }
+    });
+
     // Resolution selection buttons
     document.getElementById('resolution-button-group')?.addEventListener('click', (e) => {
         const btn = e.target.closest('.resolution-btn');

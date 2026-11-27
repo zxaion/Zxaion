@@ -116,6 +116,41 @@
     box-shadow:  0 10px 15px -3px rgba(0,0,0,0.1);
 }
 
+.masonry-overlay .card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    pointer-events: auto;
+}
+
+.masonry-overlay .love-btn {
+    background: rgba(17, 24, 39, 0.72);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    padding: 0.48rem 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.masonry-overlay .love-btn:hover {
+    background: rgba(244, 63, 94, 0.28);
+    border-color: rgba(251, 113, 133, 0.75);
+    transform: scale(1.05);
+}
+
+.masonry-overlay .love-btn.is-loved {
+    background: rgba(225, 29, 72, 0.9);
+    border-color: rgba(253, 164, 175, 0.8);
+    color: #ffffff;
+}
+
 @media (max-width: 640px) {
     .masonry-layout {
         gap: 0.625rem;

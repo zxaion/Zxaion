@@ -2,6 +2,7 @@
 import {
   LEDGER_SELECT_COLUMNS,
   ORDER_SELECT_COLUMNS,
+  appendCreditLedgerStatement,
   buildSessionCookie,
   clearSessionCookie,
   createUserSession,
@@ -12,6 +13,7 @@ import {
   sanitizeAccountView,
 } from '../services/accountAuth.js';
 import {
+  derivePublicPayerRef,
   generateOpaqueId,
   generateOtpCode,
   hashPassword,
@@ -375,21 +377,167 @@ export async function handleVerifyEmail({ request, DB, corsHeaders, getUserToken
       return jsonRes({ success: false, error: 'Invalid verification code' }, 400, corsHeaders);
     }
 
-    await DB.batch([
+    const grantBonus = !auth.account.verify_bonus_claimed;
+    const bonusAmount = grantBonus ? 5 : 0;
+    const statements = [
       DB.prepare('UPDATE email_verifications SET used_at = ? WHERE id = ?').bind(nowIso, record.id),
-      DB.prepare('UPDATE accounts SET email_verified = 1, updated_at = ? WHERE account_id = ?').bind(nowIso, auth.account.account_id),
-    ]);
+      DB.prepare('UPDATE accounts SET email_verified = 1, verify_bonus_claimed = 1, updated_at = ? WHERE account_id = ?')
+        .bind(nowIso, auth.account.account_id),
+    ];
+
+    if (grantBonus) {
+      const publicId = await derivePublicPayerRef(auth.userId);
+      statements.push(
+        DB.prepare(`
+          INSERT INTO user_credits (user_id, public_id, credits, lifetime)
+          VALUES (?, ?, ?, 0)
+          ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?, public_id = COALESCE(user_credits.public_id, excluded.public_id)
+        `).bind(auth.userId, publicId, bonusAmount, bonusAmount),
+        appendCreditLedgerStatement(DB, {
+          accountId: auth.account.account_id,
+          userId: auth.userId,
+          txType: 'verify_bonus',
+          amount: bonusAmount,
+          referenceType: 'email_verification',
+          referenceId: record.id,
+          description: 'Email verification bonus (+5 credits)',
+          metadata: { email: auth.account.email },
+          createdAt: nowIso,
+        })
+      );
+    }
+
+    await DB.batch(statements);
 
     const updated = await getAccountById(DB, auth.account.account_id);
+    const wallet  = await fetchWalletSnapshot(DB, auth.userId);
 
     return jsonRes({
       success: true,
+      bonusAwarded: bonusAmount,
       account: sanitizeAccountView(updated),
-      message: 'Email verified successfully',
+      wallet,
+      message: grantBonus
+        ? 'Email verified! +5 bonus credits added to your wallet.'
+        : 'Email verified successfully',
     }, 200, corsHeaders);
   } catch (err) {
     console.error('[Account] verify-email error:', err.message);
     return jsonRes({ success: false, error: 'Verification failed' }, 500, corsHeaders);
+  }
+}
+
+// ================================================================
+// Daily Check-in Streak helper & POST /api/account/checkin
+// ================================================================
+export function computeNextCheckinState(account, nowDate = new Date()) {
+  const todayUtc = nowDate.toISOString().slice(0, 10);
+  const yesterdayUtc = new Date(nowDate.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const lastDate = account?.last_checkin_date || null;
+  const currentStreak = Math.max(0, Number(account?.checkin_streak) || 0);
+
+  if (lastDate === todayUtc) {
+    return {
+      alreadyClaimed: true,
+      todayUtc,
+      nextStreak: currentStreak,
+      baseCredits: 0,
+      milestoneBonus: 0,
+      totalAwarded: 0,
+    };
+  }
+
+  const nextStreak = lastDate === yesterdayUtc ? currentStreak + 1 : 1;
+  const baseCredits = 2;
+  const milestoneBonus = nextStreak % 7 === 0 ? 5 : 0;
+  return {
+    alreadyClaimed: false,
+    todayUtc,
+    nextStreak,
+    baseCredits,
+    milestoneBonus,
+    totalAwarded: baseCredits + milestoneBonus,
+  };
+}
+
+export async function handleAccountCheckin({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  if (!auth.authenticated) {
+    if (auth.requiresLogin) {
+      return jsonRes({
+        success: false,
+        requiresLogin: true,
+        error: 'Please sign in to claim your daily check-in reward.',
+      }, 401, corsHeaders);
+    }
+    return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
+  }
+
+  const ip = getClientIp(request, auth.userId);
+  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_checkin', ip, 30, 3600)) {
+    return jsonRes({ success: false, error: 'Too many check-in requests. Please try again shortly.' }, 429, corsHeaders);
+  }
+
+  try {
+    const { account } = await ensureAutoAccount(DB, { userId: auth.userId, request, issueSession: false });
+    const plan = computeNextCheckinState(account);
+    const walletBefore = await fetchWalletSnapshot(DB, auth.userId);
+
+    if (plan.alreadyClaimed) {
+      return jsonRes({
+        success: false,
+        alreadyClaimed: true,
+        streak: plan.nextStreak,
+        awarded: 0,
+        error: 'Daily check-in already claimed today. Come back tomorrow!',
+        account: sanitizeAccountView(account),
+        wallet: walletBefore,
+      }, 200, corsHeaders);
+    }
+
+    const nowIso = new Date().toISOString();
+    const publicId = await derivePublicPayerRef(auth.userId);
+
+    await DB.batch([
+      DB.prepare(
+        'UPDATE accounts SET checkin_streak = ?, last_checkin_date = ?, updated_at = ? WHERE account_id = ?'
+      ).bind(plan.nextStreak, plan.todayUtc, nowIso, account.account_id),
+      DB.prepare(`
+        INSERT INTO user_credits (user_id, public_id, credits, lifetime)
+        VALUES (?, ?, ?, 0)
+        ON CONFLICT(user_id) DO UPDATE SET credits = credits + ?, public_id = COALESCE(user_credits.public_id, excluded.public_id)
+      `).bind(auth.userId, publicId, plan.totalAwarded, plan.totalAwarded),
+      appendCreditLedgerStatement(DB, {
+        accountId: account.account_id,
+        userId: auth.userId,
+        txType: 'checkin_bonus',
+        amount: plan.totalAwarded,
+        referenceType: 'daily_checkin',
+        referenceId: `${account.account_id}:${plan.todayUtc}`,
+        description: plan.milestoneBonus > 0
+          ? `Day ${plan.nextStreak} check-in streak milestone (+${plan.baseCredits} daily + ${plan.milestoneBonus} bonus)`
+          : `Daily check-in reward (Day ${plan.nextStreak} streak)`,
+        metadata: { streak: plan.nextStreak, baseCredits: plan.baseCredits, milestoneBonus: plan.milestoneBonus },
+        createdAt: nowIso,
+      }),
+    ]);
+
+    const updated = await getAccountById(DB, account.account_id);
+    const wallet = await fetchWalletSnapshot(DB, auth.userId);
+
+    return jsonRes({
+      success: true,
+      alreadyClaimed: false,
+      awarded: plan.totalAwarded,
+      baseCredits: plan.baseCredits,
+      milestoneBonus: plan.milestoneBonus,
+      streak: plan.nextStreak,
+      account: sanitizeAccountView(updated),
+      wallet,
+    }, 200, corsHeaders);
+  } catch (err) {
+    console.error('[Account] checkin error:', err.message);
+    return jsonRes({ success: false, error: 'Failed to process daily check-in' }, 500, corsHeaders);
   }
 }
 

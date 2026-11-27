@@ -182,6 +182,75 @@ const ui = {
         }
     },
 
+    syncLoveUi(photoId, loveCount, isLoved) {
+        if (!photoId) return;
+        const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
+        const countText = utils.formatNumber(Math.max(0, Number(loveCount) || 0));
+
+        document.querySelectorAll(`.love-count[data-id="${safeId}"]`).forEach(el => {
+            el.textContent = countText;
+        });
+        document.querySelectorAll(`.love-btn[data-id="${safeId}"]`).forEach(btn => {
+            btn.classList.toggle('is-loved', Boolean(isLoved));
+            btn.setAttribute('aria-pressed', isLoved ? 'true' : 'false');
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.className = `${isLoved ? 'fas' : 'far'} fa-heart`;
+            }
+        });
+
+        if (state.currentImageId === photoId) {
+            const modalCount = document.getElementById('modal-love-count');
+            const modalBtn = document.getElementById('modal-love-btn');
+            const modalIcon = document.getElementById('modal-love-icon');
+            if (modalCount) modalCount.textContent = countText;
+            if (modalBtn) {
+                modalBtn.setAttribute('aria-pressed', isLoved ? 'true' : 'false');
+                modalBtn.classList.toggle('bg-rose-500', Boolean(isLoved));
+                modalBtn.classList.toggle('text-white', Boolean(isLoved));
+                modalBtn.classList.toggle('dark:bg-rose-600', Boolean(isLoved));
+                modalBtn.classList.toggle('dark:text-white', Boolean(isLoved));
+                modalBtn.classList.toggle('bg-rose-50', !isLoved);
+                modalBtn.classList.toggle('text-rose-600', !isLoved);
+                modalBtn.classList.toggle('dark:bg-rose-900/30', !isLoved);
+                modalBtn.classList.toggle('dark:text-rose-300', !isLoved);
+            }
+            if (modalIcon) {
+                modalIcon.className = `${isLoved ? 'fas' : 'far'} fa-heart text-xs ${isLoved ? 'text-white' : 'text-rose-500'}`;
+            }
+        }
+    },
+
+    async togglePhotoLove(photo) {
+        if (!photo || !photo.id) return;
+        const prevLoved = state.lovedPhotos.has(photo.id);
+        const prevCount = Number(photo.loveCount || state.photoLoveCounts[photo.id] || 0);
+        const nextLoved = !prevLoved;
+        const optimisticCount = Math.max(0, prevCount + (nextLoved ? 1 : -1));
+
+        if (nextLoved) state.lovedPhotos.add(photo.id);
+        else state.lovedPhotos.delete(photo.id);
+        photo.loveCount = optimisticCount;
+        state.photoLoveCounts[photo.id] = optimisticCount;
+        this.syncLoveUi(photo.id, optimisticCount, nextLoved);
+
+        if (typeof api.toggleReaction === 'function') {
+            const res = await api.toggleReaction(photo.id);
+            if (res && res.success) {
+                if (res.loved) state.lovedPhotos.add(photo.id);
+                else state.lovedPhotos.delete(photo.id);
+                photo.loveCount = res.loveCount;
+                state.photoLoveCounts[photo.id] = res.loveCount;
+                this.syncLoveUi(photo.id, res.loveCount, res.loved);
+                if (state.sortBy === 'loved') {
+                    this.invalidateMainSortCache?.();
+                    this.invalidateComitbaseSortCache?.();
+                    this.invalidateDtreasureSortCache?.();
+                }
+            }
+        }
+    },
+
     _sortCaches: {},
 
     invalidateSortCache(cacheKey) {
@@ -262,13 +331,17 @@ const ui = {
             container.removeEventListener('click', this[handlerKey]);
         }
         const handler = (e) => {
+            const loveBtn = e.target.closest('.love-btn');
             const downloadBtn = e.target.closest('.download-btn');
-            const item = (downloadBtn || e.target).closest('.masonry-item');
+            const item = (loveBtn || downloadBtn || e.target).closest('.masonry-item');
             if (!item) return;
             const photoId = item.dataset.photoId;
             const photo = getListFn().find(p => p.id === photoId);
             if (!photo) return;
-            if (downloadBtn) {
+            if (loveBtn) {
+                e.stopPropagation();
+                ui.togglePhotoLove(photo);
+            } else if (downloadBtn) {
                 e.stopPropagation();
                 ui.handleDownload(photo);
             } else {
@@ -306,8 +379,15 @@ const ui = {
         const safeAlt       = utils.escapeHtml(photo.title) || fallbackTitle;
         const viewCount     = utils.formatNumber(photo.viewCount || 0);
         const downloadCount = utils.formatNumber(photo.downloadCount || 0);
+        const loveNum       = Number(state.photoLoveCounts?.[photo.id] ?? photo.loveCount ?? 0);
+        const loveCount     = utils.formatNumber(loveNum);
+        const isLoved       = Boolean(state.lovedPhotos?.has(photo.id));
         const buttonText    = isFree ? 'Download' : '10 Credits';
         const buttonIcon    = isFree ? 'fa-download' : 'fa-lock';
+        const knownW        = Number(photo.width) > 0 ? Math.round(Number(photo.width)) : 0;
+        const knownH        = Number(photo.height) > 0 ? Math.round(Number(photo.height)) : 0;
+        const dimAttrs      = knownW > 0 && knownH > 0 ? ` width="${knownW}" height="${knownH}"` : '';
+        const aspectCss     = knownW > 0 && knownH > 0 ? `aspect-ratio:${knownW}/${knownH};` : '';
 
         const srcAttr = useAuthLoad
             ? `src="${placeholderSvg}"`
@@ -320,20 +400,21 @@ const ui = {
                 ${isFree ? '<span class="dtreasure-unlocked-badge absolute top-2.5 left-2.5 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wider shadow-md backdrop-blur-sm"><i class="fas fa-unlock"></i> Unlocked</span>' : ''}
                 <img
                     ${srcAttr}
-                    alt="${safeAlt}"
+                    alt="${safeAlt}"${dimAttrs}
                     loading="${loadingAttr}"${fetchPrioAttr}
                     class="loading-shimmer w-full h-auto select-none"
                     decoding="async"
                     draggable="false"
-                    style="-webkit-user-drag:none; ${isFree ? '' : '-webkit-touch-callout:none;'} user-select:none;">
+                    style="${aspectCss} -webkit-user-drag:none; ${isFree ? '' : '-webkit-touch-callout:none;'} user-select:none;">
                 ${isFree ? '' : '<div class="dtreasure-thumb-shield absolute inset-0 z-[1]" style="-webkit-tap-highlight-color:transparent; cursor:pointer;"></div>'}
                </div>`
             : `<img
                 ${srcAttr}
-                alt="${safeAlt}"
+                alt="${safeAlt}"${dimAttrs}
                 loading="${loadingAttr}"${fetchPrioAttr}
                 class="loading-shimmer w-full h-auto"
-                decoding="async">`;
+                decoding="async"
+                ${aspectCss ? `style="${aspectCss}"` : ''}>`;
 
         item.innerHTML = `
         ${imgHtml}
@@ -341,10 +422,16 @@ const ui = {
             <div class="stats">
                 <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${safePhotoId}">${viewCount}</span></span>
                 <span><i class="fas fa-download"></i> <span class="download-count" data-id="${safePhotoId}">${downloadCount}</span></span>
+                <span><i class="fas fa-heart text-rose-400"></i> <span class="love-count" data-id="${safePhotoId}">${loveCount}</span></span>
             </div>
-            <button class="download-btn" type="button">
-                <i class="fas ${buttonIcon}"></i> ${buttonText}
-            </button>
+            <div class="card-actions">
+                <button class="download-btn" type="button">
+                    <i class="fas ${buttonIcon}"></i> ${buttonText}
+                </button>
+                <button class="love-btn${isLoved ? ' is-loved' : ''}" type="button" data-id="${safePhotoId}" aria-label="Love ${safeAlt}" aria-pressed="${isLoved ? 'true' : 'false'}">
+                    <i class="${isLoved ? 'fas' : 'far'} fa-heart"></i>
+                </button>
+            </div>
         </div>`;
 
         const img = item.querySelector('img');

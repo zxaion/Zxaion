@@ -75,16 +75,40 @@
                         </div>
                     </div>
 
+                    <!-- Daily Check-in Streak Card -->
+                    <div id="account-checkin-card" class="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/35 dark:to-teal-950/25 border border-emerald-200 dark:border-emerald-800/60 space-y-3">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h4 class="text-sm font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-1.5">
+                                        <i class="fas fa-calendar-check text-emerald-500" aria-hidden="true"></i>
+                                        <span>Daily Check-in Reward</span>
+                                    </h4>
+                                    <span id="account-checkin-streak-badge" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                                        0 Day Streak
+                                    </span>
+                                </div>
+                                <p id="account-checkin-status" class="text-xs text-emerald-800/90 dark:text-emerald-300/80 mt-0.5">
+                                    Claim +2 free credits daily, plus +5 extra bonus on every 7-day streak!
+                                </p>
+                            </div>
+                            <button id="account-checkin-btn" type="button" class="shrink-0 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm transition-colors cursor-pointer">
+                                <i class="fas fa-gift mr-1.5" aria-hidden="true"></i><span>Claim Daily +2 Cr</span>
+                            </button>
+                        </div>
+                        <div id="account-checkin-dots" class="grid grid-cols-7 gap-1.5" aria-label="7-day streak progress"></div>
+                    </div>
+
                     <!-- Email Verification OTP Box (shown when email exists and unverified) -->
                     <div id="account-verify-email-card" class="hidden p-4 rounded-2xl bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-800/60 space-y-3">
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                             <div>
                                 <h4 class="text-sm font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
                                     <i class="fas fa-envelope-circle-check text-amber-500" aria-hidden="true"></i>
-                                    <span>Email Verification Required</span>
+                                    <span>Email Verification Required (+5 Bonus Credits)</span>
                                 </h4>
                                 <p class="text-xs text-amber-800/90 dark:text-amber-300/80 mt-0.5">
-                                    Enter the 6-digit OTP code sent to <strong id="account-verify-email-target">-</strong>.
+                                    Enter the 6-digit OTP code sent to <strong id="account-verify-email-target">-</strong> to verify your email and earn <strong>+5 Bonus Credits</strong>.
                                 </p>
                             </div>
                             <button id="account-resend-otp-btn" type="button" class="shrink-0 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-gray-950 text-xs font-bold transition-colors">
@@ -136,6 +160,9 @@
                             <option value="">All Transactions</option>
                             <option value="purchase">Credit Purchases</option>
                             <option value="spend">DTREASURE Unlocks</option>
+                            <option value="checkin_bonus">Daily Check-in Bonus</option>
+                            <option value="verify_bonus">Email Verify Bonus</option>
+                            <option value="admin_adjust">Admin Adjustment</option>
                             <option value="lifetime_unlock">Lifetime Pass</option>
                             <option value="refunded">Refund / Reversal</option>
                         </select>

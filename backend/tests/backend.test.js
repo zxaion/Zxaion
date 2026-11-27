@@ -6,7 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { createApp, translateCdnCgiImagePath } from '../../server.js';
-import { parseImageMeta } from '../src/services/imageMeta.js';
+import {
+  parseImageMeta,
+  extractImageDimensions,
+  decodeBase64DataUrl,
+  buildWatermarkedPreviewSvg,
+} from '../src/services/imageMeta.js';
 import { getPayPalBase } from '../src/config/constants.js';
 import { CREDIT_PACK_DEFINITIONS } from '../src/config/packs.js';
 import { MIME_TYPES } from '../src/config/mimeTypes.js';
@@ -24,8 +29,15 @@ import {
 } from '../src/services/r2Sync.js';
 import { parseTransformOptions } from '../src/services/imageTransform.js';
 import { checkRateLimit as rawCheckRateLimit } from '../src/services/rateLimit.js';
-import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure } from '../src/routes/gallery.js';
-import { handleRecordView, handleRecordDownload, handleStats } from '../src/routes/stats.js';
+import {
+  handleListMain,
+  handleAnimeAlbums,
+  handleListComitbase,
+  handleListDtreasure,
+  handleTrending,
+  handleSubmitComitbase,
+} from '../src/routes/gallery.js';
+import { handleRecordView, handleRecordDownload, handleStats, handleToggleReaction } from '../src/routes/stats.js';
 import { createPayPalOrder } from '../src/services/paypal.js';
 import {
   handleCreditBalance,
@@ -46,6 +58,8 @@ import {
   handleRecoverRequest,
   handleRecoverConfirm,
   handleAccountLedger,
+  handleAccountCheckin,
+  computeNextCheckinState,
   handleListSessions,
   handleRevokeSession,
   handleRevokeOtherSessions,
@@ -61,8 +75,18 @@ import {
   handleAdminBackupCreate,
   handleAdminBackupDownload,
   handleAdminBackupRestore,
+  handleAdminAdjustCredits,
+  handleAdminUpload,
 } from '../src/routes/admin.js';
-import { injectOpenGraphMetadata, buildPhotoCanonicalUrl, buildPhotoImageUrl, findPhotoForSeo, handleRobotsTxt, handleSitemapXml } from '../src/services/seo.js';
+import {
+  injectOpenGraphMetadata,
+  injectBaseSeoOrigin,
+  buildPhotoCanonicalUrl,
+  buildPhotoImageUrl,
+  findPhotoForSeo,
+  handleRobotsTxt,
+  handleSitemapXml,
+} from '../src/services/seo.js';
 import { sha256Hex } from '../src/utils/userToken.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
@@ -2898,4 +2922,405 @@ test('DTREASURE gallery sorts newest-first with deterministic SQLite/ISO dates a
   assert.ok(dtreasureSrc.includes('renderMasonryItems'));
   assert.ok(dtreasureSrc.includes('state.purchasedImages.size'));
 });
+
+// ================================================================
+// Feature Tests (9 New Features + Share OG & Brand Logo Fixes)
+// ================================================================
+
+test('extractImageDimensions parses PNG, GIF, JPEG, WebP, and SVG dimensions and decodeBase64DataUrl validates payloads', () => {
+  // 1. PNG IHDR (640x480)
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  png.set([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52], 8);
+  new DataView(png.buffer).setUint32(16, 640, false);
+  new DataView(png.buffer).setUint32(20, 480, false);
+  assert.deepEqual(extractImageDimensions(png, 'image/png'), { width: 640, height: 480 });
+
+  // 2. GIF89a (320x180)
+  const gif = new Uint8Array(10);
+  gif.set([0x47, 0x49, 0x46, 0x38, 0x39, 0x61], 0);
+  new DataView(gif.buffer).setUint16(6, 320, true);
+  new DataView(gif.buffer).setUint16(8, 180, true);
+  assert.deepEqual(extractImageDimensions(gif, 'image/gif'), { width: 320, height: 180 });
+
+  // 3. WebP VP8X (1920x1080 -> stored minus 1 in 24-bit LE)
+  const webp = new Uint8Array(30);
+  webp.set([0x52, 0x49, 0x46, 0x46], 0);
+  webp.set([0x57, 0x45, 0x42, 0x50], 8);
+  webp.set([0x56, 0x50, 0x38, 0x58], 12);
+  const wM1 = 1920 - 1;
+  const hM1 = 1080 - 1;
+  webp[24] = wM1 & 0xff; webp[25] = (wM1 >> 8) & 0xff; webp[26] = (wM1 >> 16) & 0xff;
+  webp[27] = hM1 & 0xff; webp[28] = (hM1 >> 8) & 0xff; webp[29] = (hM1 >> 16) & 0xff;
+  assert.deepEqual(extractImageDimensions(webp, 'image/webp'), { width: 1920, height: 1080 });
+
+  // 4. JPEG SOF0 (1080x1920)
+  const jpeg = new Uint8Array([
+    0xff, 0xd8, // SOI
+    0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, // APP0
+    0xff, 0xc0, 0x00, 0x09, 0x08, // SOF0 len=9 precision=8
+    0x07, 0x80, // height = 1920
+    0x04, 0x38, // width = 1080
+    0xff, 0xd9, // EOI
+  ]);
+  assert.deepEqual(extractImageDimensions(jpeg, 'image/jpeg'), { width: 1080, height: 1920 });
+
+  // 5. SVG viewBox
+  const svgBytes = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1200"></svg>');
+  assert.deepEqual(extractImageDimensions(svgBytes, 'image/svg+xml'), { width: 800, height: 1200 });
+
+  // 6. decodeBase64DataUrl rejects invalid MIME and oversize payloads
+  const bad = decodeBase64DataUrl('data:text/plain;base64,SGVsbG8=');
+  assert.equal(bad.status, 400);
+  const b64Png = Buffer.from(png).toString('base64');
+  const ok = decodeBase64DataUrl(`data:image/png;base64,${b64Png}`);
+  assert.equal(ok.ext, 'png');
+  assert.equal(ok.bytes.byteLength, 24);
+  const tooBig = decodeBase64DataUrl(`data:image/png;base64,${b64Png}`, { maxBytes: 10 });
+  assert.equal(tooBig.status, 413);
+});
+
+test('Quick Love toggle (/api/react/:id), /api/stats/:id, and /api/trending?by=loved|downloaded work end-to-end', async () => {
+  const env = await createLocalEnv();
+  const listRes = await handleListMain({
+    url: new URL('http://localhost/api/list?limit=10'),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  });
+  const list = await listRes.json();
+  assert.ok(list.length >= 2);
+  const photo = list[0];
+  const initialLoves = photo.loveCount || 0;
+
+  const reactHeaders = { 'X-User-Token': 'tok-love-viewer-1', 'CF-Connecting-IP': '10.20.30.40' };
+
+  // First toggle -> loves +1, loved = true
+  const addRes = await handleToggleReaction({
+    request: makeReq(`http://localhost/api/react/${encodeURIComponent(photo.id)}`, { method: 'POST', headers: reactHeaders }),
+    path: `/api/react/${encodeURIComponent(photo.id)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(addRes.status, 200);
+  const added = await addRes.json();
+  assert.equal(added.success, true);
+  assert.equal(added.loved, true);
+  assert.equal(added.loves, initialLoves + 1);
+
+  // /api/stats returns loved = true for same viewer and false for another viewer
+  const statsSame = await (await handleStats({
+    request: makeReq(`http://localhost/api/stats/${encodeURIComponent(photo.id)}`, { headers: reactHeaders }),
+    path: `/api/stats/${encodeURIComponent(photo.id)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(statsSame.loved, true);
+  assert.equal(statsSame.loves, initialLoves + 1);
+
+  const statsOther = await (await handleStats({
+    request: makeReq(`http://localhost/api/stats/${encodeURIComponent(photo.id)}`, { headers: { 'X-User-Token': 'other-viewer' } }),
+    path: `/api/stats/${encodeURIComponent(photo.id)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(statsOther.loved, false);
+
+  // Second toggle by same viewer -> un-love
+  const removeRes = await handleToggleReaction({
+    request: makeReq(`http://localhost/api/react/${encodeURIComponent(photo.id)}`, { method: 'POST', headers: reactHeaders }),
+    path: `/api/react/${encodeURIComponent(photo.id)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  const removed = await removeRes.json();
+  assert.equal(removed.loved, false);
+  assert.equal(removed.loves, initialLoves);
+
+  // Leaderboard ordering: by=loved and by=downloaded
+  const lovedBoard = await (await handleTrending({
+    url: new URL('http://localhost/api/trending?limit=12&by=loved'),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  })).json();
+  assert.ok(lovedBoard.length >= 2);
+  for (let i = 1; i < lovedBoard.length; i++) {
+    assert.ok(lovedBoard[i - 1].loveCount >= lovedBoard[i].loveCount);
+  }
+
+  const dlBoard = await (await handleTrending({
+    url: new URL('http://localhost/api/trending?limit=12&by=downloaded'),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  })).json();
+  assert.ok(dlBoard.length >= 2);
+  for (let i = 1; i < dlBoard.length; i++) {
+    assert.ok(dlBoard[i - 1].downloadCount >= dlBoard[i].downloadCount);
+  }
+});
+
+test('Email verification grants one-time +5 credits and daily check-in increments UTC streak with 7-day bonus', async () => {
+  const env = await createLocalEnv();
+  env.ALLOW_DEV_OTP_PREVIEW = 'true';
+  const userTok = 'tok-checkin-bonus-user';
+  const reqHeaders = { 'X-User-Token': userTok, 'Content-Type': 'application/json' };
+  const sendEmail = async () => ({ sent: false, provider: 'test', error: null });
+
+  // 1. Auto account + Register triggers verification OTP
+  await handleAutoAccount({ request: makeReq('http://localhost/api/account/auto', { method: 'POST', headers: reqHeaders }), DB: env.DB, corsHeaders, getUserToken });
+  const regRes = await handleRegisterAccount({
+    request: makeReq('http://localhost/api/account/register', {
+      method: 'POST',
+      headers: reqHeaders,
+      body: { email: 'streakuser@example.com', password: 'StrongPassword123', displayName: 'Streak Tester' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    sendEmail,
+  });
+  assert.equal(regRes.status, 201);
+  const regJson = await regRes.json();
+  const otp = regJson.verification?.devOtpPreview;
+  assert.match(String(otp), /^\d{6}$/);
+
+  const sessionHeaders = { Authorization: `Bearer ${regJson.sessionToken}`, 'Content-Type': 'application/json' };
+
+  // 2. Verify email -> +5 credits + verify_bonus ledger entry
+  const verifyRes = await handleVerifyEmail({
+    request: makeReq('http://localhost/api/account/verify-email', {
+      method: 'POST',
+      headers: sessionHeaders,
+      body: { code: otp },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(verifyRes.status, 200);
+  const verified = await verifyRes.json();
+  assert.equal(verified.bonusAwarded, 5);
+  assert.equal(verified.wallet.credits, 5);
+  assert.equal(verified.account.emailVerified, true);
+
+  // 3. Daily check-in Day 1 -> +2 credits (total 7), streak = 1
+  const checkin1 = await (await handleAccountCheckin({
+    request: makeReq('http://localhost/api/account/checkin', { method: 'POST', headers: sessionHeaders }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(checkin1.success, true);
+  assert.equal(checkin1.awarded, 2);
+  assert.equal(checkin1.streak, 1);
+  assert.equal(checkin1.wallet.credits, 7);
+
+  // 4. Same-day UTC duplicate check-in does NOT award again
+  const checkinDup = await (await handleAccountCheckin({
+    request: makeReq('http://localhost/api/account/checkin', { method: 'POST', headers: sessionHeaders }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(checkinDup.success, false);
+  assert.equal(checkinDup.alreadyClaimed, true);
+  assert.equal(checkinDup.awarded, 0);
+  assert.equal(checkinDup.wallet.credits, 7);
+
+  // 5. Day 7 streak calculation helper awards +2 daily +5 milestone = +7
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const milestonePlan = computeNextCheckinState({ checkin_streak: 6, last_checkin_date: yesterday });
+  assert.equal(milestonePlan.nextStreak, 7);
+  assert.equal(milestonePlan.baseCredits, 2);
+  assert.equal(milestonePlan.milestoneBonus, 5);
+  assert.equal(milestonePlan.totalAwarded, 7);
+});
+
+test('COMITBASE direct submission stores PNG artwork with extracted dimensions and lists it newest-first', async () => {
+  const env = await createLocalEnv();
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  png.set([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52], 8);
+  new DataView(png.buffer).setUint32(16, 1024, false);
+  new DataView(png.buffer).setUint32(20, 768, false);
+  const dataUrl = `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
+
+  const submitRes = await handleSubmitComitbase({
+    request: makeReq('http://localhost/api/comitbase/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': 'artist-1' },
+      body: { title: 'Neon Horizon Test', creator: 'Raka Studio', imageData: dataUrl },
+    }),
+    comitbaseBucket: env.ZX_BUCKET,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(submitRes.status, 201);
+  const submitted = await submitRes.json();
+  assert.equal(submitted.success, true);
+  assert.equal(submitted.photo.width, 1024);
+  assert.equal(submitted.photo.height, 768);
+  assert.equal(submitted.photo.uploader, 'Raka Studio');
+
+  const listRes = await handleListComitbase({
+    url: new URL('http://localhost/api/comitbase/list?limit=10'),
+    env,
+    ctx: { waitUntil: () => {} },
+    comitbaseBucket: env.ZX_BUCKET,
+    DB: env.DB,
+    corsHeaders,
+  });
+  const items = await listRes.json();
+  const found = items.find((i) => i.id === submitted.photo.id);
+  assert.ok(found);
+  assert.equal(found.width, 1024);
+  assert.equal(found.height, 768);
+  assert.equal(found.uploader, 'Raka Studio');
+});
+
+test('Admin direct upload creates _preview/ watermark SVG for DTREASURE, serves X-Dtreasure-Preview, and admin credits adjusts VIP/balance', async () => {
+  const env = await createLocalEnv();
+  const adminToken = env.ADMIN_TOKEN || 'local-dev-admin';
+  const adminHeaders = { 'X-Admin-Token': adminToken, 'Content-Type': 'application/json' };
+
+  // Build 1280x720 PNG
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  png.set([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52], 8);
+  new DataView(png.buffer).setUint32(16, 1280, false);
+  new DataView(png.buffer).setUint32(20, 720, false);
+  const dataUrl = `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
+
+  // 1. Direct upload to DTREASURE
+  const uploadRes = await handleAdminUpload({
+    request: makeReq('http://localhost/api/admin/upload', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { bucket: 'dtreasure', category: 'vault', title: 'Golden Sovereign', imageData: dataUrl },
+    }),
+    env,
+    corsHeaders,
+  });
+  assert.equal(uploadRes.status, 201);
+  const uploaded = await uploadRes.json();
+  assert.equal(uploaded.success, true);
+  assert.ok(uploaded.watermarkPreviewKey.startsWith('_preview/'));
+  assert.equal(uploaded.photo.width, 1280);
+  assert.equal(uploaded.photo.height, 720);
+
+  // 2. Unpurchased DTREASURE preview serves watermarked SVG + X-Dtreasure-Preview header
+  const previewRes = await handleServeImage({
+    request: makeReq(`http://localhost${uploaded.photo.url}`, { headers: { 'X-User-Token': 'visitor-unpaid' } }),
+    ctx: { waitUntil: () => {} },
+    url: new URL(`http://localhost${uploaded.photo.url}`),
+    path: uploaded.photo.url,
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    IMAGES: null,
+    origin: 'http://localhost',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(previewRes.status, 200);
+  assert.equal(previewRes.headers.get('X-Dtreasure-Preview'), 'watermarked');
+  const svgBody = await previewRes.text();
+  assert.ok(svgBody.includes('ZXAION PREVIEW'));
+
+  // 3. Direct download without purchase still fails closed with 403
+  const dlBlocked = await handleServeImage({
+    request: makeReq(`http://localhost${uploaded.photo.url}?download=true`, { headers: { 'X-User-Token': 'visitor-unpaid' } }),
+    ctx: { waitUntil: () => {} },
+    url: new URL(`http://localhost${uploaded.photo.url}?download=true`),
+    path: uploaded.photo.url,
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    IMAGES: null,
+    origin: 'http://localhost',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(dlBlocked.status, 403);
+
+  // 4. Admin user credits add + VIP toggle
+  const targetUser = 'tok-admin-adjusted-user';
+  const addCreds = await (await handleAdminAdjustCredits({
+    request: makeReq('http://localhost/api/admin/credits', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { userId: targetUser, mode: 'add', amount: 25, reason: 'Community contest prize' },
+    }),
+    env,
+    corsHeaders,
+  })).json();
+  assert.equal(addCreds.success, true);
+  assert.equal(addCreds.user.credits, 25);
+
+  const setVip = await (await handleAdminAdjustCredits({
+    request: makeReq('http://localhost/api/admin/credits', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { userId: targetUser, mode: 'lifetime', lifetime: true, reason: 'Grant VIP pass' },
+    }),
+    env,
+    corsHeaders,
+  })).json();
+  assert.equal(setVip.user.lifetime, true);
+
+  // Now VIP user gets original bytes & download allowed!
+  const vipDl = await handleServeImage({
+    request: makeReq(`http://localhost${uploaded.photo.url}?download=true`, { headers: { 'X-User-Token': targetUser } }),
+    ctx: { waitUntil: () => {} },
+    url: new URL(`http://localhost${uploaded.photo.url}?download=true`),
+    path: uploaded.photo.url,
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    IMAGES: null,
+    origin: 'http://localhost',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(vipDl.status, 200);
+});
+
+test('SEO photo OpenGraph tags emit og:image:width/height/secure_url, base origin replaces brand logo URLs, and brand-logo.jpg exists', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  const rawHtml = fs.readFileSync(path.resolve('frontend/dist/index.html'), 'utf8');
+  assert.ok(fs.existsSync(path.resolve('frontend/src/assets/brand-logo.jpg')));
+  assert.ok(fs.existsSync(path.resolve('frontend/dist/assets/brand-logo.jpg')));
+
+  const baseSeoHtml = injectBaseSeoOrigin(rawHtml, 'https://gallery.zxaion.com');
+  assert.ok(baseSeoHtml.includes('<meta property="og:image" content="https://gallery.zxaion.com/assets/brand-logo.jpg">'));
+  assert.ok(baseSeoHtml.includes('<meta name="twitter:image" content="https://gallery.zxaion.com/assets/brand-logo.jpg">'));
+
+  const photoHtml = injectOpenGraphMetadata(
+    rawHtml,
+    { id: 'main:ANIME/test_hero.png', title: 'Test Hero', category: 'Anime', bucket: 'main', r2_key: 'ANIME/test_hero.png', width: 1440, height: 2560 },
+    'https://gallery.zxaion.com'
+  );
+  assert.ok(photoHtml.includes('<meta property="og:image:secure_url" content="https://gallery.zxaion.com/api/img/ANIME%2Ftest_hero.png">'));
+  assert.ok(photoHtml.includes('<meta property="og:image:type" content="image/png">'));
+  assert.ok(photoHtml.includes('<meta property="og:image:width" content="1440">'));
+  assert.ok(photoHtml.includes('<meta property="og:image:height" content="2560">'));
+  assert.ok(photoHtml.includes('<meta name="twitter:card" content="summary_large_image">'));
+});
+
 

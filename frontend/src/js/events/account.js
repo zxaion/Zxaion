@@ -108,6 +108,28 @@ function initAccountEvents() {
         }
     });
 
+    // Daily check-in reward
+    document.getElementById('account-checkin-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('account-checkin-btn');
+        if (btn) btn.disabled = true;
+        const res = await api.claimDailyCheckin();
+        if (!res.success) {
+            if (btn) btn.disabled = false;
+            ui.showToast(res.error || 'Daily check-in failed', 'error');
+            return;
+        }
+        if (res.alreadyClaimed) {
+            ui.showToast('You already claimed today\'s daily check-in reward.', 'info');
+        } else {
+            const bonusText = res.bonusApplied ? ' (7-Day Milestone Bonus!)' : '';
+            ui.showToast(`Daily check-in claimed: +${res.awarded || 2} Credits! Streak: ${res.streak || 1} day(s)${bonusText}`, 'success', 4500);
+        }
+        ui.renderAccountDashboard();
+        if (state.accountActiveTab === 'history') {
+            ui.loadAccountLedger();
+        }
+    });
+
     // Verify OTP
     document.getElementById('account-verify-otp-btn')?.addEventListener('click', async () => {
         const otpInput = document.getElementById('account-otp-input');
@@ -124,7 +146,10 @@ function initAccountEvents() {
         }
         if (otpInput) otpInput.value = '';
         document.getElementById('account-dev-otp-hint')?.classList.add('hidden');
-        ui.showToast('Email verified successfully!', 'success');
+        const bonusMsg = res.bonusAwarded > 0
+            ? `Email verified! +${res.bonusAwarded} Bonus Credits added to your wallet!`
+            : 'Email verified successfully!';
+        ui.showToast(bonusMsg, 'success', 4500);
         ui.renderAccountDashboard();
     });
 

@@ -2,44 +2,100 @@
          IMAGE MODAL
          ═══════════════════════════════════════════ -->
     <div id="image-modal" class="fixed inset-0 z-[100] hidden bg-black/95 backdrop-blur-sm p-4">
-        <button id="close-image-modal" class="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all duration-300 z-50 backdrop-blur-md">
-            <i class="fas fa-times"></i>
+        <button id="close-image-modal" aria-label="Close preview modal" class="absolute top-5 right-5 w-10 h-10 bg-gray-900/90 hover:bg-black text-white border border-white/25 rounded-full flex items-center justify-center transition-all duration-200 z-50 shadow-xl backdrop-blur-md cursor-pointer">
+            <i class="fas fa-times" aria-hidden="true"></i>
         </button>
 
         <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
 
-            <!-- Image Wrapper -->
-            <div class="flex-1 flex items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden" id="modal-img-wrapper">
-                <img
-                    id="modal-img"
-                    class="max-h-[70vh] lg:max-h-[80vh] max-w-full rounded-xl object-contain select-none"
-                    alt="Wallpaper preview"
-                    draggable="false"
-                    style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;">
-                <!-- Shield overlay: aktif untuk DTREASURE yang belum dibeli -->
-                <div
-                    id="modal-img-shield"
-                    class="hidden absolute inset-0 z-10"
-                    style="-webkit-tap-highlight-color:transparent;">
+            <!-- Image Wrapper + Mockup Stage -->
+            <div class="flex-1 flex flex-col items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden p-3 sm:p-5 gap-3" id="modal-img-wrapper">
+                <!-- Mockup Switcher Bar -->
+                <div id="modal-mockup-bar" class="relative z-20 inline-flex items-center gap-1 p-1 rounded-full bg-black/75 border border-white/15 backdrop-blur-md shadow-lg" role="tablist" aria-label="Wallpaper Mockup Preview">
+                    <button type="button" data-mockup-mode="original" role="tab" aria-selected="true"
+                        class="mockup-mode-btn active px-3 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer bg-amber-500 text-gray-950 flex items-center gap-1.5">
+                        <i class="fas fa-expand" aria-hidden="true"></i><span>Original</span>
+                    </button>
+                    <button type="button" data-mockup-mode="phone" role="tab" aria-selected="false"
+                        class="mockup-mode-btn px-3 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer text-gray-300 hover:text-white flex items-center gap-1.5">
+                        <i class="fas fa-mobile-screen" aria-hidden="true"></i><span>Phone</span>
+                    </button>
+                    <button type="button" data-mockup-mode="desktop" role="tab" aria-selected="false"
+                        class="mockup-mode-btn px-3 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer text-gray-300 hover:text-white flex items-center gap-1.5">
+                        <i class="fas fa-desktop" aria-hidden="true"></i><span>Desktop</span>
+                    </button>
+                </div>
+
+                <!-- Mockup Display Stage -->
+                <div id="modal-mockup-frame" class="mockup-stage-wrap flex-1 min-h-0 w-full flex flex-col items-center justify-center">
+                    <div id="modal-mockup-stage" class="mockup-stage mockup-original relative flex items-center justify-center">
+                        <img
+                            id="modal-img"
+                            class="max-h-[62vh] lg:max-h-[72vh] max-w-full rounded-xl object-contain select-none"
+                            alt="Wallpaper preview"
+                            draggable="false"
+                            style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;">
+                        <!-- Shield overlay: active for unpurchased DTREASURE -->
+                        <div
+                            id="modal-img-shield"
+                            class="hidden absolute inset-0 z-10"
+                            style="-webkit-tap-highlight-color:transparent;">
+                        </div>
+                        <!-- Phone Lockscreen Overlay Chrome -->
+                        <div id="modal-phone-chrome" class="hidden pointer-events-none absolute inset-0 z-[5] flex flex-col justify-between p-4 text-white select-none" aria-hidden="true">
+                            <div class="flex flex-col items-center pt-1">
+                                <div class="w-16 h-3.5 rounded-full bg-black/95 border border-white/10 mb-3"></div>
+                                <div class="text-[10px] font-semibold tracking-wide text-white/85 drop-shadow">Thursday, Nov 26</div>
+                                <div class="text-4xl font-black tracking-tight leading-none mt-0.5 drop-shadow-md">09:41</div>
+                            </div>
+                            <div class="flex flex-col items-center gap-2 pb-1">
+                                <div class="flex items-center justify-between w-full px-3 text-white/85 text-xs">
+                                    <span class="w-7 h-7 rounded-full bg-black/45 backdrop-blur-md flex items-center justify-center"><i class="fas fa-bolt"></i></span>
+                                    <span class="w-7 h-7 rounded-full bg-black/45 backdrop-blur-md flex items-center justify-center"><i class="fas fa-camera"></i></span>
+                                </div>
+                                <div class="w-20 h-1 rounded-full bg-white/80"></div>
+                            </div>
+                        </div>
+                        <!-- Desktop Glass Dock Chrome -->
+                        <div id="modal-desktop-chrome" class="hidden pointer-events-none absolute inset-x-0 bottom-2 z-[5] flex justify-center px-3 select-none" aria-hidden="true">
+                            <div class="px-3 py-1.5 rounded-2xl bg-black/55 backdrop-blur-md border border-white/15 flex items-center gap-2.5 shadow-xl">
+                                <span class="w-4 h-4 rounded-md bg-sky-400/90 inline-block"></span>
+                                <span class="w-4 h-4 rounded-md bg-amber-400/90 inline-block"></span>
+                                <span class="w-4 h-4 rounded-md bg-emerald-400/90 inline-block"></span>
+                                <span class="w-4 h-4 rounded-md bg-violet-400/90 inline-block"></span>
+                                <span class="w-4 h-4 rounded-md bg-rose-400/90 inline-block"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="modal-desktop-stand" class="hidden mockup-desktop-stand pointer-events-none" aria-hidden="true">
+                        <div class="mockup-stand-neck"></div>
+                        <div class="mockup-stand-base"></div>
+                    </div>
                 </div>
             </div>
 
             <!-- Image Details Panel -->
             <div class="lg:w-96 w-full bg-white rounded-2xl p-6 overflow-hidden flex flex-col shadow-2xl dark:bg-gray-800 dark:border dark:border-gray-700">
                 <div class="border-b pb-4 dark:border-gray-700">
-                    <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center justify-between gap-2 pr-10 mb-3">
                         <h3 id="modal-title" class="font-bold text-lg dark:text-white line-clamp-2"></h3>
-                        <span id="modal-category" class="text-xs px-3 py-1 bg-gray-100 rounded-full text-gray-600 dark:bg-gray-700 dark:text-gray-400"></span>
+                        <span id="modal-category" class="shrink-0 text-xs px-3 py-1 bg-gray-100 rounded-full text-gray-600 dark:bg-gray-700 dark:text-gray-400"></span>
                     </div>
-                    <div class="flex items-center gap-6 text-sm text-gray-600 dark:text-gray-300">
-                        <div class="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-full dark:bg-green-900/30">
-                            <i class="fas fa-eye text-green-500"></i>
-                            <span id="modal-view-count" class="font-semibold">0</span>
+                    <div class="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                        <div class="flex items-center gap-1.5 bg-green-50 px-2.5 py-1.5 rounded-full dark:bg-green-900/30">
+                            <i class="fas fa-eye text-green-500 text-xs"></i>
+                            <span id="modal-view-count" class="font-semibold text-xs">0</span>
                         </div>
-                        <div class="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-full dark:bg-purple-900/30">
-                            <i class="fas fa-download text-purple-500"></i>
-                            <span id="modal-download-count" class="font-semibold">0</span>
+                        <div class="flex items-center gap-1.5 bg-purple-50 px-2.5 py-1.5 rounded-full dark:bg-purple-900/30">
+                            <i class="fas fa-download text-purple-500 text-xs"></i>
+                            <span id="modal-download-count" class="font-semibold text-xs">0</span>
                         </div>
+                        <button type="button" id="modal-love-btn" aria-pressed="false" aria-label="Love wallpaper"
+                            class="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-full dark:bg-rose-900/30 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-300 transition-all cursor-pointer active:scale-95">
+                            <i id="modal-love-icon" class="far fa-heart text-rose-500 text-xs" aria-hidden="true"></i>
+                            <span id="modal-love-count" class="font-bold text-xs">0</span>
+                        </button>
+                        <span id="modal-dimensions-badge" class="hidden ml-auto text-[11px] font-mono font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"></span>
                     </div>
                 </div>
 
@@ -140,6 +196,18 @@
                             <i class="fas fa-circle-info text-[10px] text-amber-500 shrink-0" aria-hidden="true"></i>
                             <span id="resolution-desc-text">Full 4K Ultra HD original file with no extra compression.</span>
                         </p>
+                    </div>
+
+                    <!-- Related Wallpapers Recommendations -->
+                    <div id="modal-related-section" class="hidden space-y-2.5 pt-1">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                                <i class="fas fa-wand-magic-sparkles text-amber-500" aria-hidden="true"></i>
+                                <span>Related Wallpapers</span>
+                            </h4>
+                            <span class="text-[10px] text-gray-400">Tap to preview</span>
+                        </div>
+                        <div id="modal-related-grid" class="grid grid-cols-3 gap-2"></div>
                     </div>
                 </div>
 

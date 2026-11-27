@@ -65,12 +65,12 @@ window.animeAlbumThumbnails = {
     'ORIGINAL':             `${API_BASE}/api/img/HEADER/Original.jpg`
 };
 
-// Custom logo dari R2
+// Custom logo utama (assets/brand-logo.jpg dengan fallback R2)
 window.customLogo = {
     enabled:     true,
-    url:         `${API_BASE}/api/img/HEADER/Logo.png`,
-    alt:         'ZXAION VERSE Logo',
-    fallbackUrl: ''
+    url:         '/assets/brand-logo.jpg',
+    alt:         'ZXAION GALLERY Logo',
+    fallbackUrl: `${API_BASE}/api/img/HEADER/Logo.png`
 };
 
 // Custom icon overrides (crypto donation logos now use built-in crisp inline SVGs)

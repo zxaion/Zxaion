@@ -125,4 +125,102 @@ function initAdminEvents() {
             ui.showToast('Invalid JSON snapshot file format.', 'error');
         }
     });
+
+    // 11. Admin Credit & VIP Adjustment Modal
+    document.getElementById('admin-users-table-body')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-admin-edit-user]');
+        if (btn && btn.dataset.adminEditUser) {
+            ui.openAdminCreditModal?.(btn.dataset.adminEditUser);
+        }
+    });
+
+    document.getElementById('admin-credit-close')?.addEventListener('click', () => ui.closeAdminCreditModal?.());
+    document.getElementById('admin-credit-cancel')?.addEventListener('click', () => ui.closeAdminCreditModal?.());
+    document.getElementById('admin-credit-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'admin-credit-modal') ui.closeAdminCreditModal?.();
+    });
+    document.getElementById('admin-credit-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        ui.submitAdminCreditAdjustment?.();
+    });
+
+    // 12. Admin Direct Media Upload Form
+    const uploadBucketSelect = document.getElementById('admin-upload-bucket');
+    const uploadMainFields = document.getElementById('admin-upload-main-fields');
+    const uploadDtNote = document.getElementById('admin-upload-dt-note');
+    const uploadFileInput = document.getElementById('admin-upload-file');
+    const uploadPreview = document.getElementById('admin-upload-preview');
+    const uploadPlaceholder = document.getElementById('admin-upload-placeholder');
+    const uploadDims = document.getElementById('admin-upload-dims');
+    let adminUploadDataUrl = '';
+
+    const syncUploadBucketFields = () => {
+        const b = uploadBucketSelect?.value || 'main';
+        uploadMainFields?.classList.toggle('hidden', b !== 'main');
+        uploadDtNote?.classList.toggle('hidden', b !== 'dtreasure');
+    };
+    uploadBucketSelect?.addEventListener('change', syncUploadBucketFields);
+    syncUploadBucketFields();
+
+    uploadFileInput?.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        adminUploadDataUrl = '';
+        if (!file) return;
+        if (file.size > 8 * 1024 * 1024) {
+            ui.showToast('File size exceeds 8 MB limit.', 'warning');
+            uploadFileInput.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = typeof reader.result === 'string' ? reader.result : '';
+            if (!result.startsWith('data:image/')) {
+                ui.showToast('Unsupported image file.', 'error');
+                return;
+            }
+            adminUploadDataUrl = result;
+            if (uploadPreview) {
+                uploadPreview.onload = () => {
+                    if (uploadDims && uploadPreview.naturalWidth > 0) {
+                        uploadDims.textContent = `${file.name} · ${uploadPreview.naturalWidth} × ${uploadPreview.naturalHeight} px`;
+                    }
+                };
+                uploadPreview.src = result;
+                uploadPreview.classList.remove('hidden');
+            }
+            uploadPlaceholder?.classList.add('hidden');
+        };
+        reader.readAsDataURL(file);
+    });
+
+    document.getElementById('admin-upload-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!adminUploadDataUrl) {
+            ui.showToast('Please select an image file first.', 'warning');
+            return;
+        }
+        const bucket = uploadBucketSelect?.value || 'main';
+        const category = document.getElementById('admin-upload-category')?.value || 'ANIME';
+        const subCategory = document.getElementById('admin-upload-subcategory')?.value?.trim() || '';
+        const title = document.getElementById('admin-upload-title')?.value?.trim() || '';
+
+        const res = await ui.submitAdminMediaUpload?.({
+            bucket,
+            category,
+            subCategory,
+            title,
+            imageData: adminUploadDataUrl,
+        });
+        if (res && res.success) {
+            adminUploadDataUrl = '';
+            e.target.reset();
+            syncUploadBucketFields();
+            if (uploadPreview) {
+                uploadPreview.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                uploadPreview.classList.add('hidden');
+            }
+            uploadPlaceholder?.classList.remove('hidden');
+            if (uploadDims) uploadDims.textContent = 'Width & height are extracted automatically';
+        }
+    });
 }

@@ -33,17 +33,24 @@ export function resolveBucketTarget(rawBucketName, env) {
   return null;
 }
 
-function buildUpsertStatement(DB, meta, size, uploadedIso, syncIso) {
+export function buildUpsertStatement(DB, meta, size, uploadedIso, syncIso, extra = {}) {
+  const width = Math.max(0, Math.round(Number(extra?.width) || 0));
+  const height = Math.max(0, Math.round(Number(extra?.height) || 0));
+  const uploader = extra?.uploader ? String(extra.uploader).trim().slice(0, 80) : null;
+
   return DB.prepare(`
-    INSERT INTO images (id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO images (id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced, width, height, uploader)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       title        = excluded.title,
       category     = excluded.category,
       sub_category = excluded.sub_category,
       size         = excluded.size,
       uploaded     = excluded.uploaded,
-      last_synced  = excluded.last_synced
+      last_synced  = excluded.last_synced,
+      width        = CASE WHEN excluded.width > 0 THEN excluded.width ELSE images.width END,
+      height       = CASE WHEN excluded.height > 0 THEN excluded.height ELSE images.height END,
+      uploader     = COALESCE(NULLIF(excluded.uploader, ''), images.uploader)
   `).bind(
     meta.id,
     meta.r2_key,
@@ -53,7 +60,10 @@ function buildUpsertStatement(DB, meta, size, uploadedIso, syncIso) {
     meta.sub_category,
     Number(size) || 0,
     uploadedIso,
-    syncIso
+    syncIso,
+    width,
+    height,
+    uploader
   );
 }
 

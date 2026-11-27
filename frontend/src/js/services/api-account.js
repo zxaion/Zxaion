@@ -116,9 +116,35 @@ Object.assign(api, {
                 body: JSON.stringify({ code }),
             });
             const data = await res.json().catch(() => ({}));
-            if (res.ok && data.success && data.account) {
-                state.account = data.account;
-                ui.updateAccountBanner?.();
+            if (res.ok && data.success) {
+                if (data.account) state.account = data.account;
+                if (data.wallet) {
+                    this._applyWalletState({ requiresLogin: false, wallet: data.wallet });
+                } else {
+                    ui.updateAccountBanner?.();
+                }
+            }
+            return data;
+        } catch {
+            return { success: false, error: 'Network error' };
+        }
+    },
+
+    async claimDailyCheckin() {
+        try {
+            const res = await fetch(`${API_BASE}/api/account/checkin`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+                if (data.account) state.account = data.account;
+                if (data.wallet) {
+                    this._applyWalletState({ requiresLogin: false, wallet: data.wallet });
+                } else {
+                    ui.updateAccountBanner?.();
+                }
             }
             return data;
         } catch {

@@ -32,6 +32,8 @@ function sortPhotosList(photos, sortBy = 'latest', shuffleFn = null) {
     switch (sortBy) {
         case 'views':
             return list.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+        case 'loved':
+            return list.sort((a, b) => (b.loveCount || 0) - (a.loveCount || 0));
         case 'downloads':
             return list.sort((a, b) => (b.downloadCount || 0) - (a.downloadCount || 0));
         case 'random': {

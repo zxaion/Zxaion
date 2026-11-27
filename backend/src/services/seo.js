@@ -8,7 +8,7 @@ import { escapeHtml } from '../utils/userToken.js';
 export async function findPhotoForSeo(DB, photoId) {
   if (!DB || !photoId) return null;
   return DB.prepare(
-    'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?'
+    'SELECT id, title, category, sub_category, bucket, r2_key, width, height, uploaded FROM images WHERE id = ? OR r2_key = ?'
   ).bind(photoId, photoId).first();
 }
 
@@ -59,18 +59,27 @@ export function generateSchemaJsonLd(photo, imageUrl, canonicalUrl) {
   return JSON.stringify(schema, null, 2);
 }
 
+function inferMimeFromKey(r2Key = '') {
+  const lower = String(r2Key).toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.svg')) return 'image/svg+xml';
+  return 'image/jpeg';
+}
+
 export function injectBaseSeoOrigin(html, origin = '') {
   if (!html || typeof html !== 'string' || !origin) return html;
   const base = String(origin).replace(/\/+$/, '');
-  const logoAbs = `${base}/api/img/HEADER/Logo.png`;
+  const logoAbs = `${base}/assets/brand-logo.jpg`;
   let updated = html;
 
   updated = updated.replace(
-    /<meta\s+property=["']og:image["']\s+content=["']\/api\/img\/HEADER\/Logo\.png["'][^>]*>/i,
+    /<meta\s+property=["']og:image["']\s+content=["'](?:\/assets\/brand-logo\.jpg|\/api\/img\/HEADER\/Logo\.png)["'][^>]*>/i,
     `<meta property="og:image" content="${escapeHtml(logoAbs)}">`
   );
   updated = updated.replace(
-    /<meta\s+name=["']twitter:image["']\s+content=["']\/api\/img\/HEADER\/Logo\.png["'][^>]*>/i,
+    /<meta\s+name=["']twitter:image["']\s+content=["'](?:\/assets\/brand-logo\.jpg|\/api\/img\/HEADER\/Logo\.png)["'][^>]*>/i,
     `<meta name="twitter:image" content="${escapeHtml(logoAbs)}">`
   );
   updated = updated.replace(
@@ -107,21 +116,31 @@ export function injectOpenGraphMetadata(html, photo, origin = '') {
     updated = updated.replace(/<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${escapeHtml(description)}">`);
   }
 
+  const photoWidth = Number(photo.width) > 0 ? Math.round(Number(photo.width)) : 0;
+  const photoHeight = Number(photo.height) > 0 ? Math.round(Number(photo.height)) : 0;
+  const imageMime = inferMimeFromKey(photo.r2_key || photo.url || '');
+
   // 3. Update or inject OpenGraph meta tags
-  const ogTags = [
+  const ogTagLines = [
     `<meta property="og:type" content="article">`,
     `<meta property="og:title" content="${escapeHtml(title)}">`,
     `<meta property="og:description" content="${escapeHtml(description)}">`,
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}">`,
     `<meta property="og:image" content="${escapeHtml(imageUrl)}">`,
+    `<meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}">`,
+    `<meta property="og:image:type" content="${escapeHtml(imageMime)}">`,
+    photoWidth > 0 ? `<meta property="og:image:width" content="${photoWidth}">` : null,
+    photoHeight > 0 ? `<meta property="og:image:height" content="${photoHeight}">` : null,
     `<meta property="og:image:alt" content="${escapeHtml(photo.title || 'Wallpaper Preview')}">`,
     `<meta name="twitter:card" content="summary_large_image">`,
     `<meta name="twitter:title" content="${escapeHtml(title)}">`,
     `<meta name="twitter:description" content="${escapeHtml(description)}">`,
     `<meta name="twitter:image" content="${escapeHtml(imageUrl)}">`,
+    `<meta name="twitter:image:alt" content="${escapeHtml(photo.title || 'Wallpaper Preview')}">`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}">`,
     `<script type="application/ld+json" id="zx-schema-photo">\n${jsonLd}\n</script>`,
-  ].join('\n    ');
+  ].filter(Boolean);
+  const ogTags = ogTagLines.join('\n    ');
 
   // Replace existing og/twitter/canonical/photo-schema tags if present
   updated = updated.replace(/<meta\s+property=["']og:type["'][^>]*>/gi, '');

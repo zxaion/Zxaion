@@ -6,10 +6,12 @@ import {
   handleAdminBackupCreate,
   handleAdminBackupDownload,
   handleAdminBackupRestore,
+  handleAdminAdjustCredits,
+  handleAdminUpload,
 } from './admin.js';
 import { handlePayPalWebhook }   from './paypalWebhook.js';
-import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure, handleTrending } from './gallery.js';
-import { handleStats, handleRecordView, handleRecordDownload } from './stats.js';
+import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure, handleTrending, handleSubmitComitbase } from './gallery.js';
+import { handleStats, handleRecordView, handleRecordDownload, handleToggleReaction } from './stats.js';
 import { handleCreditBalance, handlePreparePayer, handleCreatePayPalOrder, handleCreateRecoveryCode, handleRecoverAccount, handleCreditPurchase, handleCreditSpend } from './credits.js';
 import {
   handleAutoAccount,
@@ -22,6 +24,7 @@ import {
   handleRecoverRequest,
   handleRecoverConfirm,
   handleAccountLedger,
+  handleAccountCheckin,
   handleListSessions,
   handleRevokeSession,
   handleRevokeOtherSessions,
@@ -39,6 +42,8 @@ export const routes = [
   { method: 'GET',  path: '/api/health',                 handler: handleHealth },
   { method: 'GET',  path: '/api/admin/dashboard',        handler: handleAdminDashboard },
   { method: 'POST', path: '/api/admin/rescan',           handler: handleAdminRescan },
+  { method: 'POST', path: '/api/admin/credits',          handler: handleAdminAdjustCredits },
+  { method: 'POST', path: '/api/admin/upload',           handler: handleAdminUpload },
   { method: 'GET',  path: '/api/admin/backup',           handler: handleAdminBackupList },
   { method: 'POST', path: '/api/admin/backup/snapshot',  handler: handleAdminBackupCreate },
   { method: 'GET',  path: '/api/admin/backup/download',  handler: handleAdminBackupDownload },
@@ -56,6 +61,7 @@ export const routes = [
   { method: 'POST', path: '/api/account/recover/request',         handler: handleRecoverRequest },
   { method: 'POST', path: '/api/account/recover/confirm',         handler: handleRecoverConfirm },
   { method: 'GET',  path: '/api/account/ledger',                  handler: handleAccountLedger },
+  { method: 'POST', path: '/api/account/checkin',                 handler: handleAccountCheckin },
   { method: 'GET',  path: '/api/account/sessions',                handler: handleListSessions },
   { method: 'POST', path: '/api/account/sessions/revoke',         handler: handleRevokeSession },
   { method: 'POST', path: '/api/account/sessions/revoke-others',  handler: handleRevokeOtherSessions },
@@ -65,13 +71,15 @@ export const routes = [
   { method: 'GET',  path: '/api/list',            handler: handleListMain },
   { method: 'GET',  path: '/api/anime/albums',    handler: handleAnimeAlbums },
   { method: 'GET',  path: '/api/comitbase/list',  handler: handleListComitbase },
+  { method: 'POST', path: '/api/comitbase/submit',handler: handleSubmitComitbase },
   { method: 'GET',  path: '/api/dtreasure/list',  handler: handleListDtreasure },
   { method: 'GET',  path: '/api/trending',        handler: handleTrending },
 
-  // --- Stats ---
+  // --- Stats & Reactions ---
   { method: 'GET',  pathPrefix: '/api/stats/',    handler: handleStats },
   { method: 'POST', pathPrefix: '/api/view/',     handler: handleRecordView },
   { method: 'POST', pathPrefix: '/api/download/', handler: handleRecordDownload },
+  { method: 'POST', pathPrefix: '/api/react/',    handler: handleToggleReaction },
 
   // --- Credits & Recovery ---
   { method: 'GET',  path: '/api/credits/balance',      handler: handleCreditBalance },

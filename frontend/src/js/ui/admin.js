@@ -549,7 +549,7 @@ Object.assign(ui, {
         if (filtered.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="p-8 text-center text-gray-400 font-sans">
+                    <td colspan="7" class="p-8 text-center text-gray-400 font-sans">
                         ${query ? 'No accounts match your search.' : 'No registered users yet.'}
                     </td>
                 </tr>
@@ -578,6 +578,12 @@ Object.assign(ui, {
                     <td class="p-3.5">${vipBadge}</td>
                     <td class="p-3.5">${recoveryBadge}</td>
                     <td class="p-3.5 font-sans font-semibold">${u.purchased_count || 0} ${u.purchased_count === 1 ? 'item' : 'items'}</td>
+                    <td class="p-3.5 text-right font-sans">
+                        <button type="button" data-admin-edit-user="${utils.escapeHtml(u.user_id || '')}"
+                            class="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 hover:text-gray-950 dark:text-amber-300 text-xs font-bold transition-colors cursor-pointer whitespace-nowrap">
+                            Credits / VIP
+                        </button>
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -641,5 +647,125 @@ Object.assign(ui, {
         utils.downloadBlob(blob, `zxaion_paypal_orders_${new Date().toISOString().slice(0, 10)}.csv`, 5000);
 
         this.showToast('CSV file downloaded!', 'success');
+    },
+
+    openAdminCreditModal(userId) {
+        const users = state.adminData?.users || [];
+        const user = users.find(u => u.user_id === userId) || { user_id: userId, credits: 0, lifetime: false };
+        state.adminEditTargetUser = user.user_id;
+
+        const labelEl = document.getElementById('admin-credit-target-label');
+        const modeEl = document.getElementById('admin-credit-mode');
+        const amtEl = document.getElementById('admin-credit-amount');
+        const lifeEl = document.getElementById('admin-credit-lifetime');
+        const noteEl = document.getElementById('admin-credit-note');
+
+        if (labelEl) labelEl.textContent = `${user.public_id || user.user_id} (${user.credits || 0} Cr)`;
+        if (modeEl) modeEl.value = 'add';
+        if (amtEl) amtEl.value = '10';
+        if (lifeEl) lifeEl.checked = Boolean(user.lifetime);
+        if (noteEl) noteEl.value = '';
+
+        this.setModalOpen('admin-credit-modal', true);
+    },
+
+    closeAdminCreditModal() {
+        state.adminEditTargetUser = null;
+        this.setModalOpen('admin-credit-modal', false);
+    },
+
+    async submitAdminCreditAdjustment() {
+        if (!state.adminToken || !state.adminEditTargetUser) return;
+        const mode = document.getElementById('admin-credit-mode')?.value || 'add';
+        const amount = Number(document.getElementById('admin-credit-amount')?.value || 0);
+        const lifetime = Boolean(document.getElementById('admin-credit-lifetime')?.checked);
+        const note = document.getElementById('admin-credit-note')?.value?.trim() || '';
+        const btn = document.getElementById('admin-credit-submit');
+
+        if (!Number.isFinite(amount)) {
+            this.showToast('Please enter a valid credit number.', 'warning');
+            return;
+        }
+
+        if (btn) btn.disabled = true;
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/credits`, {
+                method: 'POST',
+                headers: this._adminHeaders(state.adminToken, { 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    userId: state.adminEditTargetUser,
+                    mode,
+                    amount: Math.trunc(amount),
+                    lifetime,
+                    note,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
+            this.closeAdminCreditModal();
+            this.showToast(
+                `Updated wallet: ${data.wallet?.credits || 0} Cr${data.wallet?.lifetime ? ' (Lifetime VIP)' : ''}`,
+                'success'
+            );
+            await this.fetchAdminDashboard();
+        } catch (err) {
+            this.showToast('Credit update failed: ' + err.message, 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    },
+
+    _setAdminUploadAlert(type, message) {
+        const box = document.getElementById('admin-upload-alert');
+        if (!box) return;
+        const ok = type === 'success';
+        box.className = `p-3.5 rounded-2xl border text-xs font-semibold ${
+            ok
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                : 'bg-red-50 text-red-800 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800'
+        }`;
+        box.textContent = message;
+        box.classList.remove('hidden');
+    },
+
+    async submitAdminMediaUpload({ bucket, category, subCategory, title, imageData }) {
+        if (!state.adminToken) {
+            this.showToast('Admin authentication required.', 'warning');
+            return { success: false };
+        }
+        const btn = document.getElementById('admin-upload-submit');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Uploading to R2 &amp; D1...</span>';
+        }
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/upload`, {
+                method: 'POST',
+                headers: this._adminHeaders(state.adminToken, { 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ bucket, category, subCategory, title, imageData }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
+            const dims = data.photo?.width && data.photo?.height ? ` (${data.photo.width}×${data.photo.height})` : '';
+            const wmNote = data.watermarkedPreviewKey ? ` · Watermarked preview: ${data.watermarkedPreviewKey}` : '';
+            this._setAdminUploadAlert('success', `Uploaded "${data.photo?.title || title}" to ${bucket.toUpperCase()}${dims}${wmNote}`);
+            this.showToast('Media uploaded & indexed in D1!', 'success', 4500);
+            api.invalidateCache?.();
+            await this.fetchAdminDashboard();
+            return data;
+        } catch (err) {
+            this._setAdminUploadAlert('error', err.message || 'Upload failed.');
+            this.showToast('Upload failed: ' + err.message, 'error');
+            return { success: false, error: err.message };
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-upload" aria-hidden="true"></i><span>Upload &amp; Index Artwork</span>';
+            }
+        }
     },
 });

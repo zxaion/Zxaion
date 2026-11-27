@@ -3,7 +3,7 @@
 //   dist/style.css      ← hasil kompilasi Tailwind CSS v4 (@tailwindcss/typography) + src/css/*.css
 //   dist/script.js      ← CREDIT_PACK_DEFINITIONS + gabungan src/js/**/*.js (urutan = manifest.json)
 //   dist/quicklink.json ← salinan src/quicklink.json (divalidasi JSON)
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, cpSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -238,6 +238,11 @@ export function runFrontendBuild() {
   const quicklink = read('quicklink.json');
   JSON.parse(quicklink);
   writeFileSync(join(DIST, 'quicklink.json'), quicklink);
+
+  const assetsSrcDir = join(WEB, 'assets');
+  if (existsSync(assetsSrcDir)) {
+    cpSync(assetsSrcDir, join(DIST, 'assets'), { recursive: true });
+  }
 
   console.log('Build selesai → dist/');
   for (const f of ['index.html', 'style.css', 'script.js', 'quicklink.json']) {

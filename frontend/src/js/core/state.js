@@ -55,6 +55,11 @@ class AppState {
         this.accountActiveTab     = 'overview';
         this.accountLedgerFilter  = '';
         this.requiresLogin        = false;
+        this.carouselMode         = 'trending';
+        this.lovedPhotos          = new Set();
+        this.photoLoveCounts      = {};
+        this.currentMockupMode    = 'original';
+        this.adminEditTargetUser  = null;
     }
 
     resetPagination() {

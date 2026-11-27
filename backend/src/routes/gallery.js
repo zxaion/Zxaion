@@ -1,4 +1,5 @@
-import { ensureAutoSync } from '../services/r2Sync.js';
+import { ensureAutoSync, buildUpsertStatement } from '../services/r2Sync.js';
+import { parseImageMeta, extractImageDimensions, decodeBase64DataUrl } from '../services/imageMeta.js';
 import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
 import { jsonResponse } from '../utils/cors.js';
 
@@ -133,10 +134,14 @@ export async function handleListMain({ request, url, env, ctx, DB, corsHeaders }
       subCategory:   row.sub_category,
       url:           buildVersionedImagePath('/api/img/', row.r2_key, row),
       size:          row.size,
+      width:         Number(row.width) || 0,
+      height:        Number(row.height) || 0,
+      uploader:      row.uploader || null,
       uploaded:      row.uploaded,
       path:          row.r2_key,
       viewCount:     row.view_count     || 0,
       downloadCount: row.download_count || 0,
+      loveCount:     row.love_count     || 0,
     }));
 
     return sendCachedJson({
@@ -219,11 +224,14 @@ export async function handleListComitbase({ request, url, env, ctx, comitbaseBuc
     const photos = results.map(row => ({
       id:            row.id,
       title:         row.title,
-      uploader:      'Community',
+      uploader:      row.uploader || 'Community',
       url:           buildVersionedImagePath('/api/comitbase/img/', row.r2_key, row),
+      width:         Number(row.width) || 0,
+      height:        Number(row.height) || 0,
       uploaded:      row.uploaded,
       viewCount:     row.view_count     || 0,
       downloadCount: row.download_count || 0,
+      loveCount:     row.love_count     || 0,
     }));
 
     return sendCachedJson({
@@ -265,9 +273,12 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
       title:         row.title,
       category:      'DTREASURE',
       url:           `/api/dtreasure/img/${encodeURIComponent(row.r2_key)}`,
+      width:         Number(row.width) || 0,
+      height:        Number(row.height) || 0,
       uploaded:      row.uploaded,
       viewCount:     row.view_count     || 0,
       downloadCount: row.download_count || 0,
+      loveCount:     row.love_count     || 0,
     }));
 
     return jsonResponse(photos, 200, corsHeaders, {
@@ -281,10 +292,18 @@ export async function handleListDtreasure({ url, env, ctx, treasureBucket, DB, c
 }
 
 // ================================================================
-// ENDPOINT: Top trending images
+// ENDPOINT: Top trending / most loved / most downloaded images
 // ================================================================
 export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }) {
   const { limit } = parseGalleryQuery(url, { defaultLimit: 20, maxLimit: 50 });
+  const rawBy = String(url.searchParams.get('by') || 'trending').trim().toLowerCase();
+  const sortBy = rawBy === 'loved' || rawBy === 'downloaded' ? rawBy : 'trending';
+
+  const orderClause = sortBy === 'loved'
+    ? 'COALESCE(love_count, 0) DESC, score DESC, uploaded DESC, id DESC'
+    : sortBy === 'downloaded'
+      ? 'COALESCE(download_count, 0) DESC, score DESC, uploaded DESC, id DESC'
+      : 'score DESC, uploaded DESC, id DESC';
 
   try {
     if (request) {
@@ -293,13 +312,13 @@ export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }
     }
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
     const { results } = await DB.prepare(`
-      SELECT id, title, r2_key, bucket, category, sub_category, size, uploaded,
-             view_count, download_count,
-             (COALESCE(view_count, 0) + COALESCE(download_count, 0)) AS score
+      SELECT id, title, r2_key, bucket, category, sub_category, size, width, height, uploaded,
+             view_count, download_count, love_count,
+             (COALESCE(view_count, 0) + COALESCE(download_count, 0) + (COALESCE(love_count, 0) * 2)) AS score
       FROM images
       WHERE bucket = 'main'
         AND category != 'Header'
-      ORDER BY score DESC, uploaded DESC, id DESC
+      ORDER BY ${orderClause}
       LIMIT ?
     `).bind(limit).all();
 
@@ -309,8 +328,12 @@ export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }
       category:      row.category,
       subCategory:   row.sub_category,
       url:           buildVersionedImagePath('/api/img/', row.r2_key, row),
+      width:         Number(row.width) || 0,
+      height:        Number(row.height) || 0,
+      uploaded:      row.uploaded,
       viewCount:     row.view_count     || 0,
       downloadCount: row.download_count || 0,
+      loveCount:     row.love_count     || 0,
       score:         row.score          || 0,
     }));
 
@@ -324,5 +347,92 @@ export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }
   } catch (e) {
     console.error('/api/trending error:', e.message);
     return jsonResponse([], 200, corsHeaders);
+  }
+}
+
+// ================================================================
+// ENDPOINT: Community COMITBASE artwork upload (POST /api/comitbase/submit)
+// ================================================================
+export async function handleSubmitComitbase({ request, comitbaseBucket, DB, corsHeaders, checkRateLimit, getUserToken }) {
+  if (!comitbaseBucket || !DB) {
+    return jsonResponse({ success: false, error: 'COMITBASE storage is unavailable' }, 503, corsHeaders);
+  }
+
+  const ip = (request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || '').split(',')[0].trim()
+    || (typeof getUserToken === 'function' ? getUserToken(request) : 'anonymous');
+  if (typeof checkRateLimit === 'function' && !await checkRateLimit('comitbase_submit', ip, 10, 3600)) {
+    return jsonResponse({ success: false, error: 'Too many community submissions. Please try again later.' }, 429, corsHeaders);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ success: false, error: 'Invalid JSON request body' }, 400, corsHeaders);
+  }
+
+  const title = String(body?.title || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  const creator = String(body?.creator || body?.uploader || 'Community').trim().replace(/\s+/g, ' ').slice(0, 48) || 'Community';
+  if (title.length < 2) {
+    return jsonResponse({ success: false, error: 'Please enter an artwork title (at least 2 characters).' }, 400, corsHeaders);
+  }
+
+  const decoded = decodeBase64DataUrl(body?.imageData, { maxBytes: 5 * 1024 * 1024 });
+  if (decoded.error) {
+    return jsonResponse({ success: false, error: decoded.error }, decoded.status || 400, corsHeaders);
+  }
+  if (decoded.ext === 'svg') {
+    return jsonResponse({ success: false, error: 'Only raster images (PNG, JPEG, WebP, GIF) are allowed for COMITBASE submissions.' }, 400, corsHeaders);
+  }
+
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'artwork';
+  const r2Key = `community/${slug}_${Date.now()}.${decoded.ext}`;
+  const uploadedIso = new Date().toISOString();
+  const dims = extractImageDimensions(decoded.bytes, decoded.mimeType);
+
+  try {
+    await comitbaseBucket.put(r2Key, decoded.bytes, {
+      contentType: decoded.mimeType,
+      size: decoded.bytes.byteLength,
+      uploaded: uploadedIso,
+    });
+
+    const parsed = parseImageMeta(r2Key, 'comitbase') || {
+      id: `comitbase:${r2Key}`,
+      r2_key: r2Key,
+      bucket: 'comitbase',
+      title,
+      category: 'Community',
+      sub_category: null,
+    };
+    const meta = { ...parsed, title };
+
+    await buildUpsertStatement(DB, meta, decoded.bytes.byteLength, uploadedIso, uploadedIso, {
+      width: dims.width,
+      height: dims.height,
+      uploader: creator,
+    }).run();
+
+    const photo = {
+      id: meta.id,
+      title,
+      uploader: creator,
+      url: buildVersionedImagePath('/api/comitbase/img/', r2Key, { uploaded: uploadedIso, size: decoded.bytes.byteLength }),
+      width: dims.width,
+      height: dims.height,
+      uploaded: uploadedIso,
+      viewCount: 0,
+      downloadCount: 0,
+      loveCount: 0,
+    };
+
+    return jsonResponse({ success: true, photo }, 201, corsHeaders, { 'Cache-Control': 'no-store' });
+  } catch (err) {
+    console.error('[COMITBASE] Submit error:', err.message);
+    return jsonResponse({ success: false, error: 'Failed to store community submission' }, 500, corsHeaders);
   }
 }

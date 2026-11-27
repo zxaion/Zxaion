@@ -120,6 +120,51 @@ Object.assign(ui, {
         const ovUnlocked = document.getElementById('account-overview-unlocked');
         if (ovUnlocked) ovUnlocked.textContent = utils.formatNumber(state.purchasedImages?.size || 0);
 
+        const checkinCard = document.getElementById('account-checkin-card');
+        if (checkinCard) {
+            checkinCard.classList.toggle('hidden', Boolean(state.requiresLogin));
+            const streak = Number(acct?.checkinStreak || 0);
+            const checkedToday = Boolean(acct?.checkedInToday);
+            const streakBadge = document.getElementById('account-checkin-streak-badge');
+            const checkinStatus = document.getElementById('account-checkin-status');
+            const checkinBtn = document.getElementById('account-checkin-btn');
+            const dotsEl = document.getElementById('account-checkin-dots');
+
+            if (streakBadge) {
+                streakBadge.textContent = `${streak} Day${streak === 1 ? '' : 's'} Streak`;
+            }
+            if (checkinStatus) {
+                const mod = streak % 7;
+                const daysUntilBonus = mod === 0 && streak > 0 ? 7 : 7 - mod;
+                checkinStatus.textContent = checkedToday
+                    ? `Checked in today! Come back tomorrow (${daysUntilBonus} day${daysUntilBonus === 1 ? '' : 's'} until +7 Cr milestone).`
+                    : (mod === 6
+                        ? 'Today completes your 7-day streak! Claim +7 Bonus Credits today.'
+                        : 'Claim +2 free credits today, plus +5 extra on every 7th streak day!');
+            }
+            if (checkinBtn) {
+                checkinBtn.disabled = checkedToday || Boolean(state.requiresLogin);
+                checkinBtn.innerHTML = checkedToday
+                    ? '<i class="fas fa-check mr-1.5" aria-hidden="true"></i><span>Checked In Today</span>'
+                    : '<i class="fas fa-gift mr-1.5" aria-hidden="true"></i><span>Claim Daily +2 Cr</span>';
+            }
+            if (dotsEl) {
+                const filledCount = streak === 0 ? 0 : ((streak - 1) % 7) + 1;
+                dotsEl.innerHTML = Array.from({ length: 7 }, (_, i) => {
+                    const dayNum = i + 1;
+                    const isFilled = i < filledCount;
+                    const isMilestone = dayNum === 7;
+                    return `<div class="text-center py-1.5 rounded-lg text-[10px] font-bold border ${
+                        isFilled
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : (isMilestone
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-400/50'
+                                : 'bg-white/70 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 border-emerald-200/70 dark:border-emerald-800/50')
+                    }">${isMilestone ? 'D7 +7' : `D${dayNum}`}</div>`;
+                }).join('');
+            }
+        }
+
         const verifyCard = document.getElementById('account-verify-email-card');
         const verifyTarget = document.getElementById('account-verify-email-target');
         if (verifyCard) {

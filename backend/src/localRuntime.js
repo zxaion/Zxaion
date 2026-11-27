@@ -108,14 +108,17 @@ export function createMockR2Bucket(name, seedItems = []) {
       return { key: entry.key, size: entry.size, uploaded: entry.uploaded, httpEtag: entry.httpEtag };
     },
     async put(key, body = '', { size, uploaded, contentType } = {}) {
+      const isBinary = body instanceof Uint8Array || Buffer.isBuffer(body);
+      const bodyBytes = isBinary ? new Uint8Array(body) : null;
       const text = typeof body === 'string' ? body : '';
       objects.set(key, {
         key,
-        size: size ?? (Buffer.byteLength(text) || 245760),
+        size: size ?? (bodyBytes ? bodyBytes.byteLength : (Buffer.byteLength(text) || 245760)),
         uploaded: uploaded || new Date().toISOString(),
         httpEtag: `"${Buffer.from(key).toString('base64url').slice(0, 12)}"`,
         contentType: contentType || 'image/jpeg',
         bodyText: text || null,
+        bodyBytes,
       });
     },
     async delete(key) {
@@ -137,6 +140,7 @@ export function createMockR2Bucket(name, seedItems = []) {
             httpEtag: `"${Buffer.from(key).toString('base64url').slice(0, 12)}"`,
             contentType: 'image/svg+xml',
             bodyText: svg,
+            bodyBytes: null,
           };
         }
       }
@@ -152,14 +156,16 @@ export function createMockR2Bucket(name, seedItems = []) {
             httpEtag: `"${Buffer.from(key).toString('base64url').slice(0, 12)}"`,
             contentType: 'image/svg+xml',
             bodyText: svg,
+            bodyBytes: null,
           };
         } else {
           return null;
         }
       }
 
-      const bodyStr = entry.bodyText ?? createSvgArtwork(underlyingKey, name, { isPreview });
-      const bytes = new TextEncoder().encode(bodyStr);
+      const bytes = entry.bodyBytes
+        ? entry.bodyBytes
+        : new TextEncoder().encode(entry.bodyText ?? createSvgArtwork(underlyingKey, name, { isPreview }));
       return {
         key: entry.key,
         size: bytes.byteLength,
@@ -214,12 +220,25 @@ export function createMockD1() {
   const paymentOrders = new Map();
   const views = new Map();
   const downloads = new Map();
+  const reactions = new Map();
   const rateLimits = new Map();
   const accounts = new Map();
   const userSessions = new Map();
   const creditLedger = new Map();
   const emailVerifications = new Map();
   const backupSnapshots = new Map();
+
+  function inferArtworkDimensions(r2Key = '') {
+    let hash = 0;
+    for (let i = 0; i < r2Key.length; i++) hash = (hash * 31 + r2Key.charCodeAt(i)) >>> 0;
+    const isHeader = String(r2Key).toUpperCase().startsWith('HEADER/');
+    const ratioSlot = hash % 3;
+    return {
+      width:  isHeader ? 1200 : (ratioSlot === 1 ? 1280 : ratioSlot === 2 ? 900 : 800),
+      height: isHeader ? 420  : (ratioSlot === 1 ? 720  : ratioSlot === 2 ? 900 : 1100),
+      hash,
+    };
+  }
 
   function filterImages(q, params) {
     let bucketFilter = null;
@@ -286,8 +305,12 @@ export function createMockD1() {
 
     // --- IMAGES ---
     if (q.startsWith('INSERT INTO images')) {
-      const [id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced] = params;
+      const [id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced, rawWidth = 0, rawHeight = 0, rawUploader = null] = params;
       const existing = images.get(id);
+      const inferred = inferArtworkDimensions(r2_key || '');
+      const width = Number(rawWidth) > 0 ? Number(rawWidth) : (existing?.width > 0 ? existing.width : inferred.width);
+      const height = Number(rawHeight) > 0 ? Number(rawHeight) : (existing?.height > 0 ? existing.height : inferred.height);
+      const uploader = (rawUploader && String(rawUploader).trim()) ? String(rawUploader).trim() : (existing?.uploader || null);
       images.set(id, {
         id,
         r2_key,
@@ -298,8 +321,12 @@ export function createMockD1() {
         size,
         uploaded,
         last_synced,
-        view_count: existing?.view_count ?? Math.floor(Math.random() * 1200) + 50,
-        download_count: existing?.download_count ?? Math.floor(Math.random() * 400) + 10,
+        width,
+        height,
+        uploader,
+        view_count: existing?.view_count ?? ((inferred.hash % 1150) + 50),
+        download_count: existing?.download_count ?? ((inferred.hash % 390) + 10),
+        love_count: existing?.love_count ?? ((inferred.hash % 160) + 5),
       });
       return { meta: { changes: 1 } };
     }
@@ -385,10 +412,23 @@ export function createMockD1() {
 
     if (q.includes('AS score FROM images')) {
       const [limit] = params;
+      const sortLoved = q.includes('ORDER BY COALESCE(love_count, 0) DESC');
+      const sortDownloaded = q.includes('ORDER BY COALESCE(download_count, 0) DESC');
       const results = Array.from(images.values())
         .filter((r) => r.bucket === 'main' && r.category !== 'Header')
-        .map((r) => ({ ...r, score: (r.view_count || 0) + (r.download_count || 0) }))
-        .sort((a, b) => b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id))
+        .map((r) => ({
+          ...r,
+          score: (r.view_count || 0) + (r.download_count || 0) + ((r.love_count || 0) * 2),
+        }))
+        .sort((a, b) => {
+          if (sortLoved) {
+            return (b.love_count || 0) - (a.love_count || 0) || b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id);
+          }
+          if (sortDownloaded) {
+            return (b.download_count || 0) - (a.download_count || 0) || b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id);
+          }
+          return b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id);
+        })
         .slice(0, limit);
       return { results };
     }
@@ -398,12 +438,19 @@ export function createMockD1() {
       return { first: row && row.bucket === 'dtreasure' ? { id: row.id } : null };
     }
 
-    if (q === 'SELECT view_count, download_count FROM images WHERE id = ?') {
+    if (q === 'SELECT view_count, download_count FROM images WHERE id = ?' || q === 'SELECT view_count, download_count, love_count FROM images WHERE id = ?') {
       const row = images.get(params[0]) || null;
-      return { first: row ? { view_count: row.view_count, download_count: row.download_count } : null };
+      return {
+        first: row
+          ? { view_count: row.view_count || 0, download_count: row.download_count || 0, love_count: row.love_count || 0 }
+          : null,
+      };
     }
 
-    if (q === 'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?') {
+    if (
+      q === 'SELECT id, title, category, sub_category, bucket, r2_key FROM images WHERE id = ? OR r2_key = ?' ||
+      q === 'SELECT id, title, category, sub_category, bucket, r2_key, width, height, uploaded FROM images WHERE id = ? OR r2_key = ?'
+    ) {
       const [idParam, keyParam] = params;
       let match = images.get(idParam) || null;
       if (!match && keyParam) {
@@ -423,6 +470,9 @@ export function createMockD1() {
               sub_category: match.sub_category,
               bucket: match.bucket,
               r2_key: match.r2_key,
+              width: match.width || 0,
+              height: match.height || 0,
+              uploaded: match.uploaded || null,
             }
           : null,
       };
@@ -438,6 +488,37 @@ export function createMockD1() {
       const row = images.get(params[0]);
       if (row) row.download_count = (row.download_count || 0) + 1;
       return { meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (q === 'UPDATE images SET love_count = COALESCE(love_count, 0) + 1 WHERE id = ?') {
+      const row = images.get(params[0]);
+      if (row) row.love_count = (row.love_count || 0) + 1;
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (q === 'UPDATE images SET love_count = MAX(0, COALESCE(love_count, 0) - 1) WHERE id = ?') {
+      const row = images.get(params[0]);
+      if (row) row.love_count = Math.max(0, (row.love_count || 0) - 1);
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+
+    // --- REACTIONS ---
+    if (q === 'SELECT 1 FROM reactions WHERE photo_id = ? AND user_id = ?') {
+      const has = reactions.has(`${params[0]}::${params[1]}`);
+      return { first: has ? { 1: 1 } : null };
+    }
+
+    if (q.startsWith('INSERT OR IGNORE INTO reactions')) {
+      const key = `${params[0]}::${params[1]}`;
+      const had = reactions.has(key);
+      if (!had) reactions.set(key, params[2] || new Date().toISOString());
+      return { meta: { changes: had ? 0 : 1 } };
+    }
+
+    if (q === 'DELETE FROM reactions WHERE photo_id = ? AND user_id = ?') {
+      const key = `${params[0]}::${params[1]}`;
+      const existed = reactions.delete(key);
+      return { meta: { changes: existed ? 1 : 0 } };
     }
 
     if (q.startsWith('INSERT OR IGNORE INTO views')) {
@@ -639,6 +720,15 @@ export function createMockD1() {
       return { meta: { changes: 1 } };
     }
 
+    if (q === 'UPDATE user_credits SET credits = ?, public_id = COALESCE(public_id, ?) WHERE user_id = ?') {
+      const [credits, publicId, userId] = params;
+      const user = userCredits.get(userId);
+      if (!user) return { meta: { changes: 0 } };
+      user.credits = Number(credits) || 0;
+      user.public_id = user.public_id || publicId || null;
+      return { meta: { changes: 1 } };
+    }
+
     if (q === 'DELETE FROM user_credits WHERE user_id = ?') {
       const deleted = userCredits.delete(params[0]);
       return { meta: { changes: deleted ? 1 : 0 } };
@@ -823,6 +913,9 @@ export function createMockD1() {
         user_id,
         email: null,
         email_verified: 0,
+        verify_bonus_claimed: 0,
+        checkin_streak: 0,
+        last_checkin_date: null,
         password_hash: null,
         display_name: null,
         status: 'active',
@@ -841,11 +934,15 @@ export function createMockD1() {
         display_name, status, failed_login_attempts, locked_until,
         created_at, updated_at, last_login_at,
       ] = params;
+      const existingAcc = accounts.get(account_id);
       accounts.set(account_id, {
         account_id,
         user_id,
         email,
         email_verified,
+        verify_bonus_claimed: existingAcc?.verify_bonus_claimed ?? 0,
+        checkin_streak: existingAcc?.checkin_streak ?? 0,
+        last_checkin_date: existingAcc?.last_checkin_date ?? null,
         password_hash,
         display_name,
         status,
@@ -891,11 +988,25 @@ export function createMockD1() {
       return { meta: { changes: 1 } };
     }
 
-    if (q.startsWith('UPDATE accounts SET email_verified = 1, updated_at = ? WHERE account_id = ?')) {
+    if (
+      q.startsWith('UPDATE accounts SET email_verified = 1, updated_at = ? WHERE account_id = ?') ||
+      q.startsWith('UPDATE accounts SET email_verified = 1, verify_bonus_claimed = 1, updated_at = ? WHERE account_id = ?')
+    ) {
       const [updated_at, account_id] = params;
       const acc = accounts.get(account_id);
       if (!acc) return { meta: { changes: 0 } };
       acc.email_verified = 1;
+      if (q.includes('verify_bonus_claimed = 1')) acc.verify_bonus_claimed = 1;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('UPDATE accounts SET checkin_streak = ?, last_checkin_date = ?, updated_at = ? WHERE account_id = ?')) {
+      const [checkin_streak, last_checkin_date, updated_at, account_id] = params;
+      const acc = accounts.get(account_id);
+      if (!acc) return { meta: { changes: 0 } };
+      acc.checkin_streak = Number(checkin_streak) || 0;
+      acc.last_checkin_date = last_checkin_date;
       acc.updated_at = updated_at;
       return { meta: { changes: 1 } };
     }

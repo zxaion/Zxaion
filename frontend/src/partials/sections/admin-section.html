@@ -204,6 +204,11 @@
                         <i class="fas fa-database" aria-hidden="true"></i>
                         <span>Backup &amp; Ledger</span>
                     </button>
+
+                    <button type="button" data-tab="upload" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
+                        <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
+                        <span>Upload Media</span>
+                    </button>
                 </div>
 
                 <!-- Table Search -->
@@ -276,11 +281,12 @@
                                 <th class="p-3.5">VIP Status</th>
                                 <th class="p-3.5">Recovery Key</th>
                                 <th class="p-3.5">DTREASURE Unlocked</th>
+                                <th class="p-3.5 text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="admin-users-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300 font-mono text-xs">
                             <tr>
-                                <td colspan="6" class="p-8 text-center text-gray-400 font-sans">Loading user data...</td>
+                                <td colspan="7" class="p-8 text-center text-gray-400 font-sans">Loading user data...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -424,6 +430,141 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Tab 6: Direct Media Upload (Main / COMITBASE / DTREASURE) -->
+            <div id="admin-panel-upload" class="admin-tab-panel hidden bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-800 pb-4">
+                    <div>
+                        <h2 class="font-bold text-gray-900 dark:text-white text-base flex items-center gap-2">
+                            <i class="fas fa-cloud-arrow-up text-amber-500" aria-hidden="true"></i>
+                            <span>Direct Media Upload to R2 &amp; D1</span>
+                        </h2>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            Upload directly into Main Gallery, COMITBASE, or DTREASURE Vault with automatic dimension indexing and watermarked DTREASURE preview generation.
+                        </p>
+                    </div>
+                </div>
+
+                <div id="admin-upload-alert" class="hidden p-3.5 rounded-2xl border text-xs font-semibold"></div>
+
+                <form id="admin-upload-form" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="space-y-4">
+                        <div>
+                            <label for="admin-upload-bucket" class="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Target Bucket</label>
+                            <select id="admin-upload-bucket" class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm font-semibold text-gray-900 dark:text-white">
+                                <option value="main">Main Gallery (Zxaion_B)</option>
+                                <option value="comitbase">COMITBASE Community (ZX_BUCKET)</option>
+                                <option value="dtreasure">DTREASURE Vault (TREASURE + Auto Watermark)</option>
+                            </select>
+                        </div>
+
+                        <div id="admin-upload-main-fields" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label for="admin-upload-category" class="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Category</label>
+                                <select id="admin-upload-category" class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+                                    <option value="ANIME">ANIME</option>
+                                    <option value="FANTASY">FANTASY</option>
+                                    <option value="ABSTRACT">ABSTRACT</option>
+                                    <option value="PHOTOGRAPHY">PHOTOGRAPHY</option>
+                                    <option value="ZMEME">ZMEME</option>
+                                    <option value="OVERLAY">OVERLAY</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="admin-upload-subcategory" class="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Album / Folder (Optional)</label>
+                                <input id="admin-upload-subcategory" type="text" maxlength="60" placeholder="e.g. Solo Leveling"
+                                    class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="admin-upload-title" class="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Artwork Title</label>
+                            <input id="admin-upload-title" type="text" required minlength="2" maxlength="90" placeholder="e.g. Astral Blade 4K"
+                                class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+                        </div>
+
+                        <div id="admin-upload-dt-note" class="hidden p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                            <i class="fas fa-shield-halved mt-0.5 shrink-0" aria-hidden="true"></i>
+                            <span>DTREASURE uploads automatically generate a server-side diagonal-watermarked <code class="font-mono">_preview/</code> version for locked visitors while protecting the full-resolution master.</span>
+                        </div>
+
+                        <button type="submit" id="admin-upload-submit" class="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-extrabold text-sm shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            <i class="fas fa-upload" aria-hidden="true"></i>
+                            <span>Upload &amp; Index Artwork</span>
+                        </button>
+                    </div>
+
+                    <div>
+                        <label for="admin-upload-file" class="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Select Image File (Max 8 MB)</label>
+                        <label for="admin-upload-file" class="block cursor-pointer rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-amber-500 bg-gray-50 dark:bg-gray-800/50 p-6 text-center transition-colors min-h-[240px] flex flex-col items-center justify-center">
+                            <input id="admin-upload-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required class="sr-only">
+                            <div id="admin-upload-placeholder" class="space-y-2">
+                                <i class="fas fa-image text-3xl text-amber-500" aria-hidden="true"></i>
+                                <div class="text-sm font-bold text-gray-700 dark:text-gray-200">Click to select PNG, JPEG, WebP, or GIF</div>
+                                <div id="admin-upload-dims" class="text-xs text-gray-400">Width &amp; height are extracted automatically</div>
+                            </div>
+                            <img id="admin-upload-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Upload preview" class="hidden max-h-56 mx-auto rounded-xl object-contain">
+                        </label>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Admin User Credit & VIP Adjustment Modal -->
+        <div id="admin-credit-modal" class="fixed inset-0 z-[185] hidden items-center justify-center p-4 modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-credit-modal-title">
+            <div class="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800">
+                <div class="bg-gradient-to-r from-gray-900 to-gray-800 px-6 py-4 text-white flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] font-bold uppercase tracking-widest text-amber-400">Wallet Override</div>
+                        <h3 id="admin-credit-modal-title" class="text-lg font-black">Manage Credits &amp; VIP</h3>
+                    </div>
+                    <button type="button" id="admin-credit-close" aria-label="Close credit adjustment modal" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer">
+                        <i class="fas fa-times" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <form id="admin-credit-form" class="p-6 space-y-4">
+                    <div class="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/70 border border-gray-200 dark:border-gray-700 text-xs">
+                        <div class="text-gray-500 dark:text-gray-400">Target User</div>
+                        <div id="admin-credit-target-label" class="font-mono font-bold text-gray-900 dark:text-white truncate mt-0.5">-</div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label for="admin-credit-mode" class="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">Mode</label>
+                            <select id="admin-credit-mode" class="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white">
+                                <option value="add">Add / Deduct (+/-)</option>
+                                <option value="set">Set Exact Balance</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="admin-credit-amount" class="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">Credits</label>
+                            <input id="admin-credit-amount" type="number" step="1" required value="10"
+                                class="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm font-mono font-bold text-gray-900 dark:text-white">
+                        </div>
+                    </div>
+
+                    <label class="flex items-center gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 cursor-pointer">
+                        <input id="admin-credit-lifetime" type="checkbox" class="w-4 h-4 accent-amber-500 rounded">
+                        <span class="text-xs font-bold text-amber-900 dark:text-amber-200">Grant Lifetime VIP Access (Unlimited DTREASURE)</span>
+                    </label>
+
+                    <div>
+                        <label for="admin-credit-note" class="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">Ledger Note (Optional)</label>
+                        <input id="admin-credit-note" type="text" maxlength="100" placeholder="e.g. Manual support top-up"
+                            class="w-full px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs text-gray-900 dark:text-white">
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2 pt-2">
+                        <button type="button" id="admin-credit-cancel" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-xs font-bold text-gray-700 dark:text-gray-200 cursor-pointer">
+                            Cancel
+                        </button>
+                        <button type="submit" id="admin-credit-submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-gray-950 text-xs font-extrabold cursor-pointer">
+                            Save Adjustment
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </section>

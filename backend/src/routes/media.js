@@ -141,6 +141,9 @@ export async function handleServeImage({ request, ctx, url, path, mainBucket, co
     headers.set('Access-Control-Allow-Origin', resolveAllowedOrigin(origin));
     headers.set('Vary', isDtreasure ? 'Accept, Origin, Cookie, Authorization, X-User-Token' : 'Accept, Origin');
     headers.set('Cache-Control', cacheHeader);
+    if (isDtreasure && !authorizedDtreasure) {
+      headers.set('X-Dtreasure-Preview', usingPreviewAsset ? 'watermarked' : 'blurred');
+    }
 
     const ifNoneMatch = request.headers.get('If-None-Match');
     if (!isDtreasure && !isDownload && object.httpEtag && ifNoneMatch && ifNoneMatch === object.httpEtag) {

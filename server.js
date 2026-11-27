@@ -188,7 +188,7 @@ export function createApp(env) {
   });
 
   // Collect raw request body for API routes so the Cloudflare Worker Request adapter handles JSON/text identically
-  app.use('/api', express.raw({ type: '*/*', limit: '10mb' }), (req, res) => {
+  app.use('/api', express.raw({ type: '*/*', limit: '12mb' }), (req, res) => {
     return bridgeWorkerRequest(req, res, env);
   });
 
@@ -196,7 +196,12 @@ export function createApp(env) {
   app.get(['/', '/index.html', '/admin'], async (req, res, next) => {
     try {
       const rawHtml = readFileSync(join(DIST_DIR, 'index.html'), 'utf8');
-      const reqOrigin = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+      const rawProto = Array.isArray(req.headers['x-forwarded-proto'])
+        ? req.headers['x-forwarded-proto'][0]
+        : req.headers['x-forwarded-proto'];
+      const parsedProto = String(rawProto || req.protocol || 'http').split(',')[0].trim().toLowerCase();
+      const proto = parsedProto === 'https' || parsedProto === 'http' ? parsedProto : 'http';
+      const reqOrigin = `${proto}://${req.get('host') || 'localhost:3000'}`;
       const publicOrigin = resolvePublicOrigin(reqOrigin, env);
       const photoId = req.query.photo;
 

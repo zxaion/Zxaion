@@ -4,27 +4,43 @@
     <section id="ranking-carousel-section" class="hidden w-full bg-gradient-to-b from-gray-950 to-gray-900 py-5 px-4 border-b border-white/5">
         <div class="max-w-[1600px] mx-auto">
             <!-- Header -->
-            <div class="flex items-center justify-between mb-4 px-1">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 px-1">
                 <div class="flex items-center gap-3">
                     <div class="w-8 h-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/30 flex-shrink-0">
                         <i class="fas fa-trophy text-white text-xs"></i>
                     </div>
                     <div>
-                        <h2 class="text-white font-black text-sm md:text-base uppercase tracking-widest">🔥 Top 20 Trending</h2>
-                        <p class="text-gray-500 text-[10px] uppercase tracking-wider">Auto-updated · Most Viewed &amp; Downloaded</p>
+                        <h2 id="ranking-carousel-heading" class="text-white font-black text-sm md:text-base uppercase tracking-widest">Top 20 Leaderboard</h2>
+                        <p id="ranking-carousel-subtitle" class="text-gray-400 text-[10px] uppercase tracking-wider">Auto-updated · Most Viewed &amp; Downloaded</p>
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <button id="carousel-scroll-left" type="button"
-                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
-                        aria-label="Scroll left">
-                        <i class="fas fa-chevron-left text-xs"></i>
-                    </button>
-                    <button id="carousel-scroll-right" type="button"
-                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
-                        aria-label="Scroll right">
-                        <i class="fas fa-chevron-right text-xs"></i>
-                    </button>
+                <div class="flex items-center justify-between sm:justify-end gap-2">
+                    <div id="ranking-mode-tabs" class="inline-flex items-center gap-1 p-1 rounded-full bg-white/5 border border-white/10" role="tablist" aria-label="Leaderboard Ranking Mode">
+                        <button type="button" data-carousel-mode="trending" role="tab" aria-selected="true"
+                            class="ranking-mode-btn active px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer bg-amber-500 text-gray-950">
+                            <i class="fas fa-fire mr-1" aria-hidden="true"></i>Trending
+                        </button>
+                        <button type="button" data-carousel-mode="loved" role="tab" aria-selected="false"
+                            class="ranking-mode-btn px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer text-gray-300 hover:text-white">
+                            <i class="fas fa-heart mr-1 text-rose-400" aria-hidden="true"></i>Most Loved
+                        </button>
+                        <button type="button" data-carousel-mode="downloaded" role="tab" aria-selected="false"
+                            class="ranking-mode-btn px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer text-gray-300 hover:text-white">
+                            <i class="fas fa-download mr-1 text-sky-400" aria-hidden="true"></i>Most Downloaded
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button id="carousel-scroll-left" type="button"
+                            class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
+                            aria-label="Scroll left">
+                            <i class="fas fa-chevron-left text-xs"></i>
+                        </button>
+                        <button id="carousel-scroll-right" type="button"
+                            class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all duration-200 hover:scale-110"
+                            aria-label="Scroll right">
+                            <i class="fas fa-chevron-right text-xs"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
             <!-- Carousel Track -->

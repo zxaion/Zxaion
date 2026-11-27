@@ -4,14 +4,46 @@
  */
 Object.assign(api, {
     async fetchImageStats(photoId) {
-        if (!photoId) return { views: 0, downloads: 0 };
+        if (!photoId) return { views: 0, downloads: 0, loves: 0, loved: false };
         try {
-            const res = await fetch(`${API_BASE}/api/stats/${encodeURIComponent(photoId)}`);
-            if (!res.ok) return { views: 0, downloads: 0 };
+            const headers = typeof getAuthHeaders === 'function'
+                ? getAuthHeaders()
+                : { 'X-User-Token': getOrCreateUserToken() };
+            const res = await fetch(`${API_BASE}/api/stats/${encodeURIComponent(photoId)}`, { headers });
+            if (!res.ok) return { views: 0, downloads: 0, loves: 0, loved: false };
             const data = await res.json();
-            return { views: data.views || 0, downloads: data.downloads || 0 };
+            return {
+                views: data.views || 0,
+                downloads: data.downloads || 0,
+                loves: data.loves || 0,
+                loved: Boolean(data.loved),
+            };
         } catch {
-            return { views: 0, downloads: 0 };
+            return { views: 0, downloads: 0, loves: 0, loved: false };
+        }
+    },
+
+    async toggleReaction(photoId) {
+        if (!photoId) return { success: false };
+        try {
+            const headers = typeof getAuthHeaders === 'function'
+                ? getAuthHeaders({ 'Content-Type': 'application/json' })
+                : { 'X-User-Token': getOrCreateUserToken(), 'Content-Type': 'application/json' };
+            const res = await fetch(`${API_BASE}/api/react/${encodeURIComponent(photoId)}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+            return {
+                success: true,
+                loved: Boolean(data.loved),
+                loveCount: Number(data.loves ?? data.loveCount ?? 0),
+            };
+        } catch (err) {
+            console.error('Failed to toggle reaction:', err);
+            return { success: false, error: 'Network error' };
         }
     },
 
@@ -45,9 +77,10 @@ Object.assign(api, {
         }
     },
 
-    async fetchTrendingImages(limit = 20) {
+    async fetchTrendingImages(limit = 20, by = 'trending') {
+        const mode = by === 'loved' || by === 'downloaded' ? by : 'trending';
         try {
-            const res  = await fetch(`${API_BASE}/api/trending?limit=${limit}`);
+            const res = await fetch(`${API_BASE}/api/trending?limit=${limit}&by=${encodeURIComponent(mode)}`);
             if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
             const data = await res.json();
             return Array.isArray(data) ? data : [];
@@ -55,7 +88,11 @@ Object.assign(api, {
             console.error('Error fetching trending images:', e);
             return state.allPhotos
                 .map(p => ({ ...p, score: (p.viewCount || 0) + (p.downloadCount || 0) }))
-                .sort((a, b) => b.score - a.score)
+                .sort((a, b) => {
+                    if (mode === 'loved') return (b.loveCount || 0) - (a.loveCount || 0);
+                    if (mode === 'downloaded') return (b.downloadCount || 0) - (a.downloadCount || 0);
+                    return b.score - a.score;
+                })
                 .slice(0, limit);
         }
     },

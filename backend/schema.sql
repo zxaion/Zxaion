@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS images (
   uploaded       TEXT,
   last_synced    TEXT,
   view_count     INTEGER DEFAULT 0,
-  download_count INTEGER DEFAULT 0
+  download_count INTEGER DEFAULT 0,
+  love_count     INTEGER DEFAULT 0,
+  width          INTEGER DEFAULT 0,
+  height         INTEGER DEFAULT 0,
+  uploader       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_images_bucket_cat_uploaded
@@ -22,6 +26,9 @@ CREATE INDEX IF NOT EXISTS idx_images_bucket_subcat
 
 CREATE INDEX IF NOT EXISTS idx_images_bucket_trending
   ON images (bucket, category, view_count DESC, download_count DESC, uploaded DESC);
+
+CREATE INDEX IF NOT EXISTS idx_images_bucket_loved
+  ON images (bucket, love_count DESC, uploaded DESC);
 
 CREATE TABLE IF NOT EXISTS user_credits (
   user_id       TEXT PRIMARY KEY,
@@ -77,6 +84,16 @@ CREATE TABLE IF NOT EXISTS downloads (
   PRIMARY KEY (photo_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS reactions (
+  photo_id   TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (photo_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reactions_user_id
+  ON reactions (user_id);
+
 CREATE TABLE IF NOT EXISTS rate_limits (
   id         TEXT PRIMARY KEY,
   count      INTEGER NOT NULL DEFAULT 1,
@@ -95,6 +112,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   user_id               TEXT NOT NULL UNIQUE,
   email                 TEXT UNIQUE,
   email_verified        INTEGER NOT NULL DEFAULT 0,
+  verify_bonus_claimed  INTEGER NOT NULL DEFAULT 0,
+  checkin_streak        INTEGER NOT NULL DEFAULT 0,
+  last_checkin_date     TEXT,
   password_hash         TEXT,
   display_name          TEXT,
   status                TEXT NOT NULL DEFAULT 'active',
