@@ -2,6 +2,8 @@ import { PACK_PRICES, PACKS } from '../config/packs.js';
 import { generateRecoveryCode, sha256Hex, derivePublicPayerRef, maskTokenForLog } from '../utils/userToken.js';
 import { appendCreditLedgerStatement, ensureAutoAccount, resolveSessionAuth } from '../services/accountAuth.js';
 import { claimPayPalOrderProcessing, markPayPalOrderFailed, settleClaimedPayPalOrder } from '../services/paypal.js';
+import { issueDtreasureDownloadToken } from '../services/downloadToken.js';
+import { isUserAuthorizedForDtreasure } from './media.js';
 import { jsonResponse } from '../utils/cors.js';
 
 const STALE_PROCESSING_MS = 5 * 60 * 1000;
@@ -488,7 +490,7 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 // ================================================================
 // ENDPOINT: Spend credits
 // ================================================================
-export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
+export async function handleCreditSpend({ request, env = {}, DB, corsHeaders, getUserToken, checkRateLimit }) {
   const auth = await resolveSessionAuth({ request, DB, getUserToken });
   const userId = auth.authenticated ? auth.userId : 'anonymous';
 
@@ -527,11 +529,14 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
       const user = await DB.prepare(
         'SELECT credits FROM user_credits WHERE user_id = ?'
       ).bind(userId).first();
+      const issued = await issueDtreasureDownloadToken({ env, photoId, userId });
       return jsonResponse({
         success:      true,
         newBalance:   user?.credits || 0,
         purchased:    true,
         alreadyOwned: true,
+        downloadToken: issued.token,
+        downloadTokenExpiresAt: issued.expiresAt,
       }, 200, corsHeaders);
     }
 
@@ -569,10 +574,13 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
           description: `Unlocked DTREASURE item via Lifetime Pass (${photoId})`,
         }).run();
       }
+      const issued = await issueDtreasureDownloadToken({ env, photoId, userId });
       return jsonResponse({
         success:    true,
         newBalance: userRecord.credits || 0,
         purchased:  true,
+        downloadToken: issued.token,
+        downloadTokenExpiresAt: issued.expiresAt,
       }, 200, corsHeaders);
     }
 
@@ -594,11 +602,14 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
       const user = await DB.prepare(
         'SELECT credits FROM user_credits WHERE user_id = ?'
       ).bind(userId).first();
+      const issued = await issueDtreasureDownloadToken({ env, photoId, userId });
       return jsonResponse({
         success:      true,
         newBalance:   user?.credits || 0,
         purchased:    true,
         alreadyOwned: true,
+        downloadToken: issued.token,
+        downloadTokenExpiresAt: issued.expiresAt,
       }, 200, corsHeaders);
     }
 
@@ -631,14 +642,84 @@ export async function handleCreditSpend({ request, DB, corsHeaders, getUserToken
       'SELECT credits FROM user_credits WHERE user_id = ?'
     ).bind(userId).first();
 
+    const issued = await issueDtreasureDownloadToken({ env, photoId, userId });
+
     return jsonResponse({
       success:    true,
       newBalance: newUser?.credits || 0,
       purchased:  true,
+      downloadToken: issued.token,
+      downloadTokenExpiresAt: issued.expiresAt,
     }, 200, corsHeaders);
 
   } catch (e) {
     console.error('Spend credit error:', e.message);
     return jsonResponse({ success: false, error: 'Database error' }, 500, corsHeaders);
+  }
+}
+
+// ================================================================
+// ENDPOINT: Issue verified short-lived download token for owned DTREASURE asset
+// POST /api/dtreasure/download-token
+// ================================================================
+export async function handleDtreasureDownloadToken({ request, env = {}, DB, corsHeaders, getUserToken, checkRateLimit }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  const userId = auth.authenticated ? auth.userId : 'anonymous';
+
+  if (!userId || userId === 'anonymous') {
+    return requireAuthError(auth, {
+      login: 'Please sign in to your account to download DTREASURE originals',
+      unauth: 'Authentication required',
+    }, corsHeaders);
+  }
+
+  if (typeof checkRateLimit === 'function') {
+    const ip = request.headers.get('CF-Connecting-IP') || userId;
+    if (!await checkRateLimit('dtreasure_dl_token', ip, 120, 3600)) {
+      return jsonResponse({ success: false, error: 'Too many download token requests' }, 429, corsHeaders);
+    }
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  }
+
+  const rawPhotoId = String(body?.photoId || '').trim();
+  const rawKey = String(body?.key || rawPhotoId.replace(/^dtreasure:/, '')).trim();
+  if (!rawKey || rawKey.includes('..') || rawKey.includes('\0') || rawKey.startsWith('/')) {
+    return jsonResponse({ success: false, error: 'Invalid DTREASURE asset identifier' }, 400, corsHeaders);
+  }
+
+  const normalizedPhotoId = rawPhotoId.startsWith('dtreasure:') ? rawPhotoId : `dtreasure:${rawKey}`;
+
+  try {
+    const authorized = await isUserAuthorizedForDtreasure(DB, userId, rawKey);
+    if (!authorized) {
+      return jsonResponse({
+        success: false,
+        error: 'Unlock this DTREASURE edition with credits or Lifetime Pass first.',
+      }, 403, corsHeaders);
+    }
+
+    const issued = await issueDtreasureDownloadToken({
+      env,
+      photoId: normalizedPhotoId,
+      key: rawKey,
+      userId,
+    });
+
+    return jsonResponse({
+      success: true,
+      photoId: normalizedPhotoId,
+      downloadToken: issued.token,
+      expiresAt: issued.expiresAt,
+      downloadUrl: `/api/dtreasure/img/${encodeURIComponent(rawKey)}?download=true&dt_token=${encodeURIComponent(issued.token)}`,
+    }, 200, corsHeaders, { 'Cache-Control': 'no-store' });
+  } catch (e) {
+    console.error('/api/dtreasure/download-token error:', e.message);
+    return jsonResponse({ success: false, error: 'Failed to generate download token' }, 500, corsHeaders);
   }
 }

@@ -57,7 +57,17 @@ class AppState {
         this.requiresLogin        = false;
         this.carouselMode         = 'trending';
         this.lovedPhotos          = new Set();
+        this.firedPhotos          = new Set();
         this.photoLoveCounts      = {};
+        this.photoFireCounts      = {};
+        this.dtreasureDownloadTokens = {};
+        this.comitbaseCreators    = [];
+        this.comitbaseCreatorsLoaded = false;
+        this.comitbaseCreatorsError  = false;
+        this.comitbaseCreatorSearch  = '';
+        this.currentComitbaseCreatorSlug = null;
+        this.currentComitbaseCreator     = null;
+        this.myCreatorProfile            = null;
         this.currentMockupMode    = 'original';
         this.adminEditTargetUser  = null;
     }
@@ -99,6 +109,7 @@ const viewState = {
         return {
             category,
             animeAlbum:    category === 'Anime' && st?.currentAnimeAlbum ? String(st.currentAnimeAlbum) : null,
+            creatorSlug:   category === 'COMITBASE' && st?.currentComitbaseCreatorSlug ? String(st.currentComitbaseCreatorSlug) : null,
             dtreasureTab:  st?.dtreasureTab === 'library' ? 'library' : 'all',
             page:          this.normalizePositiveInt(st?.currentPage, 1),
             comitbasePage: this.normalizePositiveInt(st?.currentComitbasePage, 1),
@@ -131,6 +142,11 @@ const viewState = {
             ? (urlAlbum ? urlAlbum.trim() : (!hasUrlCat && saved?.category === 'Anime' && saved?.animeAlbum ? String(saved.animeAlbum) : null))
             : null;
 
+        const urlCreator = params.get('creator');
+        const creatorSlug = category === 'COMITBASE'
+            ? (urlCreator ? urlCreator.trim().toLowerCase() : (!hasUrlCat && saved?.category === 'COMITBASE' && saved?.creatorSlug ? String(saved.creatorSlug).trim().toLowerCase() : null))
+            : null;
+
         const urlTab = params.get('tab');
         const dtreasureTab = urlTab
             ? (urlTab === 'library' ? 'library' : 'all')
@@ -154,6 +170,7 @@ const viewState = {
         return {
             category,
             animeAlbum: animeAlbum || null,
+            creatorSlug: creatorSlug || null,
             dtreasureTab,
             page,
             comitbasePage,
@@ -167,6 +184,7 @@ const viewState = {
         params.delete('cat');
         params.delete('category');
         params.delete('album');
+        params.delete('creator');
         params.delete('tab');
         params.delete('page');
         params.delete('ratio');
@@ -177,6 +195,9 @@ const viewState = {
         }
         if (category === 'Anime' && view?.animeAlbum) {
             params.set('album', view.animeAlbum);
+        }
+        if (category === 'COMITBASE' && view?.creatorSlug) {
+            params.set('creator', view.creatorSlug);
         }
         if (category === 'DTREASURE' && view?.dtreasureTab === 'library') {
             params.set('tab', 'library');

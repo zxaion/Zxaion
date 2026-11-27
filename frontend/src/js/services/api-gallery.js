@@ -243,6 +243,7 @@ const api = {
         this.imageCache.totalComitbase = 0;
         this.imageCache.totalDtreasure = 0;
         this.imageCache.timestamp      = 0;
+        state.comitbaseCreatorsLoaded  = false;
         if (typeof utils !== 'undefined' && typeof utils.clearAuthenticatedImageCache === 'function') {
             utils.clearAuthenticatedImageCache();
         }
@@ -309,16 +310,103 @@ const api = {
         }
     },
 
-    async submitComitbaseArtwork({ title, creator, imageData }) {
+    _getComitAuthHeaders(extra = {}) {
+        return typeof getAuthHeaders === 'function'
+            ? getAuthHeaders(extra)
+            : { 'X-User-Token': getOrCreateUserToken(), ...extra };
+    },
+
+    async fetchComitbaseCreators(query = '') {
         try {
-            const headers = typeof getAuthHeaders === 'function'
-                ? getAuthHeaders({ 'Content-Type': 'application/json' })
-                : { 'X-User-Token': getOrCreateUserToken(), 'Content-Type': 'application/json' };
-            const res = await fetch(`${API_BASE}/api/comitbase/submit`, {
+            state.comitbaseCreatorsError = false;
+            const q = String(query || '').trim();
+            const qs = q ? `?q=${encodeURIComponent(q)}` : '';
+            const res = await fetch(`${API_BASE}/api/comitbase/creators${qs}`, {
+                credentials: 'same-origin',
+                headers: this._getComitAuthHeaders(),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const list = Array.isArray(data.creators) ? data.creators : [];
+            if (!q) {
+                state.comitbaseCreators = list;
+                state.comitbaseCreatorsLoaded = true;
+            }
+            return { success: true, creators: list };
+        } catch (e) {
+            console.error('fetchComitbaseCreators error:', e);
+            state.comitbaseCreatorsError = true;
+            return { success: false, creators: [] };
+        }
+    },
+
+    async fetchMyCreatorProfile() {
+        try {
+            const res = await fetch(`${API_BASE}/api/comitbase/creators/me`, {
+                credentials: 'same-origin',
+                headers: this._getComitAuthHeaders(),
+            });
+            if (!res.ok) return null;
+            const data = await res.json().catch(() => ({}));
+            state.myCreatorProfile = data.creator || null;
+            return state.myCreatorProfile;
+        } catch {
+            return null;
+        }
+    },
+
+    async applyComitbaseCreator({ profileName, description, socialLinks }) {
+        try {
+            const res = await fetch(`${API_BASE}/api/comitbase/creators/apply`, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers,
-                body: JSON.stringify({ title, creator, imageData }),
+                headers: this._getComitAuthHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ profileName, description, socialLinks }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || `Application failed (HTTP ${res.status})` };
+            }
+            state.myCreatorProfile = data.creator || state.myCreatorProfile;
+            return data;
+        } catch (e) {
+            console.error('applyComitbaseCreator error:', e);
+            return { success: false, error: 'Network error while submitting creator application.' };
+        }
+    },
+
+    async fetchComitbaseCreatorProfile(slug) {
+        try {
+            const cleanSlug = String(slug || '').trim().toLowerCase();
+            if (!cleanSlug) return { success: false, error: 'Invalid creator slug' };
+            const res = await fetch(`${API_BASE}/api/comitbase/creators/${encodeURIComponent(cleanSlug)}`, {
+                credentials: 'same-origin',
+                headers: this._getComitAuthHeaders(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || `Creator not found (HTTP ${res.status})` };
+            }
+            return {
+                success: true,
+                isOwner: Boolean(data.isOwner),
+                creator: data.creator,
+                photos: Array.isArray(data.photos) ? data.photos : [],
+            };
+        } catch (e) {
+            console.error('fetchComitbaseCreatorProfile error:', e);
+            return { success: false, error: 'Network error while loading creator profile.' };
+        }
+    },
+
+    async uploadToCreatorProfile(slug, { title, imageData }) {
+        try {
+            const cleanSlug = String(slug || '').trim().toLowerCase();
+            const res = await fetch(`${API_BASE}/api/comitbase/creators/${encodeURIComponent(cleanSlug)}/upload`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: this._getComitAuthHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ title, imageData }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) {
@@ -328,13 +416,34 @@ const api = {
                 const existing = Array.isArray(state.comitbasePhotos) ? state.comitbasePhotos : [];
                 state.comitbasePhotos = [data.photo, ...existing.filter(p => p.id !== data.photo.id)];
                 this.imageCache.comitbase = state.comitbasePhotos;
-                this.imageCache.totalComitbase = state.comitbasePhotos.length;
                 ui.invalidateComitbaseSortCache?.();
             }
             return data;
         } catch (e) {
-            console.error('submitComitbaseArtwork error:', e);
+            console.error('uploadToCreatorProfile error:', e);
             return { success: false, error: 'Network error while uploading artwork.' };
+        }
+    },
+
+    async deleteCreatorArtwork(slug, photoId) {
+        try {
+            const cleanSlug = String(slug || '').trim().toLowerCase();
+            const res = await fetch(`${API_BASE}/api/comitbase/creators/${encodeURIComponent(cleanSlug)}/images/${encodeURIComponent(photoId)}`, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: this._getComitAuthHeaders(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                return { success: false, error: data.error || `Delete failed (HTTP ${res.status})` };
+            }
+            state.comitbasePhotos = (state.comitbasePhotos || []).filter(p => p.id !== photoId);
+            this.imageCache.comitbase = state.comitbasePhotos;
+            ui.invalidateComitbaseSortCache?.();
+            return data;
+        } catch (e) {
+            console.error('deleteCreatorArtwork error:', e);
+            return { success: false, error: 'Network error while deleting artwork.' };
         }
     },
 

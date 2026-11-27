@@ -14,7 +14,7 @@ export function buildVerificationEmailContent({ purpose, code, accountId, expire
     ? `Use this one-time code to reset the password and recover your ZXAION VERSE Virtual Account (${accountId}).`
     : `Use this one-time code to verify your email address for Virtual Account ${accountId}.`;
 
-  const text = `${heading}\n\n${lead}\n\nVerification Code: ${code}\nExpires in: ${expiresMinutes} minutes.\n\nIf you did not request this, you can safely ignore this message.`;
+  const text = `${heading}\n\n${lead}\n\nVerification Code: ${code}\nExpires in: ${expiresMinutes} minutes.\n\nSupport: zvizualscl@gmail.com | Official: zxaionart@gmail.com\nIf you did not request this, you can safely ignore this message.`;
 
   const html = `<!doctype html>
 <html>
@@ -27,7 +27,8 @@ export function buildVerificationEmailContent({ purpose, code, accountId, expire
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:#a1a1aa;margin-bottom:6px;">One-Time Verification Code</div>
       <div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;font-weight:800;letter-spacing:0.24em;color:#fbbf24;">${escapeHtml(code)}</div>
     </div>
-    <p style="margin:0;font-size:12px;color:#71717a;">Account ID: <strong style="color:#e4e4e7;">${escapeHtml(accountId)}</strong> &bull; Expires in ${expiresMinutes} minutes.</p>
+    <p style="margin:0 0 10px;font-size:12px;color:#71717a;">Account ID: <strong style="color:#e4e4e7;">${escapeHtml(accountId)}</strong> &bull; Expires in ${expiresMinutes} minutes.</p>
+    <p style="margin:0;font-size:11px;color:#71717a;">Need help? Contact support at <a href="mailto:zvizualscl@gmail.com" style="color:#fbbf24;text-decoration:none;">zvizualscl@gmail.com</a> &bull; General inquiries: <a href="mailto:zxaionart@gmail.com" style="color:#a1a1aa;text-decoration:none;">zxaionart@gmail.com</a></p>
   </div>
 </body>
 </html>`;
@@ -40,7 +41,7 @@ export async function dispatchTransactionalEmail(env, { to, purpose, code, accou
 
   // 1. Cloudflare Email Workers binding (if configured)
   if (env?.SEND_EMAIL && typeof env.SEND_EMAIL.send === 'function') {
-    const from = env.EMAIL_FROM || 'noreply@zxaionverse.com';
+    const from = env.EMAIL_FROM || 'zxaionart@gmail.com';
     try {
       await env.SEND_EMAIL.send({
         from,
@@ -60,7 +61,7 @@ export async function dispatchTransactionalEmail(env, { to, purpose, code, accou
 
   // 2. Resend HTTPS API (Cloudflare Worker Secret: RESEND_API_KEY + EMAIL_FROM)
   const apiKey = env?.RESEND_API_KEY || (typeof process !== 'undefined' ? process.env?.RESEND_API_KEY : '');
-  const fromEmail = env?.EMAIL_FROM || (typeof process !== 'undefined' ? process.env?.EMAIL_FROM : '') || 'ZXAION VERSE <onboarding@resend.dev>';
+  const fromEmail = env?.EMAIL_FROM || (typeof process !== 'undefined' ? process.env?.EMAIL_FROM : '') || 'ZXAION GALLERY <zxaionart@gmail.com>';
 
   if (apiKey) {
     try {

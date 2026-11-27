@@ -127,10 +127,49 @@ Object.assign(api, {
                 }
                 return { success: false, error: err.error || 'Spend credit failed' };
             }
-            return res.json();
+            const data = await res.json();
+            if (data.downloadToken && photoId) {
+                state.dtreasureDownloadTokens[photoId] = {
+                    token: data.downloadToken,
+                    expiresAt: data.downloadTokenExpiresAt || (Date.now() + 9 * 60 * 1000),
+                };
+            }
+            return data;
         } catch (e) {
             console.error('spendCredit network error:', e);
             return { success: false, error: 'Network error. Please check your connection.' };
+        }
+    },
+
+    async requestDtreasureDownloadToken(photoId, forceRefresh = false) {
+        if (!photoId) return { success: false, error: 'Missing photo ID' };
+        const cached = state.dtreasureDownloadTokens?.[photoId];
+        if (!forceRefresh && cached?.token && Number(cached.expiresAt) > (Date.now() + 15000)) {
+            return { success: true, downloadToken: cached.token, expiresAt: cached.expiresAt };
+        }
+        try {
+            const res = await fetch(`${API_BASE}/api/dtreasure/download-token`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ photoId }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success || !data.downloadToken) {
+                if (res.status === 401 && data.requiresLogin) {
+                    state.requiresLogin = true;
+                    ui.openAccountModal?.('security');
+                }
+                return { success: false, error: data.error || `Download authorization failed (${res.status})` };
+            }
+            state.dtreasureDownloadTokens[photoId] = {
+                token: data.downloadToken,
+                expiresAt: data.expiresAt || (Date.now() + 9 * 60 * 1000),
+            };
+            return data;
+        } catch (e) {
+            console.error('requestDtreasureDownloadToken error:', e);
+            return { success: false, error: 'Network error while verifying download authorization.' };
         }
     },
 

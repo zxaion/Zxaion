@@ -13,9 +13,11 @@ CREATE TABLE IF NOT EXISTS images (
   view_count     INTEGER DEFAULT 0,
   download_count INTEGER DEFAULT 0,
   love_count     INTEGER DEFAULT 0,
+  fire_count     INTEGER DEFAULT 0,
   width          INTEGER DEFAULT 0,
   height         INTEGER DEFAULT 0,
-  uploader       TEXT
+  uploader       TEXT,
+  creator_id     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_images_bucket_cat_uploaded
@@ -29,6 +31,34 @@ CREATE INDEX IF NOT EXISTS idx_images_bucket_trending
 
 CREATE INDEX IF NOT EXISTS idx_images_bucket_loved
   ON images (bucket, love_count DESC, uploaded DESC);
+
+CREATE INDEX IF NOT EXISTS idx_images_bucket_fired
+  ON images (bucket, fire_count DESC, uploaded DESC);
+
+CREATE INDEX IF NOT EXISTS idx_images_creator_uploaded
+  ON images (creator_id, uploaded DESC);
+
+CREATE TABLE IF NOT EXISTS creator_profiles (
+  creator_id        TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL,
+  account_id        TEXT,
+  slug              TEXT NOT NULL UNIQUE,
+  profile_name      TEXT NOT NULL,
+  description       TEXT NOT NULL,
+  social_links_json TEXT NOT NULL,
+  avatar_url        TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending',
+  reviewed_note     TEXT,
+  created_at        TEXT DEFAULT (datetime('now')),
+  approved_at       TEXT,
+  updated_at        TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_creator_profiles_status
+  ON creator_profiles (status, approved_at DESC, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_creator_profiles_user
+  ON creator_profiles (user_id);
 
 CREATE TABLE IF NOT EXISTS user_credits (
   user_id       TEXT PRIMARY KEY,
@@ -85,14 +115,18 @@ CREATE TABLE IF NOT EXISTS downloads (
 );
 
 CREATE TABLE IF NOT EXISTS reactions (
-  photo_id   TEXT NOT NULL,
-  user_id    TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now')),
-  PRIMARY KEY (photo_id, user_id)
+  photo_id      TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  reaction_type TEXT NOT NULL DEFAULT 'love',
+  created_at    TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (photo_id, user_id, reaction_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_reactions_user_id
   ON reactions (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_reactions_type_created
+  ON reactions (reaction_type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS rate_limits (
   id         TEXT PRIMARY KEY,
@@ -238,3 +272,16 @@ CREATE TRIGGER IF NOT EXISTS trg_images_au AFTER UPDATE ON images BEGIN
   INSERT INTO images_fts(rowid, title, category, sub_category, r2_key)
   VALUES (new.rowid, new.title, new.category, COALESCE(new.sub_category, ''), new.r2_key);
 END;
+
+-- ================================================================
+-- Incremental SQL Migration Guide for Existing Production D1:
+--   ALTER TABLE images ADD COLUMN fire_count INTEGER DEFAULT 0;
+--   ALTER TABLE images ADD COLUMN creator_id TEXT;
+--   (Run CREATE TABLE creator_profiles + indexes above)
+--   If upgrading older reactions table without reaction_type:
+--     ALTER TABLE reactions RENAME TO reactions_old;
+--     (Create new reactions table above, then:)
+--     INSERT OR IGNORE INTO reactions (photo_id, user_id, reaction_type, created_at)
+--     SELECT photo_id, user_id, 'love', created_at FROM reactions_old;
+--     DROP TABLE reactions_old;
+-- ================================================================

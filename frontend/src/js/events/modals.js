@@ -43,6 +43,12 @@ function initModalEvents() {
         }
     });
 
+    document.getElementById('modal-fire-btn')?.addEventListener('click', () => {
+        if (state.currentPhoto) {
+            ui.togglePhotoFire?.(state.currentPhoto);
+        }
+    });
+
     document.getElementById('modal-mockup-bar')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-mockup-mode]');
         if (btn && btn.dataset.mockupMode) {

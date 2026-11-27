@@ -1,35 +1,123 @@
-        <!-- COMITBASE Section -->
-        <div id="comitbase-section" class="hidden w-full">
-            <div class="mb-6 flex justify-end">
-                <button type="button" id="comit-here-btn" class="bg-gradient-to-r from-teal-500 to-emerald-500 text-white px-6 py-3 rounded-full font-bold text-sm hover:from-teal-600 hover:to-emerald-600 transition-all duration-300 shadow-lg shadow-teal-500/25 flex items-center gap-2 hover:scale-105">
-                    <i class="fas fa-handshake"></i> COMIT HERE
-                </button>
+        <!-- COMITBASE Section (Verified Creator Profile Platform) -->
+        <div id="comitbase-section" class="hidden w-full space-y-6">
+            <!-- 1. Verified Creator Directory View -->
+            <div id="comitbase-directory-view" class="space-y-6">
+                <div class="rounded-3xl bg-gradient-to-br from-gray-950 via-gray-900 to-teal-950/90 border border-teal-500/20 p-5 sm:p-7 text-white shadow-xl">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div class="space-y-1.5 max-w-2xl">
+                            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/15 border border-teal-400/30 text-teal-300 text-[11px] font-bold uppercase tracking-widest">
+                                <i class="fas fa-certificate" aria-hidden="true"></i>
+                                <span>Verified Creator Platform</span>
+                            </div>
+                            <h2 class="text-2xl sm:text-3xl font-black tracking-tight">COMITBASE Creators</h2>
+                            <p class="text-xs sm:text-sm text-gray-300">
+                                Browse verified artist profiles, explore their curated wallpaper collections, or apply to launch your own dedicated creator space.
+                            </p>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2.5">
+                            <span id="comitbase-creator-count-badge" class="px-3.5 py-2 rounded-full bg-white/10 border border-white/15 text-xs font-bold text-teal-200">
+                                0 Verified Creators
+                            </span>
+                            <button type="button" id="comit-here-btn" class="bg-gradient-to-r from-teal-500 to-emerald-500 text-white px-5 py-2.5 rounded-full font-bold text-xs sm:text-sm hover:from-teal-600 hover:to-emerald-600 transition-all duration-300 shadow-lg shadow-teal-500/25 flex items-center gap-2 cursor-pointer">
+                                <i class="fas fa-user-plus" aria-hidden="true"></i>
+                                <span id="comit-here-btn-text">Apply as Creator</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 flex flex-col sm:flex-row sm:items-center gap-3">
+                        <div class="relative flex-1 max-w-md">
+                            <i class="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs" aria-hidden="true"></i>
+                            <input id="comitbase-creator-search" type="search" placeholder="Search verified creators by name or style..."
+                                class="w-full pl-9 pr-4 py-2.5 rounded-xl bg-black/40 border border-white/15 text-xs sm:text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-400">
+                        </div>
+                        <div id="comitbase-my-status-banner" class="hidden flex-1 text-xs px-3.5 py-2.5 rounded-xl border"></div>
+                    </div>
+                </div>
+
+                <div id="comitbase-creators-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
             </div>
-            <div id="comitbase-gallery" class="masonry-layout"></div>
-            <div id="comitbase-pagination" class="hidden mt-8 sm:mt-10 text-center relative z-[1]">
-                <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-                    <button id="comitbase-prev" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-50 transition-all duration-300 shadow-sm cursor-pointer dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
-                        <i class="fas fa-chevron-left"></i> <span>Previous</span>
+
+            <!-- 2. Dedicated Creator Profile View -->
+            <div id="comitbase-profile-view" class="hidden space-y-6">
+                <div class="flex items-center justify-between gap-3">
+                    <button type="button" id="comitbase-back-creators-btn"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs sm:text-sm font-bold text-gray-800 dark:text-gray-100 hover:border-teal-500 transition-all shadow-sm cursor-pointer">
+                        <i class="fas fa-arrow-left text-teal-500" aria-hidden="true"></i>
+                        <span>All Verified Creators</span>
                     </button>
-                    <span id="comitbase-page-info" class="inline-flex items-center justify-center whitespace-nowrap text-xs sm:text-sm font-semibold text-gray-700 px-3 py-2 sm:px-4 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Page 1 of 1</span>
-                    <button id="comitbase-next" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-50 transition-all duration-300 shadow-sm cursor-pointer dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
-                        <span>Next</span> <i class="fas fa-chevron-right"></i>
-                    </button>
-                    <button type="button" data-switch-mode="infinite" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
-                        <i class="fas fa-infinity"></i> <span>Infinite</span>
+                    <button type="button" id="comitbase-profile-share-btn"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-xs font-bold text-teal-700 dark:text-teal-300 hover:bg-teal-100 transition-all cursor-pointer">
+                        <i class="fas fa-share-nodes" aria-hidden="true"></i>
+                        <span>Copy Profile Link</span>
                     </button>
                 </div>
-            </div>
-            <div id="comitbase-load-more" class="hidden mt-8 sm:mt-10 text-center relative z-[1]">
-                <div id="comitbase-infinite-sentinel" class="h-1 w-full"></div>
-                <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-                    <span id="comitbase-loaded-info" class="inline-flex items-center justify-center whitespace-nowrap text-xs sm:text-sm font-semibold text-gray-600 px-3.5 py-2 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Showing 0 of 0</span>
-                    <button id="comitbase-load-more-btn" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold bg-teal-600 text-white rounded-full hover:bg-teal-700 transition-all duration-300 shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                        <i class="fas fa-plus"></i> <span>Load More</span>
-                    </button>
-                    <button type="button" data-switch-mode="pagination" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
-                        <i class="fas fa-list-ol"></i> <span>Pages</span>
-                    </button>
+
+                <div id="comitbase-creator-hero" class="rounded-3xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-6 sm:p-8 shadow-lg"></div>
+
+                <!-- Owner-Only Upload Studio -->
+                <div id="comitbase-owner-upload-card" class="hidden rounded-3xl bg-gradient-to-br from-teal-50 via-white to-emerald-50 dark:from-gray-900 dark:via-gray-900 dark:to-teal-950/30 border border-teal-200 dark:border-teal-800/60 p-5 sm:p-6 shadow-md space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-widest text-teal-600 dark:text-teal-400 flex items-center gap-1.5">
+                                <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+                                <span>Creator Studio</span>
+                            </div>
+                            <h3 class="text-lg font-black text-gray-900 dark:text-white">Upload to Your Collection</h3>
+                        </div>
+                        <span class="text-[11px] font-semibold text-gray-500 dark:text-gray-400">PNG, JPEG, WebP, GIF · Max 5 MB</span>
+                    </div>
+
+                    <div id="creator-upload-alert" class="hidden p-3 rounded-xl border text-xs font-semibold"></div>
+
+                    <form id="comitbase-owner-upload-form" class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label for="creator-upload-title" class="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1">Artwork Title</label>
+                                <input id="creator-upload-title" type="text" required minlength="2" maxlength="80" placeholder="e.g. Astral Shrine Dusk"
+                                    class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                            </div>
+                            <div>
+                                <label for="creator-upload-file" class="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1">Image File</label>
+                                <input id="creator-upload-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required
+                                    class="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-200 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-teal-500/15 file:text-teal-700 dark:file:text-teal-300">
+                            </div>
+                        </div>
+                        <button type="submit" id="creator-upload-submit-btn"
+                            class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white font-bold text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap">
+                            <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
+                            <span>Upload Artwork</span>
+                        </button>
+                    </form>
+                </div>
+
+                <div id="comitbase-gallery" class="masonry-layout"></div>
+                <div id="comitbase-pagination" class="hidden mt-8 sm:mt-10 text-center relative z-[1]">
+                    <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                        <button id="comitbase-prev" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-50 transition-all duration-300 shadow-sm cursor-pointer dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
+                            <i class="fas fa-chevron-left"></i> <span>Previous</span>
+                        </button>
+                        <span id="comitbase-page-info" class="inline-flex items-center justify-center whitespace-nowrap text-xs sm:text-sm font-semibold text-gray-700 px-3 py-2 sm:px-4 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Page 1 of 1</span>
+                        <button id="comitbase-next" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold bg-white text-teal-600 rounded-full border border-teal-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-50 transition-all duration-300 shadow-sm cursor-pointer dark:bg-gray-800 dark:border-teal-800 dark:text-teal-400">
+                            <span>Next</span> <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <button type="button" data-switch-mode="infinite" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                            <i class="fas fa-infinity"></i> <span>Infinite</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="comitbase-load-more" class="hidden mt-8 sm:mt-10 text-center relative z-[1]">
+                    <div id="comitbase-infinite-sentinel" class="h-1 w-full"></div>
+                    <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                        <span id="comitbase-loaded-info" class="inline-flex items-center justify-center whitespace-nowrap text-xs sm:text-sm font-semibold text-gray-600 px-3.5 py-2 bg-white rounded-full border border-gray-200 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Showing 0 of 0</span>
+                        <button id="comitbase-load-more-btn" type="button" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold bg-teal-600 text-white rounded-full hover:bg-teal-700 transition-all duration-300 shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                            <i class="fas fa-plus"></i> <span>Load More</span>
+                        </button>
+                        <button type="button" data-switch-mode="pagination" class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-600 rounded-full border border-gray-200 hover:bg-gray-200 transition-all duration-200 cursor-pointer dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700">
+                            <i class="fas fa-list-ol"></i> <span>Pages</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

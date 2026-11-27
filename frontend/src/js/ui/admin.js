@@ -337,6 +337,13 @@ Object.assign(ui, {
         if (tabCountOrders) tabCountOrders.textContent = (data.orders || []).length;
         const tabCountUsers = document.getElementById('admin-tab-count-users');
         if (tabCountUsers) tabCountUsers.textContent = (data.users || []).length;
+        const tabCountCreators = document.getElementById('admin-tab-count-creators');
+        if (tabCountCreators) tabCountCreators.textContent = (data.creators || []).length;
+        const creatorsPendingBadge = document.getElementById('admin-creators-pending-badge');
+        if (creatorsPendingBadge) {
+            const pendingCnt = m.creatorsSummary?.pending ?? (data.creators || []).filter(c => c.status === 'pending').length;
+            creatorsPendingBadge.textContent = `${pendingCnt} Pending`;
+        }
         const usersTotalBadge = document.getElementById('admin-users-total-badge');
         if (usersTotalBadge) usersTotalBadge.textContent = `${(data.users || []).length} Registered`;
 
@@ -351,6 +358,9 @@ Object.assign(ui, {
 
         // 6. Render Virtual Accounts, Ledger & Backup Snapshots
         this.renderAdminBackupTab(data);
+
+        // 7. Render Verified Creator Applications
+        this.renderAdminCreatorsTable(data.creators || []);
 
         // Keep current active tab state
         this.switchAdminTab(state.adminActiveTab || 'orders');
@@ -662,7 +672,7 @@ Object.assign(ui, {
 
         if (labelEl) labelEl.textContent = `${user.public_id || user.user_id} (${user.credits || 0} Cr)`;
         if (modeEl) modeEl.value = 'add';
-        if (amtEl) amtEl.value = '10';
+        if (amtEl) amtEl.value = '0';
         if (lifeEl) lifeEl.checked = Boolean(user.lifetime);
         if (noteEl) noteEl.value = '';
 
@@ -766,6 +776,103 @@ Object.assign(ui, {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-upload" aria-hidden="true"></i><span>Upload &amp; Index Artwork</span>';
             }
+        }
+    },
+
+    renderAdminCreatorsTable(creators) {
+        const tbody = document.getElementById('admin-creators-table-body');
+        if (!tbody) return;
+        const query = (state.adminSearch || '').toLowerCase().trim();
+        const filtered = query
+            ? creators.filter(c => {
+                const name = (c.profileName || c.profile_name || '').toLowerCase();
+                const slug = (c.slug || '').toLowerCase();
+                const desc = (c.description || '').toLowerCase();
+                const st = (c.status || '').toLowerCase();
+                return name.includes(query) || slug.includes(query) || desc.includes(query) || st.includes(query);
+            })
+            : creators;
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="p-8 text-center text-gray-400">
+                        ${query ? 'No creator applications match your search.' : 'No creator applications submitted yet.'}
+                    </td>
+                </tr>`;
+            return;
+        }
+
+        const safeUrl = (item) => {
+            try {
+                const raw = (item && typeof item === 'object') ? item.url : item;
+                const parsed = new URL(String(raw || '').trim());
+                return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.toString() : '';
+            } catch {
+                return '';
+            }
+        };
+
+        const badges = {
+            approved: '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">APPROVED</span>',
+            pending:  '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">PENDING</span>',
+            rejected: '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300">REJECTED</span>',
+        };
+
+        tbody.innerHTML = filtered.map((c) => {
+            const rawLinks = Array.isArray(c.socialLinks) ? c.socialLinks : (Array.isArray(c.social_links) ? c.social_links : []);
+            const links = rawLinks.map((u) => {
+                const clean = safeUrl(u);
+                if (!clean) return '';
+                const label = (u && typeof u === 'object' && u.label)
+                    ? String(u.label)
+                    : new URL(clean).hostname.replace(/^www\./, '');
+                return `<a href="${utils.escapeHtml(clean)}" target="_blank" rel="noopener noreferrer" class="inline-block px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[11px] font-semibold text-teal-600 dark:text-teal-300 hover:underline mr-1 mb-1">${utils.escapeHtml(label)}</a>`;
+            }).join('');
+
+            const cid = utils.escapeHtml(c.creatorId || c.creator_id || '');
+            const name = c.profileName || c.profile_name || '';
+            const uploads = c.uploadCount ?? c.upload_count ?? 0;
+            return `
+                <tr class="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition-colors">
+                    <td class="p-3.5">
+                        <div class="font-bold text-gray-900 dark:text-white">${utils.escapeHtml(name)}</div>
+                        <div class="text-[11px] font-mono text-gray-500">@${utils.escapeHtml(c.slug || '')}</div>
+                    </td>
+                    <td class="p-3.5 max-w-xs text-gray-600 dark:text-gray-300">${utils.escapeHtml(c.description || '')}</td>
+                    <td class="p-3.5">${links || '<span class="text-gray-400">-</span>'}</td>
+                    <td class="p-3.5">${badges[c.status] || utils.escapeHtml(c.status || '')}</td>
+                    <td class="p-3.5 font-mono font-bold">${utils.formatNumber(uploads)}</td>
+                    <td class="p-3.5 text-right whitespace-nowrap space-x-1.5">
+                        ${c.status !== 'approved' ? `<button type="button" data-admin-creator-decision="approve" data-creator-id="${cid}" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">Approve</button>` : ''}
+                        ${c.status !== 'rejected' ? `<button type="button" data-admin-creator-decision="reject" data-creator-id="${cid}" class="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-600 text-red-600 hover:text-white text-xs font-bold cursor-pointer">Reject</button>` : ''}
+                    </td>
+                </tr>`;
+        }).join('');
+    },
+
+    async decideAdminCreator(creatorId, decision) {
+        if (!state.adminToken || !creatorId) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/creators/decision`, {
+                method: 'POST',
+                headers: this._adminHeaders(state.adminToken, { 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ creatorId, decision }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
+            this.showToast(
+                decision === 'approve'
+                    ? `Creator "${data.creator?.profileName || ''}" approved & profile activated!`
+                    : `Creator application rejected.`,
+                'success'
+            );
+            api.invalidateCache?.();
+            await this.fetchAdminDashboard();
+        } catch (err) {
+            this.showToast('Creator update failed: ' + err.message, 'error');
         }
     },
 });

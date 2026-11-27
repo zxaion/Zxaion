@@ -139,6 +139,7 @@ Object.assign(ui, {
                 '',
                 'WARNING:',
                 'Keep this file in a secure personal location (Google Drive, password manager, etc.).',
+                'Support: zvizualscl@gmail.com | Official: zxaionart@gmail.com',
                 '=====================================================',
             ].join('\r\n');
 

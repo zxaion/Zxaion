@@ -235,7 +235,7 @@ const ui = {
         this.syncLoveUi(photo.id, optimisticCount, nextLoved);
 
         if (typeof api.toggleReaction === 'function') {
-            const res = await api.toggleReaction(photo.id);
+            const res = await api.toggleReaction(photo.id, 'love');
             if (res && res.success) {
                 if (res.loved) state.lovedPhotos.add(photo.id);
                 else state.lovedPhotos.delete(photo.id);
@@ -247,6 +247,66 @@ const ui = {
                     this.invalidateComitbaseSortCache?.();
                     this.invalidateDtreasureSortCache?.();
                 }
+            }
+        }
+    },
+
+    syncFireUi(photoId, fireCount, isFired) {
+        if (!photoId) return;
+        const safeId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
+        const countText = utils.formatNumber(Math.max(0, Number(fireCount) || 0));
+
+        document.querySelectorAll(`.fire-count[data-id="${safeId}"]`).forEach(el => {
+            el.textContent = countText;
+        });
+        document.querySelectorAll(`.fire-btn[data-id="${safeId}"]`).forEach(btn => {
+            btn.classList.toggle('is-fired', Boolean(isFired));
+            btn.setAttribute('aria-pressed', isFired ? 'true' : 'false');
+        });
+
+        if (state.currentImageId === photoId) {
+            const modalCount = document.getElementById('modal-fire-count');
+            const modalBtn = document.getElementById('modal-fire-btn');
+            const modalIcon = document.getElementById('modal-fire-icon');
+            if (modalCount) modalCount.textContent = countText;
+            if (modalBtn) {
+                modalBtn.setAttribute('aria-pressed', isFired ? 'true' : 'false');
+                modalBtn.classList.toggle('bg-amber-500', Boolean(isFired));
+                modalBtn.classList.toggle('text-gray-950', Boolean(isFired));
+                modalBtn.classList.toggle('bg-amber-50', !isFired);
+                modalBtn.classList.toggle('text-amber-600', !isFired);
+                modalBtn.classList.toggle('dark:bg-amber-900/30', !isFired);
+                modalBtn.classList.toggle('dark:text-amber-300', !isFired);
+            }
+            if (modalIcon) {
+                modalIcon.className = `fas fa-fire text-xs ${isFired ? 'text-gray-950' : 'text-amber-500'}`;
+            }
+        }
+    },
+
+    async togglePhotoFire(photo) {
+        if (!photo || !photo.id) return;
+        const prevFired = state.firedPhotos?.has(photo.id);
+        const prevCount = Number(photo.fireCount || state.photoFireCounts?.[photo.id] || 0);
+        const nextFired = !prevFired;
+        const optimisticCount = Math.max(0, prevCount + (nextFired ? 1 : -1));
+
+        if (!state.firedPhotos) state.firedPhotos = new Set();
+        if (!state.photoFireCounts) state.photoFireCounts = {};
+        if (nextFired) state.firedPhotos.add(photo.id);
+        else state.firedPhotos.delete(photo.id);
+        photo.fireCount = optimisticCount;
+        state.photoFireCounts[photo.id] = optimisticCount;
+        this.syncFireUi(photo.id, optimisticCount, nextFired);
+
+        if (typeof api.toggleReaction === 'function') {
+            const res = await api.toggleReaction(photo.id, 'fire');
+            if (res && res.success) {
+                if (res.fired) state.firedPhotos.add(photo.id);
+                else state.firedPhotos.delete(photo.id);
+                photo.fireCount = res.fireCount;
+                state.photoFireCounts[photo.id] = res.fireCount;
+                this.syncFireUi(photo.id, res.fireCount, res.fired);
             }
         }
     },
@@ -331,14 +391,22 @@ const ui = {
             container.removeEventListener('click', this[handlerKey]);
         }
         const handler = (e) => {
+            const deleteBtn = e.target.closest('[data-delete-creator-photo]');
+            const fireBtn = e.target.closest('.fire-btn');
             const loveBtn = e.target.closest('.love-btn');
             const downloadBtn = e.target.closest('.download-btn');
-            const item = (loveBtn || downloadBtn || e.target).closest('.masonry-item');
+            const item = (deleteBtn || fireBtn || loveBtn || downloadBtn || e.target).closest('.masonry-item');
             if (!item) return;
             const photoId = item.dataset.photoId;
             const photo = getListFn().find(p => p.id === photoId);
             if (!photo) return;
-            if (loveBtn) {
+            if (deleteBtn) {
+                e.stopPropagation();
+                ui.deleteCreatorArtwork?.(photo.id);
+            } else if (fireBtn) {
+                e.stopPropagation();
+                ui.togglePhotoFire(photo);
+            } else if (loveBtn) {
                 e.stopPropagation();
                 ui.togglePhotoLove(photo);
             } else if (downloadBtn) {
@@ -354,6 +422,7 @@ const ui = {
 
     createMasonryItemElement(photo, index, imageObserver, {
         isDtreasureCard = false,
+        allowOwnerDelete = false,
         fallbackTitle = '',
         authImageLoader = utils.loadAuthenticatedImage,
     } = {}) {
@@ -368,8 +437,8 @@ const ui = {
         const isFree = !isDtreasureCard || state.lifetime || state.purchasedImages.has(photo.id);
         const useAuthLoad = isDtreasureCard && isFree && typeof authImageLoader === 'function';
         const transformOpts = isDtreasureCard
-            ? (isFree ? { w: 640, q: 80, fit: 'scale-down', fmt: 'auto' } : { w: 520, q: 75, fit: 'scale-down', fmt: 'auto' })
-            : { w: 520, q: 78, fit: 'scale-down', fmt: 'auto' };
+            ? (isFree ? { w: 480, q: 80, fit: 'scale-down', fmt: 'auto' } : { w: 480, q: 75, fit: 'scale-down', fmt: 'auto' })
+            : { w: 480, q: 78, fit: 'scale-down', fmt: 'auto' };
         const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
         const fullUrl       = candidates[0] || '';
         const isAboveFold   = index < 6;
@@ -382,6 +451,9 @@ const ui = {
         const loveNum       = Number(state.photoLoveCounts?.[photo.id] ?? photo.loveCount ?? 0);
         const loveCount     = utils.formatNumber(loveNum);
         const isLoved       = Boolean(state.lovedPhotos?.has(photo.id));
+        const fireNum       = Number(state.photoFireCounts?.[photo.id] ?? photo.fireCount ?? 0);
+        const fireCount     = utils.formatNumber(fireNum);
+        const isFired       = Boolean(state.firedPhotos?.has(photo.id));
         const buttonText    = isFree ? 'Download' : '10 Credits';
         const buttonIcon    = isFree ? 'fa-download' : 'fa-lock';
         const knownW        = Number(photo.width) > 0 ? Math.round(Number(photo.width)) : 0;
@@ -416,6 +488,10 @@ const ui = {
                 decoding="async"
                 ${aspectCss ? `style="${aspectCss}"` : ''}>`;
 
+        const ownerDeleteBtn = allowOwnerDelete
+            ? `<button class="w-8 h-8 rounded-full bg-red-600/85 hover:bg-red-600 text-white flex items-center justify-center text-xs shadow cursor-pointer shrink-0" type="button" data-delete-creator-photo="${safePhotoId}" aria-label="Remove ${safeAlt}" title="Delete artwork"><i class="fas fa-trash-can"></i></button>`
+            : '';
+
         item.innerHTML = `
         ${imgHtml}
         <div class="masonry-overlay"${isDtreasureCard ? ' style="z-index:2;"' : ''}>
@@ -423,6 +499,7 @@ const ui = {
                 <span><i class="fas fa-eye"></i> <span class="view-count" data-id="${safePhotoId}">${viewCount}</span></span>
                 <span><i class="fas fa-download"></i> <span class="download-count" data-id="${safePhotoId}">${downloadCount}</span></span>
                 <span><i class="fas fa-heart text-rose-400"></i> <span class="love-count" data-id="${safePhotoId}">${loveCount}</span></span>
+                <span><i class="fas fa-fire text-amber-400"></i> <span class="fire-count" data-id="${safePhotoId}">${fireCount}</span></span>
             </div>
             <div class="card-actions">
                 <button class="download-btn" type="button">
@@ -431,6 +508,10 @@ const ui = {
                 <button class="love-btn${isLoved ? ' is-loved' : ''}" type="button" data-id="${safePhotoId}" aria-label="Love ${safeAlt}" aria-pressed="${isLoved ? 'true' : 'false'}">
                     <i class="${isLoved ? 'fas' : 'far'} fa-heart"></i>
                 </button>
+                <button class="fire-btn${isFired ? ' is-fired' : ''}" type="button" data-id="${safePhotoId}" aria-label="Fire ${safeAlt}" aria-pressed="${isFired ? 'true' : 'false'}">
+                    <i class="fas fa-fire"></i>
+                </button>
+                ${ownerDeleteBtn}
             </div>
         </div>`;
 

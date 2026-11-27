@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const autoAccountPromise = api.ensureAutoAccount?.();
     const creditsPromise     = api.fetchCreditBalance();
+    const creatorsPromise    = api.fetchComitbaseCreators?.();
+    const myCreatorPromise   = api.fetchMyCreatorProfile?.();
     const comitbasePromise   = api.fetchComitbaseImages();
     const dtreasurePromise   = api.fetchDtreasureImages();
     const mainPromise        = api.fetchImages();
@@ -49,13 +51,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             ui.checkDeepLink();
         }
     } else if (initialView.category === 'COMITBASE') {
-        ui.changeCategory('COMITBASE', { scroll: false, preservePage: true, persist: false });
-        const cbOk = await comitbasePromise;
-        if (cbOk && state.currentCategory === 'COMITBASE') {
-            ui.invalidateComitbaseSortCache?.();
-            ui.renderComitbaseGallery();
-            initialBucketSig = `COMITBASE:${state.comitbasePhotos.length}`;
-            ui.checkDeepLink();
+        if (initialView.creatorSlug) {
+            ui.changeCategory('COMITBASE', { scroll: false, preservePage: true, persist: false, creatorSlug: initialView.creatorSlug });
+            await Promise.allSettled([creatorsPromise, myCreatorPromise, comitbasePromise]);
+            if (state.currentCategory === 'COMITBASE' && state.currentComitbaseCreatorSlug) {
+                initialBucketSig = `COMITBASE:${state.currentComitbaseCreatorSlug}:${state.comitbasePhotos.length}`;
+                ui.checkDeepLink();
+            }
+        } else {
+            ui.changeCategory('COMITBASE', { scroll: false, preservePage: true, persist: false });
+            await Promise.allSettled([creatorsPromise, myCreatorPromise]);
+            if (state.currentCategory === 'COMITBASE' && !state.currentComitbaseCreatorSlug) {
+                ui.renderComitbaseDirectory?.();
+                initialBucketSig = `COMITBASE:dir:${state.comitbaseCreators.length}`;
+            }
         }
     } else if (initialView.category === 'Anime' && initialView.animeAlbum) {
         ui.changeCategory('Anime', { scroll: false, preservePage: true, persist: false });
@@ -80,13 +89,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    await Promise.allSettled([autoAccountPromise, creditsPromise, comitbasePromise, dtreasurePromise, mainPromise]);
+    await Promise.allSettled([autoAccountPromise, creditsPromise, creatorsPromise, myCreatorPromise, comitbasePromise, dtreasurePromise, mainPromise]);
     if (!isAdminRoute) {
         if (state.currentCategory === 'COMITBASE') {
-            const nextSig = `COMITBASE:${state.comitbasePhotos.length}`;
-            if (nextSig !== initialBucketSig || !elements.comitbaseGallery?.children?.length) {
-                ui.invalidateComitbaseSortCache?.();
-                ui.renderComitbaseGallery();
+            if (state.currentComitbaseCreatorSlug) {
+                const nextSig = `COMITBASE:${state.currentComitbaseCreatorSlug}:${state.comitbasePhotos.length}`;
+                if (nextSig !== initialBucketSig || !elements.comitbaseGallery?.children?.length) {
+                    ui.invalidateComitbaseSortCache?.();
+                    ui.renderComitbaseGallery();
+                }
+            } else {
+                ui.renderComitbaseDirectory?.();
             }
         } else if (state.currentCategory === 'DTREASURE') {
             const nextSig = `DTREASURE:${state.dtreasurePhotos.length}:${state.lifetime ? 1 : 0}:${state.purchasedImages.size}`;

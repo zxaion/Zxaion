@@ -2,6 +2,8 @@ import { resolveAllowedOrigin } from '../utils/cors.js';
 import { parseTransformOptions, applyImageTransform, negotiateOutputMime } from '../services/imageTransform.js';
 import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
 import { resolveSessionAuth } from '../services/accountAuth.js';
+import { verifyDtreasureDownloadToken } from '../services/downloadToken.js';
+import { buildWatermarkedPreviewSvg } from '../services/imageMeta.js';
 
 function safeDecode(value) {
   try {
@@ -18,7 +20,16 @@ function isSafeObjectKey(key) {
   return true;
 }
 
-async function isUserAuthorizedForDtreasure(DB, userId, key) {
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+export async function isUserAuthorizedForDtreasure(DB, userId, key) {
   if (!userId || userId === 'anonymous') return false;
   const userRecord = await DB.prepare(
     'SELECT credits, lifetime FROM user_credits WHERE user_id = ?'
@@ -39,7 +50,7 @@ async function isUserAuthorizedForDtreasure(DB, userId, key) {
 // ================================================================
 // ENDPOINT: Serve images dari R2 (main, comitbase, dtreasure) + Cloudflare Images transform
 // ================================================================
-export async function handleServeImage({ request, ctx, url, path, mainBucket, comitbaseBucket, treasureBucket, DB, IMAGES, origin, corsHeaders, getUserToken }) {
+export async function handleServeImage({ request, ctx, url, path, env = {}, mainBucket, comitbaseBucket, treasureBucket, DB, IMAGES, origin, corsHeaders, getUserToken }) {
   const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
   let bucket, prefix;
@@ -102,10 +113,29 @@ export async function handleServeImage({ request, ctx, url, path, mainBucket, co
       }
     }
 
-    if (isDownload && !authorizedDtreasure) {
-      return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    if (isDownload) {
+      if (!authorizedDtreasure) {
+        return new Response(JSON.stringify({ error: 'Purchase required to download this image' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const downloadToken = url.searchParams.get('dt_token') || request.headers.get('X-Download-Token') || '';
+      const tokenCheck = await verifyDtreasureDownloadToken({
+        env,
+        token: downloadToken,
+        photoId: `dtreasure:${key}`,
+        key,
+        userId,
       });
+      if (!tokenCheck.valid) {
+        return new Response(JSON.stringify({
+          error: 'Valid signed download token required for DTREASURE 4K download',
+          reason: tokenCheck.reason,
+        }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
   }
 
@@ -142,7 +172,7 @@ export async function handleServeImage({ request, ctx, url, path, mainBucket, co
     headers.set('Vary', isDtreasure ? 'Accept, Origin, Cookie, Authorization, X-User-Token' : 'Accept, Origin');
     headers.set('Cache-Control', cacheHeader);
     if (isDtreasure && !authorizedDtreasure) {
-      headers.set('X-Dtreasure-Preview', usingPreviewAsset ? 'watermarked' : 'blurred');
+      headers.set('X-Dtreasure-Preview', 'watermarked');
     }
 
     const ifNoneMatch = request.headers.get('If-None-Match');
@@ -188,7 +218,25 @@ export async function handleServeImage({ request, ctx, url, path, mainBucket, co
         });
 
         if (transformed && transformed.ok) {
-          const transformedType = transformed.headers.get('Content-Type');
+          const transformedType = transformed.headers.get('Content-Type') || 'image/webp';
+          if (mustProtectOriginal) {
+            const previewBytes = new Uint8Array(await transformed.arrayBuffer());
+            const previewDataUri = previewBytes.byteLength > 0 && previewBytes.byteLength <= 512 * 1024
+              ? `data:${transformedType};base64,${bytesToBase64(previewBytes)}`
+              : '';
+            const watermarkedSvg = buildWatermarkedPreviewSvg({
+              title: key.split('/').pop()?.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') || 'Exclusive Edition',
+              category: 'DTREASURE',
+              previewDataUri,
+              width: transformOpts.width || 480,
+              height: transformOpts.height || 640,
+            });
+            headers.set('Content-Type', 'image/svg+xml; charset=utf-8');
+            headers.set('X-Image-Transformed', 'cf-images');
+            headers.set('X-Dtreasure-Preview', 'watermarked');
+            return new Response(watermarkedSvg, { headers });
+          }
+
           if (transformedType) headers.set('Content-Type', transformedType);
           headers.set('X-Image-Transformed', 'cf-images');
           const transformedRes = new Response(transformed.body, { headers });

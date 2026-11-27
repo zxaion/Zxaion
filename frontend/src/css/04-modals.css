@@ -106,6 +106,7 @@
    ============================================ */
 .mockup-stage-wrap {
     width: 100%;
+    min-height: 0;
 }
 
 .mockup-stage.mockup-original {
@@ -114,11 +115,11 @@
 }
 
 .mockup-stage.mockup-phone {
-    width: min(295px, 76vw);
+    height: min(460px, 52vh);
+    max-width: min(260px, 72vw);
     aspect-ratio: 9 / 19.2;
-    max-height: 68vh;
-    border-radius: 38px;
-    border: 9px solid #111827;
+    border-radius: 34px;
+    border: 8px solid #111827;
     background: #030712;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 2px rgba(255, 255, 255, 0.16);
     overflow: hidden;
@@ -129,16 +130,16 @@
     height: 100%;
     max-height: none;
     object-fit: cover;
-    border-radius: 28px;
+    border-radius: 26px;
 }
 
 .mockup-stage.mockup-desktop {
-    width: min(680px, 95%);
+    width: min(640px, 94%);
     aspect-ratio: 16 / 9;
-    max-height: 60vh;
-    border-radius: 16px;
-    border: 10px solid #111827;
-    border-bottom-width: 18px;
+    max-height: calc(100% - 34px);
+    border-radius: 14px;
+    border: 8px solid #111827;
+    border-bottom-width: 14px;
     background: #030712;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.18);
     overflow: hidden;
@@ -152,21 +153,46 @@
     border-radius: 4px;
 }
 
-.mockup-desktop-stand {
+@media (max-width: 1023px) {
+    .mockup-stage.mockup-phone {
+        height: min(320px, 39vh);
+        max-width: 58vw;
+        border-width: 6px;
+        border-radius: 26px;
+    }
+
+    .mockup-stage.mockup-phone #modal-img {
+        border-radius: 20px;
+    }
+
+    .mockup-stage.mockup-desktop {
+        width: min(360px, 92%);
+        max-height: 32vh;
+        border-width: 6px;
+        border-bottom-width: 10px;
+    }
+}
+
+.mockup-desktop-stand.hidden {
+    display: none;
+}
+
+.mockup-desktop-stand:not(.hidden) {
     display: flex;
     flex-direction: column;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .mockup-stand-neck {
-    width: 56px;
-    height: 22px;
+    width: 52px;
+    height: 18px;
     background: linear-gradient(180deg, #374151, #1f2937);
 }
 
 .mockup-stand-base {
-    width: 150px;
-    height: 8px;
+    width: 140px;
+    height: 7px;
     border-radius: 999px;
     background: linear-gradient(90deg, #1f2937, #6b7280, #1f2937);
 }

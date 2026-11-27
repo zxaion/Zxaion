@@ -377,12 +377,21 @@ export async function handleVerifyEmail({ request, DB, corsHeaders, getUserToken
       return jsonRes({ success: false, error: 'Invalid verification code' }, 400, corsHeaders);
     }
 
-    const grantBonus = !auth.account.verify_bonus_claimed;
-    const bonusAmount = grantBonus ? 5 : 0;
+    const claimBonusUpdate = await DB.prepare(
+      'UPDATE accounts SET email_verified = 1, verify_bonus_claimed = 1, updated_at = ? WHERE account_id = ? AND verify_bonus_claimed = 0'
+    ).bind(nowIso, auth.account.account_id).run();
+
+    const grantBonus = (claimBonusUpdate?.meta?.changes || 0) > 0;
+    const bonusAmount = grantBonus ? 20 : 0;
+
+    if (!grantBonus) {
+      await DB.prepare(
+        'UPDATE accounts SET email_verified = 1, updated_at = ? WHERE account_id = ?'
+      ).bind(nowIso, auth.account.account_id).run();
+    }
+
     const statements = [
       DB.prepare('UPDATE email_verifications SET used_at = ? WHERE id = ?').bind(nowIso, record.id),
-      DB.prepare('UPDATE accounts SET email_verified = 1, verify_bonus_claimed = 1, updated_at = ? WHERE account_id = ?')
-        .bind(nowIso, auth.account.account_id),
     ];
 
     if (grantBonus) {
@@ -400,7 +409,7 @@ export async function handleVerifyEmail({ request, DB, corsHeaders, getUserToken
           amount: bonusAmount,
           referenceType: 'email_verification',
           referenceId: record.id,
-          description: 'Email verification bonus (+5 credits)',
+          description: 'Email verification bonus (+20 credits)',
           metadata: { email: auth.account.email },
           createdAt: nowIso,
         })
@@ -418,7 +427,7 @@ export async function handleVerifyEmail({ request, DB, corsHeaders, getUserToken
       account: sanitizeAccountView(updated),
       wallet,
       message: grantBonus
-        ? 'Email verified! +5 bonus credits added to your wallet.'
+        ? 'Email verified! +20 bonus credits added to your wallet.'
         : 'Email verified successfully',
     }, 200, corsHeaders);
   } catch (err) {
@@ -498,10 +507,25 @@ export async function handleAccountCheckin({ request, DB, corsHeaders, getUserTo
     const nowIso = new Date().toISOString();
     const publicId = await derivePublicPayerRef(auth.userId);
 
+    // Atomic compare-and-set guard prevents concurrent duplicate claims on the same UTC date
+    const claimRes = await DB.prepare(
+      'UPDATE accounts SET checkin_streak = ?, last_checkin_date = ?, updated_at = ? WHERE account_id = ? AND (last_checkin_date IS NULL OR last_checkin_date != ?)'
+    ).bind(plan.nextStreak, plan.todayUtc, nowIso, account.account_id, plan.todayUtc).run();
+
+    if (!claimRes?.meta || claimRes.meta.changes === 0) {
+      const latestAccount = await getAccountById(DB, account.account_id);
+      return jsonRes({
+        success: false,
+        alreadyClaimed: true,
+        streak: Number(latestAccount?.checkin_streak || plan.nextStreak),
+        awarded: 0,
+        error: 'Daily check-in already claimed today. Come back tomorrow!',
+        account: sanitizeAccountView(latestAccount || account),
+        wallet: walletBefore,
+      }, 200, corsHeaders);
+    }
+
     await DB.batch([
-      DB.prepare(
-        'UPDATE accounts SET checkin_streak = ?, last_checkin_date = ?, updated_at = ? WHERE account_id = ?'
-      ).bind(plan.nextStreak, plan.todayUtc, nowIso, account.account_id),
       DB.prepare(`
         INSERT INTO user_credits (user_id, public_id, credits, lifetime)
         VALUES (?, ?, ?, 0)

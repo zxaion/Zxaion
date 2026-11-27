@@ -14,11 +14,15 @@
                         <p id="ranking-carousel-subtitle" class="text-gray-400 text-[10px] uppercase tracking-wider">Auto-updated · Most Viewed &amp; Downloaded</p>
                     </div>
                 </div>
-                <div class="flex items-center justify-between sm:justify-end gap-2">
-                    <div id="ranking-mode-tabs" class="inline-flex items-center gap-1 p-1 rounded-full bg-white/5 border border-white/10" role="tablist" aria-label="Leaderboard Ranking Mode">
+                <div class="flex flex-wrap items-center justify-between sm:justify-end gap-2">
+                    <div id="ranking-mode-tabs" class="inline-flex flex-wrap items-center gap-1 p-1 rounded-full bg-white/5 border border-white/10" role="tablist" aria-label="Leaderboard Ranking Mode">
                         <button type="button" data-carousel-mode="trending" role="tab" aria-selected="true"
                             class="ranking-mode-btn active px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer bg-amber-500 text-gray-950">
                             <i class="fas fa-fire mr-1" aria-hidden="true"></i>Trending
+                        </button>
+                        <button type="button" data-carousel-mode="creators" role="tab" aria-selected="false"
+                            class="ranking-mode-btn px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer text-gray-300 hover:text-white">
+                            <i class="fas fa-crown mr-1 text-teal-400" aria-hidden="true"></i>Top Creators
                         </button>
                         <button type="button" data-carousel-mode="loved" role="tab" aria-selected="false"
                             class="ranking-mode-btn px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer text-gray-300 hover:text-white">

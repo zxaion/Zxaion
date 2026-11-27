@@ -8,11 +8,33 @@ import {
   handleAdminBackupRestore,
   handleAdminAdjustCredits,
   handleAdminUpload,
+  handleAdminListCreators,
+  handleAdminCreatorDecision,
 } from './admin.js';
 import { handlePayPalWebhook }   from './paypalWebhook.js';
-import { handleListMain, handleAnimeAlbums, handleListComitbase, handleListDtreasure, handleTrending, handleSubmitComitbase } from './gallery.js';
+import {
+  handleListMain,
+  handleAnimeAlbums,
+  handleListComitbase,
+  handleListDtreasure,
+  handleTrending,
+  handleSubmitComitbase,
+  handleListComitbaseCreators,
+  handleMyCreatorProfile,
+  handleApplyComitbaseCreator,
+  handleComitbaseCreatorDetailOrAction,
+} from './gallery.js';
 import { handleStats, handleRecordView, handleRecordDownload, handleToggleReaction } from './stats.js';
-import { handleCreditBalance, handlePreparePayer, handleCreatePayPalOrder, handleCreateRecoveryCode, handleRecoverAccount, handleCreditPurchase, handleCreditSpend } from './credits.js';
+import {
+  handleCreditBalance,
+  handlePreparePayer,
+  handleCreatePayPalOrder,
+  handleCreateRecoveryCode,
+  handleRecoverAccount,
+  handleCreditPurchase,
+  handleCreditSpend,
+  handleDtreasureDownloadToken,
+} from './credits.js';
 import {
   handleAutoAccount,
   handleAccountMe,
@@ -44,6 +66,8 @@ export const routes = [
   { method: 'POST', path: '/api/admin/rescan',           handler: handleAdminRescan },
   { method: 'POST', path: '/api/admin/credits',          handler: handleAdminAdjustCredits },
   { method: 'POST', path: '/api/admin/upload',           handler: handleAdminUpload },
+  { method: 'GET',  path: '/api/admin/creators',         handler: handleAdminListCreators },
+  { method: 'POST', path: '/api/admin/creators/decision',handler: handleAdminCreatorDecision },
   { method: 'GET',  path: '/api/admin/backup',           handler: handleAdminBackupList },
   { method: 'POST', path: '/api/admin/backup/snapshot',  handler: handleAdminBackupCreate },
   { method: 'GET',  path: '/api/admin/backup/download',  handler: handleAdminBackupDownload },
@@ -67,13 +91,18 @@ export const routes = [
   { method: 'POST', path: '/api/account/sessions/revoke-others',  handler: handleRevokeOtherSessions },
   { method: 'GET',  path: '/api/account/export',                  handler: handleAccountExport },
 
-  // --- Gallery ---
-  { method: 'GET',  path: '/api/list',            handler: handleListMain },
-  { method: 'GET',  path: '/api/anime/albums',    handler: handleAnimeAlbums },
-  { method: 'GET',  path: '/api/comitbase/list',  handler: handleListComitbase },
-  { method: 'POST', path: '/api/comitbase/submit',handler: handleSubmitComitbase },
-  { method: 'GET',  path: '/api/dtreasure/list',  handler: handleListDtreasure },
-  { method: 'GET',  path: '/api/trending',        handler: handleTrending },
+  // --- Gallery & COMITBASE Verified Creators ---
+  { method: 'GET',  path: '/api/list',                      handler: handleListMain },
+  { method: 'GET',  path: '/api/anime/albums',              handler: handleAnimeAlbums },
+  { method: 'GET',  path: '/api/comitbase/list',            handler: handleListComitbase },
+  { method: 'POST', path: '/api/comitbase/submit',          handler: handleSubmitComitbase },
+  { method: 'GET',  path: '/api/comitbase/creators',        handler: handleListComitbaseCreators },
+  { method: 'GET',  path: '/api/comitbase/creators/me',     handler: handleMyCreatorProfile },
+  { method: 'POST', path: '/api/comitbase/creators/apply',  handler: handleApplyComitbaseCreator },
+  { pathPrefix: '/api/comitbase/creators/',                 handler: handleComitbaseCreatorDetailOrAction },
+  { method: 'GET',  path: '/api/dtreasure/list',            handler: handleListDtreasure },
+  { method: 'POST', path: '/api/dtreasure/download-token',  handler: handleDtreasureDownloadToken },
+  { method: 'GET',  path: '/api/trending',                  handler: handleTrending },
 
   // --- Stats & Reactions ---
   { method: 'GET',  pathPrefix: '/api/stats/',    handler: handleStats },

@@ -123,7 +123,8 @@
     pointer-events: auto;
 }
 
-.masonry-overlay .love-btn {
+.masonry-overlay .love-btn,
+.masonry-overlay .fire-btn {
     background: rgba(17, 24, 39, 0.72);
     color: #ffffff;
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -148,6 +149,18 @@
 .masonry-overlay .love-btn.is-loved {
     background: rgba(225, 29, 72, 0.9);
     border-color: rgba(253, 164, 175, 0.8);
+    color: #ffffff;
+}
+
+.masonry-overlay .fire-btn:hover {
+    background: rgba(249, 115, 22, 0.28);
+    border-color: rgba(251, 146, 60, 0.8);
+    transform: scale(1.05);
+}
+
+.masonry-overlay .fire-btn.is-fired {
+    background: rgba(234, 88, 12, 0.92);
+    border-color: rgba(253, 186, 116, 0.85);
     color: #ffffff;
 }
 

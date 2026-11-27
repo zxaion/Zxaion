@@ -197,6 +197,62 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
       snapshots = await listBackupSnapshots(env.DB, 15);
     } catch {}
 
+    // 5. Verified Creator Applications & Profiles (include upload counts + camelCase/snake_case keys)
+    let creators = [];
+    let pendingCreators = 0;
+    let approvedCreators = 0;
+    let rejectedCreators = 0;
+    try {
+      const [crRes, cbImgsRes] = await Promise.all([
+        env.DB.prepare(
+          'SELECT creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, reviewed_note, created_at, approved_at, updated_at FROM creator_profiles ORDER BY created_at DESC LIMIT ?'
+        ).bind(200).all(),
+        env.DB.prepare(
+          "SELECT creator_id, uploader FROM images WHERE bucket = 'comitbase'"
+        ).all(),
+      ]);
+
+      const countById = new Map();
+      const countByName = new Map();
+      for (const img of cbImgsRes?.results || []) {
+        if (img.creator_id) {
+          countById.set(img.creator_id, (countById.get(img.creator_id) || 0) + 1);
+        } else if (img.uploader) {
+          const k = String(img.uploader).trim().toLowerCase();
+          countByName.set(k, (countByName.get(k) || 0) + 1);
+        }
+      }
+
+      creators = (crRes?.results || []).map((c) => {
+        if (c.status === 'pending') pendingCreators++;
+        else if (c.status === 'approved') approvedCreators++;
+        else if (c.status === 'rejected') rejectedCreators++;
+        let socialLinks = [];
+        try { socialLinks = JSON.parse(c.social_links_json || '[]'); } catch {}
+        const normalizedLinks = Array.isArray(socialLinks) ? socialLinks : [];
+        const uploadCount = (countById.get(c.creator_id) || 0)
+          + (c.profile_name ? (countByName.get(c.profile_name.trim().toLowerCase()) || 0) : 0);
+
+        return {
+          creator_id: c.creator_id,
+          creatorId: c.creator_id,
+          user_id: c.user_id,
+          account_id: c.account_id || null,
+          slug: c.slug,
+          profile_name: c.profile_name,
+          profileName: c.profile_name,
+          description: c.description,
+          social_links: normalizedLinks,
+          socialLinks: normalizedLinks,
+          uploadCount,
+          status: c.status,
+          reviewed_note: c.reviewed_note || null,
+          created_at: c.created_at || null,
+          approved_at: c.approved_at || null,
+        };
+      });
+    } catch {}
+
     return jsonResponse({
       success: true,
       timestamp: new Date().toISOString(),
@@ -222,6 +278,12 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
           passwordProtected,
           totalLedgerEntries: ledger.length,
         },
+        creatorsSummary: {
+          total: creators.length,
+          pending: pendingCreators,
+          approved: approvedCreators,
+          rejected: rejectedCreators,
+        },
         catalog: catalogCounts,
       },
       orders,
@@ -229,6 +291,7 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
       accounts,
       ledger,
       snapshots,
+      creators,
     }, 200, corsHeaders);
   } catch (err) {
     console.error('[Admin] Dashboard error:', err);
@@ -341,7 +404,7 @@ export async function handleAdminAdjustCredits({ request, env, corsHeaders }) {
 
   const userId = String(body?.userId || '').trim();
   const mode = String(body?.mode || 'add').trim().toLowerCase();
-  const reason = String(body?.reason || '').trim().slice(0, 140) || 'Admin wallet adjustment';
+  const reason = String(body?.reason || body?.note || '').trim().slice(0, 140) || 'Admin wallet adjustment';
   if (!userId || userId === 'anonymous') {
     return jsonResponse({ success: false, error: 'Valid userId is required' }, 400, corsHeaders);
   }
@@ -359,13 +422,15 @@ export async function handleAdminAdjustCredits({ request, env, corsHeaders }) {
     const prevLifetime = !!existing?.lifetime;
 
     let nextCredits = prevCredits;
-    let nextLifetime = prevLifetime;
+    let nextLifetime = typeof body?.lifetime === 'boolean' ? Boolean(body.lifetime) : prevLifetime;
     let delta = 0;
 
     if (mode === 'add') {
-      const amount = Math.round(Number(body?.amount));
-      if (!Number.isFinite(amount) || amount === 0) {
-        return jsonResponse({ success: false, error: 'Provide a non-zero integer credit delta' }, 400, corsHeaders);
+      const rawAmount = body?.amount === undefined || body?.amount === null || body?.amount === '' ? 0 : Number(body.amount);
+      const amount = Math.round(rawAmount);
+      const lifetimeChanged = nextLifetime !== prevLifetime;
+      if (!Number.isFinite(amount) || (amount === 0 && !lifetimeChanged)) {
+        return jsonResponse({ success: false, error: 'Provide a non-zero credit delta or change VIP status' }, 400, corsHeaders);
       }
       nextCredits = Math.max(0, prevCredits + amount);
       delta = nextCredits - prevCredits;
@@ -389,26 +454,15 @@ export async function handleAdminAdjustCredits({ request, env, corsHeaders }) {
 
     const nowIso = new Date().toISOString();
     const statements = [
-      env.DB.prepare(
-        'UPDATE user_credits SET credits = ?, public_id = COALESCE(public_id, ?) WHERE user_id = ?'
-      ).bind(nextCredits, publicId, userId),
+      env.DB.prepare(`
+        INSERT INTO user_credits (user_id, public_id, credits, lifetime)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          credits = excluded.credits,
+          lifetime = excluded.lifetime,
+          public_id = COALESCE(user_credits.public_id, excluded.public_id)
+      `).bind(userId, publicId, nextCredits, nextLifetime ? 1 : 0),
     ];
-
-    if (nextLifetime !== prevLifetime) {
-      if (nextLifetime) {
-        statements.push(
-          env.DB.prepare(`
-            INSERT INTO user_credits (user_id, public_id, credits, lifetime)
-            VALUES (?, ?, ?, 1)
-            ON CONFLICT(user_id) DO UPDATE SET lifetime = 1, public_id = COALESCE(user_credits.public_id, excluded.public_id)
-          `).bind(userId, publicId, nextCredits)
-        );
-      } else {
-        statements.push(
-          env.DB.prepare('UPDATE user_credits SET lifetime = 0 WHERE user_id = ?').bind(userId)
-        );
-      }
-    }
 
     statements.push(
       appendCreditLedgerStatement(env.DB, {
@@ -418,7 +472,7 @@ export async function handleAdminAdjustCredits({ request, env, corsHeaders }) {
         amount: delta,
         referenceType: 'admin_console',
         referenceId: `adj_${Date.now()}`,
-        description: mode === 'lifetime'
+        description: nextLifetime !== prevLifetime
           ? `${reason} (VIP Lifetime: ${nextLifetime ? 'Enabled' : 'Disabled'})`
           : reason,
         metadata: { mode, prevCredits, nextCredits, prevLifetime, nextLifetime },
@@ -560,6 +614,7 @@ export async function handleAdminUpload({ request, env, corsHeaders }) {
     return jsonResponse({
       success: true,
       watermarkPreviewKey,
+      watermarkedPreviewKey: watermarkPreviewKey,
       photo: {
         id: meta.id,
         bucket: target.name,
@@ -577,5 +632,112 @@ export async function handleAdminUpload({ request, env, corsHeaders }) {
   } catch (err) {
     console.error('[Admin] Direct upload error:', err.message);
     return jsonResponse({ success: false, error: err.message || 'Upload failed' }, 500, corsHeaders);
+  }
+}
+
+// ================================================================
+// ENDPOINTS: Admin Verified Creator Review (/api/admin/creators*)
+// ================================================================
+export async function handleAdminListCreators({ request, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
+  try {
+    const [res, cbImgsRes] = await Promise.all([
+      env.DB.prepare(
+        'SELECT creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, reviewed_note, created_at, approved_at, updated_at FROM creator_profiles ORDER BY created_at DESC LIMIT ?'
+      ).bind(200).all(),
+      env.DB.prepare(
+        "SELECT creator_id, uploader FROM images WHERE bucket = 'comitbase'"
+      ).all(),
+    ]);
+
+    const countById = new Map();
+    const countByName = new Map();
+    for (const img of cbImgsRes?.results || []) {
+      if (img.creator_id) {
+        countById.set(img.creator_id, (countById.get(img.creator_id) || 0) + 1);
+      } else if (img.uploader) {
+        const k = String(img.uploader).trim().toLowerCase();
+        countByName.set(k, (countByName.get(k) || 0) + 1);
+      }
+    }
+
+    const creators = (res?.results || []).map((c) => {
+      let socialLinks = [];
+      try { socialLinks = JSON.parse(c.social_links_json || '[]'); } catch {}
+      const normalizedLinks = Array.isArray(socialLinks) ? socialLinks : [];
+      const uploadCount = (countById.get(c.creator_id) || 0)
+        + (c.profile_name ? (countByName.get(c.profile_name.trim().toLowerCase()) || 0) : 0);
+      return {
+        ...c,
+        creatorId: c.creator_id,
+        profileName: c.profile_name,
+        social_links: normalizedLinks,
+        socialLinks: normalizedLinks,
+        uploadCount,
+      };
+    });
+
+    return jsonResponse({ success: true, creators }, 200, corsHeaders, { 'Cache-Control': 'no-store' });
+  } catch (err) {
+    console.error('[Admin] List creators error:', err.message);
+    return jsonResponse({ success: false, error: 'Failed to load creator applications' }, 500, corsHeaders);
+  }
+}
+
+export async function handleAdminCreatorDecision({ request, env, corsHeaders }) {
+  if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
+  }
+
+  const creatorId = String(body?.creatorId || '').trim();
+  const rawAction = String(body?.decision || body?.action || '').trim().toLowerCase();
+  const note = typeof body?.note === 'string' ? body.note.trim().slice(0, 200) : null;
+
+  if (!creatorId) {
+    return jsonResponse({ success: false, error: 'creatorId is required' }, 400, corsHeaders);
+  }
+  if (!['approve', 'approved', 'reject', 'rejected'].includes(rawAction)) {
+    return jsonResponse({ success: false, error: 'decision must be approve or reject' }, 400, corsHeaders);
+  }
+
+  const nextStatus = rawAction.startsWith('approv') ? 'approved' : 'rejected';
+  const nowIso = new Date().toISOString();
+  const approvedAt = nextStatus === 'approved' ? nowIso : null;
+
+  try {
+    const existing = await env.DB.prepare(
+      'SELECT creator_id, user_id, slug, profile_name, status FROM creator_profiles WHERE creator_id = ? LIMIT 1'
+    ).bind(creatorId).first();
+    if (!existing) {
+      return jsonResponse({ success: false, error: 'Creator application not found' }, 404, corsHeaders);
+    }
+
+    await env.DB.prepare(
+      'UPDATE creator_profiles SET status = ?, approved_at = ?, reviewed_note = ?, updated_at = ? WHERE creator_id = ?'
+    ).bind(nextStatus, approvedAt, note || null, nowIso, creatorId).run();
+
+    const updated = await env.DB.prepare(
+      'SELECT creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, reviewed_note, created_at, approved_at, updated_at FROM creator_profiles WHERE creator_id = ? LIMIT 1'
+    ).bind(creatorId).first();
+
+    let socialLinks = [];
+    try { socialLinks = JSON.parse(updated?.social_links_json || '[]'); } catch {}
+
+    return jsonResponse({
+      success: true,
+      creator: {
+        ...updated,
+        social_links: Array.isArray(socialLinks) ? socialLinks : [],
+      },
+      profileUrl: nextStatus === 'approved' ? `/?cat=COMITBASE&creator=${encodeURIComponent(updated?.slug || existing.slug)}` : null,
+    }, 200, corsHeaders, { 'Cache-Control': 'no-store' });
+  } catch (err) {
+    console.error('[Admin] Creator decision error:', err.message);
+    return jsonResponse({ success: false, error: 'Failed to update creator status' }, 500, corsHeaders);
   }
 }

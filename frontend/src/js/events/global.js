@@ -117,9 +117,13 @@ function initGlobalEvents() {
         } else if (action === 'change-category') {
             ui.changeCategory(trigger.dataset.category || 'All');
         } else if (action === 'retry-comitbase') {
-            state.comitbaseError = false;
-            await api.fetchComitbaseImages();
-            ui.renderComitbaseGallery();
+            if (state.currentComitbaseCreatorSlug) {
+                await ui.openComitbaseCreatorProfile(state.currentComitbaseCreatorSlug, { persist: false, scroll: false });
+            } else {
+                state.comitbaseCreatorsError = false;
+                await api.fetchComitbaseCreators();
+                ui.renderComitbaseDirectory();
+            }
         } else if (action === 'retry-dtreasure') {
             state.dtreasureError = false;
             await api.fetchDtreasureImages();

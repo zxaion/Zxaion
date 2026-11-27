@@ -36,6 +36,12 @@ import {
   handleListDtreasure,
   handleTrending,
   handleSubmitComitbase,
+  handleListComitbaseCreators,
+  handleMyCreatorProfile,
+  handleApplyComitbaseCreator,
+  handleGetComitbaseCreator,
+  handleUploadComitbaseCreatorImage,
+  handleDeleteComitbaseCreatorImage,
 } from '../src/routes/gallery.js';
 import { handleRecordView, handleRecordDownload, handleStats, handleToggleReaction } from '../src/routes/stats.js';
 import { createPayPalOrder } from '../src/services/paypal.js';
@@ -47,6 +53,7 @@ import {
   handleRecoverAccount,
   handleCreditPurchase,
   handleCreditSpend,
+  handleDtreasureDownloadToken,
 } from '../src/routes/credits.js';
 import {
   handleAutoAccount,
@@ -77,6 +84,8 @@ import {
   handleAdminBackupRestore,
   handleAdminAdjustCredits,
   handleAdminUpload,
+  handleAdminListCreators,
+  handleAdminCreatorDecision,
 } from '../src/routes/admin.js';
 import {
   injectOpenGraphMetadata,
@@ -456,14 +465,47 @@ test('DTREASURE media route serves watermarked _preview to unpurchased users and
   });
   assert.equal(dlForbidden.status, 403);
 
-  // Unlock item -> authorized view/download serves unwatermarked original
+  // Unlock item -> missing dt_token fails closed (403), signed dt_token serves original bytes
   await env.DB.prepare('INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)').bind(userId, photoId).run();
-  const dlAuthorized = await handleServeImage({
+  const dlMissingTok = await handleServeImage({
     request: makeReq('http://localhost/api/dtreasure/img/vault%2Fimperial_dragon_8k.jpg?download=true', {
       headers: { 'X-User-Token': userId },
     }),
     url: new URL('http://localhost/api/dtreasure/img/vault%2Fimperial_dragon_8k.jpg?download=true'),
     path: '/api/dtreasure/img/vault%2Fimperial_dragon_8k.jpg',
+    env,
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    origin: 'http://localhost:3000',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(dlMissingTok.status, 403);
+
+  const tokRes = await handleDtreasureDownloadToken({
+    request: makeReq('http://localhost/api/dtreasure/download-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': userId },
+      body: { photoId },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(tokRes.status, 200);
+  const { downloadToken } = await tokRes.json();
+  assert.ok(downloadToken);
+
+  const dlAuthorized = await handleServeImage({
+    request: makeReq(`http://localhost/api/dtreasure/img/vault%2Fimperial_dragon_8k.jpg?download=true&dt_token=${encodeURIComponent(downloadToken)}`, {
+      headers: { 'X-User-Token': userId },
+    }),
+    url: new URL(`http://localhost/api/dtreasure/img/vault%2Fimperial_dragon_8k.jpg?download=true&dt_token=${encodeURIComponent(downloadToken)}`),
+    path: '/api/dtreasure/img/vault%2Fimperial_dragon_8k.jpg',
+    env,
     mainBucket: env.Zxaion_B,
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket: env.TREASURE,
@@ -3068,7 +3110,7 @@ test('Quick Love toggle (/api/react/:id), /api/stats/:id, and /api/trending?by=l
   }
 });
 
-test('Email verification grants one-time +5 credits and daily check-in increments UTC streak with 7-day bonus', async () => {
+test('Email verification grants one-time +20 credits and daily check-in increments UTC streak with 7-day bonus', async () => {
   const env = await createLocalEnv();
   env.ALLOW_DEV_OTP_PREVIEW = 'true';
   const userTok = 'tok-checkin-bonus-user';
@@ -3096,7 +3138,7 @@ test('Email verification grants one-time +5 credits and daily check-in increment
 
   const sessionHeaders = { Authorization: `Bearer ${regJson.sessionToken}`, 'Content-Type': 'application/json' };
 
-  // 2. Verify email -> +5 credits + verify_bonus ledger entry
+  // 2. Verify email -> +20 credits + verify_bonus ledger entry
   const verifyRes = await handleVerifyEmail({
     request: makeReq('http://localhost/api/account/verify-email', {
       method: 'POST',
@@ -3109,11 +3151,11 @@ test('Email verification grants one-time +5 credits and daily check-in increment
   });
   assert.equal(verifyRes.status, 200);
   const verified = await verifyRes.json();
-  assert.equal(verified.bonusAwarded, 5);
-  assert.equal(verified.wallet.credits, 5);
+  assert.equal(verified.bonusAwarded, 20);
+  assert.equal(verified.wallet.credits, 20);
   assert.equal(verified.account.emailVerified, true);
 
-  // 3. Daily check-in Day 1 -> +2 credits (total 7), streak = 1
+  // 3. Daily check-in Day 1 -> +2 credits (total 22), streak = 1
   const checkin1 = await (await handleAccountCheckin({
     request: makeReq('http://localhost/api/account/checkin', { method: 'POST', headers: sessionHeaders }),
     DB: env.DB,
@@ -3123,7 +3165,7 @@ test('Email verification grants one-time +5 credits and daily check-in increment
   assert.equal(checkin1.success, true);
   assert.equal(checkin1.awarded, 2);
   assert.equal(checkin1.streak, 1);
-  assert.equal(checkin1.wallet.credits, 7);
+  assert.equal(checkin1.wallet.credits, 22);
 
   // 4. Same-day UTC duplicate check-in does NOT award again
   const checkinDup = await (await handleAccountCheckin({
@@ -3135,7 +3177,7 @@ test('Email verification grants one-time +5 credits and daily check-in increment
   assert.equal(checkinDup.success, false);
   assert.equal(checkinDup.alreadyClaimed, true);
   assert.equal(checkinDup.awarded, 0);
-  assert.equal(checkinDup.wallet.credits, 7);
+  assert.equal(checkinDup.wallet.credits, 22);
 
   // 5. Day 7 streak calculation helper awards +2 daily +5 milestone = +7
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -3281,12 +3323,45 @@ test('Admin direct upload creates _preview/ watermark SVG for DTREASURE, serves 
   })).json();
   assert.equal(setVip.user.lifetime, true);
 
-  // Now VIP user gets original bytes & download allowed!
-  const vipDl = await handleServeImage({
-    request: makeReq(`http://localhost${uploaded.photo.url}?download=true`, { headers: { 'X-User-Token': targetUser } }),
+  // Mint signed download token for VIP user -> forged token rejected (403), valid token downloads (200)
+  const vipMissingTok = await handleServeImage({
+    request: makeReq(`http://localhost${uploaded.photo.url}?download=true&dt_token=invalid.token`, { headers: { 'X-User-Token': targetUser } }),
     ctx: { waitUntil: () => {} },
-    url: new URL(`http://localhost${uploaded.photo.url}?download=true`),
+    url: new URL(`http://localhost${uploaded.photo.url}?download=true&dt_token=invalid.token`),
     path: uploaded.photo.url,
+    env,
+    mainBucket: env.Zxaion_B,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: env.TREASURE,
+    DB: env.DB,
+    IMAGES: null,
+    origin: 'http://localhost',
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(vipMissingTok.status, 403);
+
+  const vipTokRes = await handleDtreasureDownloadToken({
+    request: makeReq('http://localhost/api/dtreasure/download-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': targetUser },
+      body: { photoId: uploaded.photo.id },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(vipTokRes.status, 200);
+  const vipTok = await vipTokRes.json();
+  assert.ok(vipTok.downloadToken);
+
+  const vipDl = await handleServeImage({
+    request: makeReq(`http://localhost${uploaded.photo.url}?download=true&dt_token=${encodeURIComponent(vipTok.downloadToken)}`, { headers: { 'X-User-Token': targetUser } }),
+    ctx: { waitUntil: () => {} },
+    url: new URL(`http://localhost${uploaded.photo.url}?download=true&dt_token=${encodeURIComponent(vipTok.downloadToken)}`),
+    path: uploaded.photo.url,
+    env,
     mainBucket: env.Zxaion_B,
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket: env.TREASURE,
@@ -3321,6 +3396,240 @@ test('SEO photo OpenGraph tags emit og:image:width/height/secure_url, base origi
   assert.ok(photoHtml.includes('<meta property="og:image:width" content="1440">'));
   assert.ok(photoHtml.includes('<meta property="og:image:height" content="2560">'));
   assert.ok(photoHtml.includes('<meta name="twitter:card" content="summary_large_image">'));
+});
+
+test('Quick Fire reaction (/api/react/:id?type=fire) and Top Creators leaderboard (/api/trending?by=creators) enforce deduplication and ranking', async () => {
+  const env = await createLocalEnv();
+  const list = await (await handleListMain({
+    url: new URL('http://localhost/api/list?limit=5'),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  })).json();
+  assert.ok(list.length > 0);
+  const photo = list[0];
+  assert.equal(typeof photo.width, 'number');
+  assert.equal(typeof photo.height, 'number');
+
+  const viewerHeaders = { 'X-User-Token': 'tok-fire-viewer-1', 'CF-Connecting-IP': '10.99.0.1' };
+  const fireAdd = await (await handleToggleReaction({
+    request: makeReq(`http://localhost/api/react/${encodeURIComponent(photo.id)}?type=fire`, {
+      method: 'POST',
+      headers: { ...viewerHeaders, 'Content-Type': 'application/json' },
+      body: { type: 'fire' },
+    }),
+    path: `/api/react/${encodeURIComponent(photo.id)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(fireAdd.success, true);
+  assert.equal(fireAdd.fired, true);
+  assert.equal(fireAdd.fires, (photo.fireCount || 0) + 1);
+
+  const statsRes = await (await handleStats({
+    request: makeReq(`http://localhost/api/stats/${encodeURIComponent(photo.id)}`, { headers: viewerHeaders }),
+    path: `/api/stats/${encodeURIComponent(photo.id)}`,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  })).json();
+  assert.equal(statsRes.fired, true);
+  assert.equal(statsRes.fires, (photo.fireCount || 0) + 1);
+
+  const creatorsBoard = await (await handleTrending({
+    url: new URL('http://localhost/api/trending?limit=10&by=creators'),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  })).json();
+  assert.ok(Array.isArray(creatorsBoard) && creatorsBoard.length >= 3);
+  for (let i = 1; i < creatorsBoard.length; i++) {
+    assert.ok(creatorsBoard[i - 1].weeklyScore >= creatorsBoard[i].weeklyScore);
+  }
+});
+
+test('COMITBASE Verified Creator workflow enforces application validation, admin approval, owner-only uploads, and owner deletes', async () => {
+  const env = await createLocalEnv();
+  const adminToken = env.ADMIN_TOKEN || 'local-dev-admin';
+  const adminHeaders = { 'X-Admin-Token': adminToken, 'Content-Type': 'application/json' };
+  const applicantHeaders = { 'X-User-Token': 'tok-new-creator-42', 'Content-Type': 'application/json' };
+  const strangerHeaders = { 'X-User-Token': 'tok-stranger-99', 'Content-Type': 'application/json' };
+
+  await handleAutoAccount({
+    request: makeReq('http://localhost/api/account/auto', { method: 'POST', headers: applicantHeaders }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+
+  // 1. Reject unsafe or missing social link
+  const badRes = await handleApplyComitbaseCreator({
+    request: makeReq('http://localhost/api/comitbase/creators/apply', {
+      method: 'POST',
+      headers: applicantHeaders,
+      body: { profileName: 'Lumina Ink', description: 'Original anime matte paintings and cyber landscapes.', socialLinks: ['javascript:alert(1)'] },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(badRes.status, 400);
+
+  // 2. Valid application starts as pending & hidden from public directory
+  const applyRes = await handleApplyComitbaseCreator({
+    request: makeReq('http://localhost/api/comitbase/creators/apply', {
+      method: 'POST',
+      headers: applicantHeaders,
+      body: {
+        profileName: 'Lumina Ink Studio',
+        description: 'High-detail cyberpunk and mecha illustrations painted at 4K resolution.',
+        socialLinks: ['https://x.com/luminaink', 'https://pixiv.net/users/12345'],
+      },
+    }),
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+  });
+  assert.equal(applyRes.status, 201);
+  const applied = await applyRes.json();
+  assert.equal(applied.creator.status, 'pending');
+  const slug = applied.creator.slug;
+
+  const publicBefore = await (await handleListComitbaseCreators({
+    url: new URL('http://localhost/api/comitbase/creators'),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+  })).json();
+  assert.ok(!publicBefore.creators.some((c) => c.slug === slug));
+
+  // Pending creator cannot upload yet (403)
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  png.set([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52], 8);
+  new DataView(png.buffer).setUint32(16, 1920, false);
+  new DataView(png.buffer).setUint32(20, 1080, false);
+  const dataUrl = `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
+
+  const pendingUpload = await handleUploadComitbaseCreatorImage({
+    request: makeReq(`http://localhost/api/comitbase/creators/${slug}/upload`, {
+      method: 'POST',
+      headers: applicantHeaders,
+      body: { title: 'Blocked Pending Art', imageData: dataUrl },
+    }),
+    comitbaseBucket: env.ZX_BUCKET,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    creatorSlug: slug,
+  });
+  assert.equal(pendingUpload.status, 403);
+
+  // 3. Admin lists & approves -> automatic profile visibility
+  const adminCreators = await (await handleAdminListCreators({
+    request: makeReq('http://localhost/api/admin/creators', { headers: adminHeaders }),
+    env,
+    corsHeaders,
+  })).json();
+  assert.ok(adminCreators.creators.some((c) => c.creatorId === applied.creator.creatorId && c.status === 'pending'));
+
+  const decisionRes = await handleAdminCreatorDecision({
+    request: makeReq('http://localhost/api/admin/creators/decision', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { creatorId: applied.creator.creatorId, decision: 'approve' },
+    }),
+    env,
+    corsHeaders,
+  });
+  assert.equal(decisionRes.status, 200);
+  const decided = await decisionRes.json();
+  assert.equal(decided.creator.status, 'approved');
+
+  // 4. Non-owner upload blocked (403); Owner upload succeeds (201) & appears on profile
+  const strangerUpload = await handleUploadComitbaseCreatorImage({
+    request: makeReq(`http://localhost/api/comitbase/creators/${slug}/upload`, {
+      method: 'POST',
+      headers: strangerHeaders,
+      body: { title: 'Hijack Attempt', imageData: dataUrl },
+    }),
+    comitbaseBucket: env.ZX_BUCKET,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    creatorSlug: slug,
+  });
+  assert.equal(strangerUpload.status, 403);
+
+  const ownerUpload = await handleUploadComitbaseCreatorImage({
+    request: makeReq(`http://localhost/api/comitbase/creators/${slug}/upload`, {
+      method: 'POST',
+      headers: applicantHeaders,
+      body: { title: 'Astral Neon Skyline', imageData: dataUrl },
+    }),
+    comitbaseBucket: env.ZX_BUCKET,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    creatorSlug: slug,
+  });
+  assert.equal(ownerUpload.status, 201);
+  const uploadedArt = await ownerUpload.json();
+  assert.equal(uploadedArt.photo.width, 1920);
+  assert.equal(uploadedArt.photo.height, 1080);
+
+  const profileRes = await (await handleGetComitbaseCreator({
+    request: makeReq(`http://localhost/api/comitbase/creators/${slug}`, { headers: applicantHeaders }),
+    env,
+    ctx: { waitUntil: () => {} },
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    creatorSlug: slug,
+  })).json();
+  assert.equal(profileRes.isOwner, true);
+  assert.equal(profileRes.creator.profileName, 'Lumina Ink Studio');
+  assert.ok(profileRes.creator.socialLinks.length === 2);
+  assert.ok(profileRes.photos.some((p) => p.id === uploadedArt.photo.id));
+
+  // 5. Owner deletes own artwork
+  const delRes = await handleDeleteComitbaseCreatorImage({
+    request: makeReq(`http://localhost/api/comitbase/creators/${slug}/images/${encodeURIComponent(uploadedArt.photo.id)}`, {
+      method: 'DELETE',
+      headers: applicantHeaders,
+    }),
+    comitbaseBucket: env.ZX_BUCKET,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    creatorSlug: slug,
+    targetImageId: uploadedArt.photo.id,
+  });
+  assert.equal(delRes.status, 200);
+});
+
+test('Built frontend enforces updated emails, logo asset, CSP purity, WebP thumbnails, and new feature UI markers', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  const html = fs.readFileSync(path.resolve('frontend/dist/index.html'), 'utf8');
+  const script = fs.readFileSync(path.resolve('frontend/dist/script.js'), 'utf8');
+  const combined = `${html}\n${script}`;
+
+  assert.equal(/zxaionxl/i.test(combined), false, 'Old email zxaionxl should be completely removed');
+  assert.ok(combined.includes('zxaionart@gmail.com'));
+  assert.ok(combined.includes('zvizualscl@gmail.com'));
+  assert.equal(html.includes('/api/img/HEADER/Logo.png'), false, 'Old Logo.png header URL should be replaced');
+  assert.ok(html.includes('/assets/brand-logo.jpg'));
+  assert.ok(html.includes('Preview on Device'));
+  assert.ok(html.includes('+20 Bonus Credits'));
+  assert.ok(html.includes('Top Creators'));
+  assert.ok(script.includes('w:480') || script.includes('w: 480'));
+  assert.equal(/\son(click|change|submit|input)=/i.test(html), false, 'Strict CSP forbids inline HTML event handlers');
 });
 
 

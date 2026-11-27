@@ -99,15 +99,9 @@ function initPaginationEvents() {
         });
     });
 
-    // COMIT HERE — In-website upload modal
-    let comitbasePendingDataUrl = '';
+    // COMITBASE — Verified Creator Application, Directory Search & Owner Upload Studio
     const comitModal = document.getElementById('comitbase-submit-modal');
-    const comitFileInput = document.getElementById('comitbase-file-input');
-    const comitPreviewImg = document.getElementById('comitbase-preview-img');
-    const comitPlaceholder = document.getElementById('comitbase-upload-placeholder');
-    const comitFileMeta = document.getElementById('comitbase-file-meta');
     const comitErrBox = document.getElementById('comitbase-submit-error');
-
     const showComitError = (msg) => {
         if (!comitErrBox) return;
         comitErrBox.textContent = msg;
@@ -115,7 +109,6 @@ function initPaginationEvents() {
     };
 
     document.getElementById('comit-here-btn')?.addEventListener('click', () => {
-        comitbasePendingDataUrl = '';
         ui.openComitbaseSubmitModal();
     });
 
@@ -125,77 +118,119 @@ function initPaginationEvents() {
         if (e.target === comitModal) ui.closeComitbaseSubmitModal();
     });
 
-    comitFileInput?.addEventListener('change', (e) => {
-        const file = e.target.files?.[0];
-        comitErrBox?.classList.add('hidden');
-        comitbasePendingDataUrl = '';
-        if (!file) return;
-        if (file.size > 5 * 1024 * 1024) {
-            showComitError('Image file exceeds 5 MB limit.');
-            comitFileInput.value = '';
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            const result = typeof reader.result === 'string' ? reader.result : '';
-            if (!result.startsWith('data:image/')) {
-                showComitError('Invalid image format. Please choose PNG, JPEG, WebP, or GIF.');
-                return;
-            }
-            comitbasePendingDataUrl = result;
-            if (comitPreviewImg) {
-                comitPreviewImg.src = result;
-                comitPreviewImg.classList.remove('hidden');
-            }
-            comitPlaceholder?.classList.add('hidden');
-            if (comitFileMeta) {
-                comitFileMeta.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-            }
-        };
-        reader.readAsDataURL(file);
-    });
-
     document.getElementById('comitbase-submit-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         comitErrBox?.classList.add('hidden');
-        const title = document.getElementById('comitbase-title-input')?.value?.trim() || '';
-        const creator = document.getElementById('comitbase-creator-input')?.value?.trim() || '';
-        const submitBtn = document.getElementById('comitbase-submit-btn');
+        const profileName = document.getElementById('creator-apply-name')?.value?.trim() || '';
+        const description = document.getElementById('creator-apply-desc')?.value?.trim() || '';
+        const social1 = document.getElementById('creator-apply-social-1')?.value?.trim() || '';
+        const social2 = document.getElementById('creator-apply-social-2')?.value?.trim() || '';
+
+        if (profileName.length < 2) {
+            showComitError('Profile Name must be at least 2 characters.');
+            return;
+        }
+        if (description.length < 10) {
+            showComitError('Profile Description must be at least 10 characters.');
+            return;
+        }
+        const isHttpUrl = (val) => {
+            try {
+                const u = new URL(val);
+                return u.protocol === 'https:' || u.protocol === 'http:';
+            } catch {
+                return false;
+            }
+        };
+        if (!isHttpUrl(social1)) {
+            showComitError('Please provide a valid social media link (https://...).');
+            return;
+        }
+        if (social2 && !isHttpUrl(social2)) {
+            showComitError('Secondary social link must start with https:// or http://.');
+            return;
+        }
+        const socialLinks = social2 ? [social1, social2] : [social1];
+        await ui.submitCreatorApplication({ profileName, description, socialLinks });
+    });
+
+    document.getElementById('comitbase-creator-search')?.addEventListener('input', (e) => {
+        state.comitbaseCreatorSearch = e.target.value || '';
+        ui.renderComitbaseDirectory();
+    });
+
+    document.getElementById('comitbase-creators-grid')?.addEventListener('click', (e) => {
+        if (e.target.closest('[data-social-link]') || e.target.closest('a[href]')) return;
+        const trigger = e.target.closest('[data-creator-slug]') || e.target.closest('[data-creator-card]');
+        if (!trigger) return;
+        const slug = trigger.dataset.creatorSlug || trigger.dataset.creatorCard;
+        if (slug) {
+            ui.openComitbaseCreatorProfile(slug);
+        }
+    });
+
+    document.getElementById('comitbase-back-creators-btn')?.addEventListener('click', () => {
+        ui.closeComitbaseCreatorProfile();
+    });
+
+    document.getElementById('comitbase-profile-share-btn')?.addEventListener('click', async () => {
+        const slug = state.currentComitbaseCreatorSlug;
+        if (!slug) return;
+        const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+        const profileUrl = `${origin}/?cat=COMITBASE&creator=${encodeURIComponent(slug)}`;
+        try {
+            await utils.copyText(profileUrl);
+            ui.showToast('Creator profile link copied!', 'success');
+        } catch {
+            ui.showToast(`Profile URL: ${profileUrl}`, 'info');
+        }
+    });
+
+    document.getElementById('comitbase-owner-upload-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const titleInput = document.getElementById('creator-upload-title');
+        const fileInput = document.getElementById('creator-upload-file');
+        const alertEl = document.getElementById('creator-upload-alert');
+        const title = titleInput?.value?.trim() || '';
+        const file = fileInput?.files?.[0];
 
         if (title.length < 2) {
-            showComitError('Please enter a valid artwork title (min 2 characters).');
+            if (alertEl) {
+                alertEl.className = 'p-3 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-semibold';
+                alertEl.textContent = 'Please enter a valid artwork title (min 2 characters).';
+                alertEl.classList.remove('hidden');
+            }
             return;
         }
-        if (!comitbasePendingDataUrl) {
-            showComitError('Please choose an image file to publish.');
+        if (!file) {
+            if (alertEl) {
+                alertEl.className = 'p-3 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-semibold';
+                alertEl.textContent = 'Please select an image file first.';
+                alertEl.classList.remove('hidden');
+            }
             return;
         }
-
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Publishing...</span>';
-        }
-
-        const res = await api.submitComitbaseArtwork({
-            title,
-            creator,
-            imageData: comitbasePendingDataUrl,
-        });
-
-        if (submitBtn) {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="fas fa-paper-plane" aria-hidden="true"></i><span>Publish to COMITBASE</span>';
-        }
-
-        if (!res.success) {
-            showComitError(res.error || 'Submission failed.');
+        if (file.size > 5 * 1024 * 1024) {
+            if (alertEl) {
+                alertEl.className = 'p-3 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-semibold';
+                alertEl.textContent = 'Image file exceeds 5 MB limit.';
+                alertEl.classList.remove('hidden');
+            }
             return;
         }
 
-        comitbasePendingDataUrl = '';
-        ui.closeComitbaseSubmitModal();
-        state.currentComitbasePage = 1;
-        ui.renderComitbaseGallery();
-        ui.showToast(`"${res.photo?.title || title}" published to COMITBASE!`, 'success', 4500);
+        const reader = new FileReader();
+        reader.onload = async () => {
+            const result = typeof reader.result === 'string' ? reader.result : '';
+            if (!result.startsWith('data:image/')) {
+                ui.showToast('Unsupported image file.', 'error');
+                return;
+            }
+            const ok = await ui.submitCreatorArtwork({ title, imageData: result });
+            if (ok) {
+                e.target.reset();
+            }
+        };
+        reader.readAsDataURL(file);
     });
 }

@@ -209,6 +209,12 @@
                         <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
                         <span>Upload Media</span>
                     </button>
+
+                    <button type="button" data-tab="creators" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-all">
+                        <i class="fas fa-certificate" aria-hidden="true"></i>
+                        <span>Creators</span>
+                        <span id="admin-tab-count-creators" class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20">0</span>
+                    </button>
                 </div>
 
                 <!-- Table Search -->
@@ -508,6 +514,47 @@
                         </label>
                     </div>
                 </form>
+            </div>
+
+            <!-- Tab 7: Verified Creator Applications & Directory -->
+            <div id="admin-panel-creators" class="admin-tab-panel hidden bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+                <div class="p-4 border-b border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <h2 class="font-bold text-gray-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+                            <i class="fas fa-certificate text-teal-500" aria-hidden="true"></i>
+                            <span>COMITBASE Verified Creator Applications</span>
+                        </h2>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            Approving a creator automatically creates their public COMITBASE profile page and enables creator uploads.
+                        </p>
+                    </div>
+                    <span id="admin-creators-pending-badge" class="text-xs px-2.5 py-1 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400 font-bold">0 Pending</span>
+                </div>
+
+                <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+                    <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                        <thead class="bg-gray-50 dark:bg-gray-800/80 sticky top-0 z-10 text-gray-500 dark:text-gray-400 uppercase text-[11px] font-bold">
+                            <tr>
+                                <th class="p-3.5">Profile Name / Slug</th>
+                                <th class="p-3.5">Description</th>
+                                <th class="p-3.5">Social Links</th>
+                                <th class="p-3.5">Status</th>
+                                <th class="p-3.5">Uploads</th>
+                                <th class="p-3.5 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-creators-table-body" class="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300 text-xs">
+                            <tr>
+                                <td colspan="6" class="p-8 text-center text-gray-400">Loading creator applications...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="text-center text-xs text-gray-500 dark:text-gray-400 pt-1">
+                Admin Support: <a href="mailto:zvizualscl@gmail.com" class="text-amber-600 dark:text-amber-400 font-semibold hover:underline">zvizualscl@gmail.com</a>
+                · Official Brand: <a href="mailto:zxaionart@gmail.com" class="text-amber-600 dark:text-amber-400 font-semibold hover:underline">zxaionart@gmail.com</a>
             </div>
         </div>
 

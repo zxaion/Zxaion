@@ -105,20 +105,52 @@ Object.assign(ui, {
         return toast;
     },
 
-    async _fetchDownloadBlob(downloadUrl, authenticated) {
+    async _fetchDownloadBlob(downloadUrl, authenticated, downloadToken = '') {
+        const headers = authenticated
+            ? getAuthHeaders(downloadToken ? { 'X-Download-Token': downloadToken } : {})
+            : undefined;
         const res = await fetch(downloadUrl, authenticated ? {
             method: 'GET',
             credentials: 'same-origin',
-            headers: getAuthHeaders(),
+            headers,
         } : undefined);
         if (!res.ok) {
             let errMsg = `Download failed (HTTP ${res.status})`;
             if (authenticated) {
                 try { const err = await res.json(); errMsg = err.error || errMsg; } catch (_) {}
             }
-            throw new Error(errMsg);
+            const err = new Error(errMsg);
+            err.status = res.status;
+            throw err;
         }
         return res.blob();
+    },
+
+    async _fetchProtectedDtreasureBlob(photo, baseDownloadUrl) {
+        let tokenRes = await api.requestDtreasureDownloadToken(photo.id);
+        if (!tokenRes.success || !tokenRes.downloadToken) {
+            throw new Error(tokenRes.error || 'Download authorization failed');
+        }
+        const sep = baseDownloadUrl.includes('?') ? '&' : '?';
+        try {
+            return await this._fetchDownloadBlob(
+                `${baseDownloadUrl}${sep}dt_token=${encodeURIComponent(tokenRes.downloadToken)}`,
+                true,
+                tokenRes.downloadToken
+            );
+        } catch (err) {
+            if (err && err.status === 403) {
+                tokenRes = await api.requestDtreasureDownloadToken(photo.id, true);
+                if (tokenRes.success && tokenRes.downloadToken) {
+                    return await this._fetchDownloadBlob(
+                        `${baseDownloadUrl}${sep}dt_token=${encodeURIComponent(tokenRes.downloadToken)}`,
+                        true,
+                        tokenRes.downloadToken
+                    );
+                }
+            }
+            throw err;
+        }
     },
 
     async triggerDownload(photo) {
@@ -139,9 +171,9 @@ Object.assign(ui, {
         const filename    = (photo.title || 'wallpaper').replace(/[^a-z0-9_\-\.]/gi, '_') + ext;
 
         if (isDtreasure) {
-            const loadingToast = this._createDownloadToast('<i class="fas fa-spinner fa-spin"></i> Preparing download...');
+            const loadingToast = this._createDownloadToast('<i class="fas fa-spinner fa-spin"></i> Verifying secure download token...');
             try {
-                const blob = await this._fetchDownloadBlob(downloadUrl, true);
+                const blob = await this._fetchProtectedDtreasureBlob(photo, downloadUrl);
                 utils.downloadBlob(blob, filename, 5000);
                 this.recordPhotoDownload(photo);
                 loadingToast.innerHTML = '<i class="fas fa-check-circle text-green-400"></i> Download started!';
@@ -179,7 +211,9 @@ Object.assign(ui, {
         const loadingToast = this._createDownloadToast(`<i class="fas fa-spinner fa-spin"></i> Preparing ${preset.tag} resolution...`);
 
         try {
-            const imageBlob = await this._fetchDownloadBlob(downloadUrl, isDtreasure);
+            const imageBlob = isDtreasure
+                ? await this._fetchProtectedDtreasureBlob(photo, downloadUrl)
+                : await this._fetchDownloadBlob(downloadUrl, false);
             const img = new Image();
             const blobUrl = URL.createObjectURL(imageBlob);
 

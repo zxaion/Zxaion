@@ -218,7 +218,7 @@ export function buildWatermarkedPreviewSvg({ title = 'Exclusive Edition', catego
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
 
-  const safeDataUri = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(String(previewDataUri || '').trim())
+  const safeDataUri = /^data:image\/(png|jpeg|jpg|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/i.test(String(previewDataUri || '').trim())
     ? String(previewDataUri).trim()
     : '';
 

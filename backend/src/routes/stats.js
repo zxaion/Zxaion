@@ -20,7 +20,7 @@ function resolveStatsActor(request, getUserToken) {
 }
 
 // ================================================================
-// ENDPOINT: Image stats (views, downloads, loves, loved)
+// ENDPOINT: Image stats (views, downloads, loves, fires, loved, fired)
 // ================================================================
 export async function handleStats({ request, path, DB, corsHeaders, getUserToken }) {
   const photoId = extractPhotoId(path, '/api/stats/');
@@ -29,17 +29,20 @@ export async function handleStats({ request, path, DB, corsHeaders, getUserToken
   }
   try {
     const row = await DB.prepare(
-      'SELECT view_count, download_count, love_count FROM images WHERE id = ?'
+      'SELECT view_count, download_count, love_count, fire_count FROM images WHERE id = ?'
     ).bind(photoId).first();
 
     let loved = false;
+    let fired = false;
     if (request) {
       const { dedupActor } = resolveStatsActor(request, getUserToken);
       if (dedupActor && dedupActor !== 'anonymous') {
-        const rx = await DB.prepare(
-          'SELECT 1 FROM reactions WHERE photo_id = ? AND user_id = ?'
-        ).bind(photoId, dedupActor).first();
-        loved = !!rx;
+        const rxRes = await DB.prepare(
+          'SELECT reaction_type FROM reactions WHERE photo_id = ? AND user_id = ?'
+        ).bind(photoId, dedupActor).all();
+        const types = new Set((rxRes?.results || []).map((r) => r.reaction_type || 'love'));
+        loved = types.has('love');
+        fired = types.has('fire');
       }
     }
 
@@ -47,21 +50,36 @@ export async function handleStats({ request, path, DB, corsHeaders, getUserToken
       views:     row?.view_count     || 0,
       downloads: row?.download_count || 0,
       loves:     row?.love_count     || 0,
+      fires:     row?.fire_count     || 0,
       loved,
+      fired,
     }, 200, corsHeaders);
   } catch (e) {
     console.error('/api/stats error:', e.message);
-    return jsonResponse({ views: 0, downloads: 0, loves: 0, loved: false }, 200, corsHeaders);
+    return jsonResponse({ views: 0, downloads: 0, loves: 0, fires: 0, loved: false, fired: false }, 200, corsHeaders);
   }
 }
 
 // ================================================================
-// ENDPOINT: Toggle Love reaction (POST /api/react/:id)
+// ENDPOINT: Toggle Love or Fire reaction (POST /api/react/:id)
 // ================================================================
-export async function handleToggleReaction({ request, path, DB, corsHeaders, getUserToken, checkRateLimit }) {
+export async function handleToggleReaction({ request, path, url, DB, corsHeaders, getUserToken, checkRateLimit }) {
   const photoId = extractPhotoId(path, '/api/react/');
   if (!photoId) {
     return jsonResponse({ success: false, error: 'Invalid photo ID' }, 400, corsHeaders);
+  }
+
+  let requestedType = '';
+  try {
+    requestedType = url?.searchParams?.get('type') || '';
+    if (!requestedType && request.headers.get('Content-Type')?.includes('application/json')) {
+      const body = await request.clone().json().catch(() => null);
+      if (body?.type) requestedType = String(body.type);
+    }
+  } catch {}
+  const reactionType = (requestedType || 'love').trim().toLowerCase();
+  if (reactionType !== 'love' && reactionType !== 'fire') {
+    return jsonResponse({ success: false, error: 'Reaction type must be love or fire' }, 400, corsHeaders);
   }
 
   const { rateLimitKey, dedupActor } = resolveStatsActor(request, getUserToken);
@@ -71,39 +89,48 @@ export async function handleToggleReaction({ request, path, DB, corsHeaders, get
 
   try {
     const imageRow = await DB.prepare(
-      'SELECT view_count, download_count, love_count FROM images WHERE id = ?'
+      'SELECT view_count, download_count, love_count, fire_count FROM images WHERE id = ?'
     ).bind(photoId).first();
     if (!imageRow) {
       return jsonResponse({ success: false, error: 'Image not found' }, 404, corsHeaders);
     }
 
+    const countCol = reactionType === 'fire' ? 'fire_count' : 'love_count';
     const existing = await DB.prepare(
-      'SELECT 1 FROM reactions WHERE photo_id = ? AND user_id = ?'
-    ).bind(photoId, dedupActor).first();
+      'SELECT 1 FROM reactions WHERE photo_id = ? AND user_id = ? AND reaction_type = ?'
+    ).bind(photoId, dedupActor, reactionType).first();
 
-    let loved;
     if (existing) {
       await DB.batch([
-        DB.prepare('DELETE FROM reactions WHERE photo_id = ? AND user_id = ?').bind(photoId, dedupActor),
-        DB.prepare('UPDATE images SET love_count = MAX(0, COALESCE(love_count, 0) - 1) WHERE id = ?').bind(photoId),
+        DB.prepare('DELETE FROM reactions WHERE photo_id = ? AND user_id = ? AND reaction_type = ?')
+          .bind(photoId, dedupActor, reactionType),
+        DB.prepare(`UPDATE images SET ${countCol} = MAX(0, COALESCE(${countCol}, 0) - 1) WHERE id = ?`)
+          .bind(photoId),
       ]);
-      loved = false;
     } else {
       await DB.batch([
-        DB.prepare('INSERT OR IGNORE INTO reactions (photo_id, user_id, created_at) VALUES (?, ?, ?)').bind(photoId, dedupActor, new Date().toISOString()),
-        DB.prepare('UPDATE images SET love_count = COALESCE(love_count, 0) + 1 WHERE id = ?').bind(photoId),
+        DB.prepare('INSERT OR IGNORE INTO reactions (photo_id, user_id, reaction_type, created_at) VALUES (?, ?, ?, ?)')
+          .bind(photoId, dedupActor, reactionType, new Date().toISOString()),
+        DB.prepare(`UPDATE images SET ${countCol} = COALESCE(${countCol}, 0) + 1 WHERE id = ?`)
+          .bind(photoId),
       ]);
-      loved = true;
     }
 
     const updated = await DB.prepare(
-      'SELECT view_count, download_count, love_count FROM images WHERE id = ?'
+      'SELECT view_count, download_count, love_count, fire_count FROM images WHERE id = ?'
     ).bind(photoId).first();
+    const rxRes = await DB.prepare(
+      'SELECT reaction_type FROM reactions WHERE photo_id = ? AND user_id = ?'
+    ).bind(photoId, dedupActor).all();
+    const activeTypes = new Set((rxRes?.results || []).map((r) => r.reaction_type || 'love'));
 
     return jsonResponse({
       success: true,
-      loved,
-      loves: updated?.love_count || 0,
+      type:    reactionType,
+      loved:   activeTypes.has('love'),
+      fired:   activeTypes.has('fire'),
+      loves:   updated?.love_count || 0,
+      fires:   updated?.fire_count || 0,
     }, 200, corsHeaders, { 'Cache-Control': 'no-store' });
   } catch (e) {
     console.error('/api/react error:', e.message);

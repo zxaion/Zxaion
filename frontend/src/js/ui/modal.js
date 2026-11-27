@@ -52,28 +52,45 @@ Object.assign(ui, {
         if (!photo) return [];
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
         const isComitbase = photo.category === 'COMITBASE' || photo.searchCategory === 'COMITBASE';
-        const pool = isDtreasure
+        let pool = isDtreasure
             ? (state.dtreasurePhotos || [])
             : (isComitbase ? (state.comitbasePhotos || []) : (state.allPhotos || []));
+        if (isComitbase && pool.length < 4 && Array.isArray(state.allPhotos) && state.allPhotos.length > 0) {
+            pool = [...pool, ...state.allPhotos];
+        }
 
         const targetSub = String(photo.subCategory || '').trim().toLowerCase();
         const targetCat = String(photo.category || '').trim().toLowerCase();
+        const tokenize = (txt) => String(txt || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .split(' ')
+            .filter(w => w.length >= 3);
+        const targetTokens = new Set([...tokenize(photo.title), ...tokenize(photo.subCategory)]);
 
+        const seenIds = new Set();
         const scored = [];
         for (const item of pool) {
-            if (!item || !item.id || item.id === photo.id) continue;
+            if (!item || !item.id || item.id === photo.id || seenIds.has(item.id)) continue;
+            seenIds.add(item.id);
             if (item.path && item.path.toLowerCase().startsWith('header/')) continue;
             const sub = String(item.subCategory || '').trim().toLowerCase();
             const cat = String(item.category || '').trim().toLowerCase();
             let tier = 1;
-            if (targetSub && sub && sub === targetSub) tier = 3;
-            else if (targetCat && cat && cat === targetCat) tier = 2;
-            const eng = (item.loveCount || 0) * 3 + (item.downloadCount || 0) * 2 + (item.viewCount || 0);
-            scored.push({ item, tier, eng });
+            if (targetSub && sub && sub === targetSub) tier = 4;
+            else if (targetCat && cat && cat === targetCat) tier = 3;
+
+            const itemTokens = new Set([...tokenize(item.title), ...tokenize(item.subCategory)]);
+            let themeOverlap = 0;
+            targetTokens.forEach(tok => { if (itemTokens.has(tok)) themeOverlap++; });
+
+            const eng = (item.loveCount || 0) * 3 + (item.fireCount || 0) * 2 + (item.downloadCount || 0) * 2 + (item.viewCount || 0);
+            scored.push({ item, tier, themeOverlap, eng });
         }
 
         scored.sort((a, b) => {
             if (b.tier !== a.tier) return b.tier - a.tier;
+            if (b.themeOverlap !== a.themeOverlap) return b.themeOverlap - a.themeOverlap;
             return b.eng - a.eng;
         });
 
@@ -102,7 +119,7 @@ Object.assign(ui, {
         related.forEach((rel) => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'group relative aspect-[3/4] rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-900 border border-gray-200/80 dark:border-gray-700 hover:border-amber-500 transition-all cursor-pointer text-left';
+            btn.className = 'group relative aspect-square rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-900 border border-gray-200/80 dark:border-gray-700 hover:border-amber-500 transition-all cursor-pointer text-left';
             btn.dataset.relatedId = rel.id;
             btn.setAttribute('aria-label', `Preview ${rel.title || 'related wallpaper'}`);
 
@@ -229,8 +246,8 @@ Object.assign(ui, {
         }
 
         const previewCandidates = utils.getImageFallbackCandidates(photo.url, {
-            w:   isDtreasure ? 600 : 1400,
-            q:   isDtreasure ? 75  : 85,
+            w:   isDtreasure ? 480 : 1400,
+            q:   isDtreasure ? 72  : 85,
             fit: 'scale-down',
             fmt: 'auto',
         });
@@ -543,6 +560,8 @@ Object.assign(ui, {
         const displayDownloads = photo.downloadCount || 0;
         const displayLoves     = Number(state.photoLoveCounts?.[photo.id] ?? photo.loveCount ?? 0);
         const isLoved          = Boolean(state.lovedPhotos?.has(photo.id));
+        const displayFires     = Number(state.photoFireCounts?.[photo.id] ?? photo.fireCount ?? 0);
+        const isFired          = Boolean(state.firedPhotos?.has(photo.id));
 
         const imageUrl    = utils.encodeImageUrlPath(photo.url);
         const isDtreasure = photo.category === 'DTREASURE' || photo.searchCategory === 'DTREASURE';
@@ -555,6 +574,7 @@ Object.assign(ui, {
         elements.modalViewCount.textContent     = utils.formatNumber(displayViews);
         elements.modalDownloadCount.textContent = utils.formatNumber(displayDownloads);
         this.syncLoveUi(photo.id, displayLoves, isLoved);
+        this.syncFireUi?.(photo.id, displayFires, isFired);
 
         const dimBadge = document.getElementById('modal-dimensions-badge');
         if (dimBadge) {
@@ -574,15 +594,23 @@ Object.assign(ui, {
                 const v = Math.max(photo.viewCount || 0, fresh.views || 0);
                 const d = Math.max(photo.downloadCount || 0, fresh.downloads || 0);
                 const l = Math.max(0, Number(fresh.loves ?? photo.loveCount ?? 0));
+                const f = Math.max(0, Number(fresh.fires ?? photo.fireCount ?? 0));
                 photo.viewCount = v;
                 photo.downloadCount = d;
                 photo.loveCount = l;
+                photo.fireCount = f;
                 state.photoLoveCounts[photo.id] = l;
+                if (!state.photoFireCounts) state.photoFireCounts = {};
+                state.photoFireCounts[photo.id] = f;
                 if (fresh.loved) state.lovedPhotos.add(photo.id);
                 else state.lovedPhotos.delete(photo.id);
+                if (!state.firedPhotos) state.firedPhotos = new Set();
+                if (fresh.fired) state.firedPhotos.add(photo.id);
+                else state.firedPhotos.delete(photo.id);
                 if (elements.modalViewCount) elements.modalViewCount.textContent = utils.formatNumber(v);
                 if (elements.modalDownloadCount) elements.modalDownloadCount.textContent = utils.formatNumber(d);
                 this.syncLoveUi(photo.id, l, Boolean(fresh.loved));
+                this.syncFireUi?.(photo.id, f, Boolean(fresh.fired));
             }).catch(() => {});
         }
 

@@ -3,11 +3,18 @@
  * Depends on: ui (base.js), state, elements, api, window.headerBackgrounds
  */
 Object.assign(ui, {
-    changeCategory(category, { scroll = true, preservePage = false, persist = true } = {}) {
+    changeCategory(category, { scroll = true, preservePage = false, persist = true, creatorSlug = null } = {}) {
         if (!category) return;
 
         state.currentCategory   = category;
         state.currentAnimeAlbum = null;
+        if (category !== 'COMITBASE') {
+            state.currentComitbaseCreatorSlug = null;
+            state.currentComitbaseCreator = null;
+        } else {
+            state.currentComitbaseCreatorSlug = creatorSlug ? String(creatorSlug).trim().toLowerCase() : null;
+            if (!state.currentComitbaseCreatorSlug) state.currentComitbaseCreator = null;
+        }
         if (!preservePage) {
             state.resetPagination();
         }
@@ -66,9 +73,24 @@ Object.assign(ui, {
 
         } else if (category === 'COMITBASE') {
             state.sortBy = 'latest';
-            this.showToolbar();
             if (elements.comitbaseSection) elements.comitbaseSection.classList.remove('hidden');
-            this.renderComitbaseGallery();
+            if (state.currentComitbaseCreatorSlug) {
+                this.openComitbaseCreatorProfile(state.currentComitbaseCreatorSlug, { persist, scroll: false });
+            } else {
+                this.renderComitbaseDirectory();
+                if (!state.comitbaseCreatorsLoaded) {
+                    api.fetchComitbaseCreators().then(() => {
+                        if (state.currentCategory === 'COMITBASE' && !state.currentComitbaseCreatorSlug) {
+                            this.renderComitbaseDirectory();
+                        }
+                    }).catch(() => {});
+                }
+            }
+            api.fetchMyCreatorProfile?.().then(() => {
+                if (state.currentCategory === 'COMITBASE' && !state.currentComitbaseCreatorSlug) {
+                    this._syncComitbaseCtaAndBanner?.();
+                }
+            }).catch(() => {});
 
         } else if (category === 'DTREASURE') {
             state.sortBy = 'latest';
@@ -113,7 +135,7 @@ Object.assign(ui, {
             'Abstract':    { title: 'Abstract & Texture',    desc: 'Exploration of shapes and colors.' },
             'Photography': { title: 'Photography Lens',      desc: 'Real moments in high resolution.' },
             'Fantasy':     { title: 'Fantasy & Myth',        desc: 'Dragons, magic, and medieval worlds.' },
-            'COMITBASE':   { title: 'WORLDWIDE COLLECTION',  desc: 'Share your visual composition all around the world' },
+            'COMITBASE':   { title: 'COMITBASE CREATORS',    desc: 'Discover verified creator profiles and curated visual collections' },
             'DTREASURE':   { title: 'DTREASURE VAULT',       desc: 'Exclusive content, commercial use, best value' },
             'ZMEME':       { title: 'ZMEME',                 desc: 'Memes and fun images' },
             'OVERLAY':     { title: 'OVERLAY',               desc: 'Overlay graphics and templates' }
@@ -204,7 +226,7 @@ Object.assign(ui, {
         } else {
             if (elements.searchClear) elements.searchClear.classList.add('hidden');
             state.currentAnimeAlbum = null;
-            this.changeCategory(state.currentCategory);
+            this.changeCategory(state.currentCategory, { creatorSlug: state.currentComitbaseCreatorSlug });
         }
     },
 });

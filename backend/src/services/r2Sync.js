@@ -1,9 +1,10 @@
-import { parseImageMeta } from './imageMeta.js';
+import { parseImageMeta, extractImageDimensions, buildWatermarkedPreviewSvg } from './imageMeta.js';
 import { createD1Snapshot, listBackupSnapshots } from './backup.js';
 
 const BATCH_CHUNK_SIZE = 200;
 const DEFAULT_AUTOSYNC_COOLDOWN_MS = 15_000;
 const AUTO_BACKUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const HEADER_INSPECT_BYTES = 65536;
 
 let activeSyncPromise = null;
 let lastAutoSyncAt = 0;
@@ -33,14 +34,88 @@ export function resolveBucketTarget(rawBucketName, env) {
   return null;
 }
 
+async function readHeadBytes(object, maxBytes = HEADER_INSPECT_BYTES) {
+  if (!object || !object.body) return null;
+  const body = object.body;
+  if (body instanceof Uint8Array) return body.subarray(0, maxBytes);
+  if (body instanceof ArrayBuffer) return new Uint8Array(body).subarray(0, maxBytes);
+  if (typeof body === 'string') return new TextEncoder().encode(body.slice(0, maxBytes));
+  if (typeof body.getReader === 'function') {
+    const reader = body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (total < maxBytes) {
+        const { done, value } = await reader.read();
+        if (done || !value) break;
+        const part = value instanceof Uint8Array ? value : new Uint8Array(value);
+        chunks.push(part);
+        total += part.byteLength;
+      }
+    } finally {
+      try { await reader.cancel?.(); } catch {}
+    }
+    const merged = new Uint8Array(Math.min(total, maxBytes));
+    let offset = 0;
+    for (const chunk of chunks) {
+      const remaining = merged.length - offset;
+      if (remaining <= 0) break;
+      const slice = chunk.subarray(0, remaining);
+      merged.set(slice, offset);
+      offset += slice.length;
+    }
+    return merged;
+  }
+  return null;
+}
+
+async function detectR2Dimensions(bucket, key) {
+  if (!bucket || typeof bucket.get !== 'function' || !key) return { width: 0, height: 0 };
+  try {
+    const obj = await bucket.get(key, { range: { offset: 0, length: HEADER_INSPECT_BYTES } });
+    if (!obj) return { width: 0, height: 0 };
+    const bytes = await readHeadBytes(obj, HEADER_INSPECT_BYTES);
+    if (!bytes || bytes.byteLength < 8) return { width: 0, height: 0 };
+    const mime = obj.httpMetadata?.contentType || '';
+    return extractImageDimensions(bytes, mime);
+  } catch {
+    return { width: 0, height: 0 };
+  }
+}
+
+async function ensureDtreasureWatermarkedPreview(bucket, meta, dims = { width: 480, height: 640 }, uploadedIso = new Date().toISOString()) {
+  if (!bucket || typeof bucket.put !== 'function' || meta?.bucket !== 'dtreasure') return;
+  const previewKey = `_preview/${meta.r2_key}`;
+  try {
+    if (typeof bucket.head === 'function') {
+      const existing = await bucket.head(previewKey);
+      if (existing) return;
+    }
+    const previewSvg = buildWatermarkedPreviewSvg({
+      title: meta.title || 'Exclusive Edition',
+      category: 'DTREASURE',
+      width: dims?.width || 480,
+      height: dims?.height || 640,
+    });
+    await bucket.put(previewKey, previewSvg, {
+      contentType: 'image/svg+xml',
+      size: previewSvg.length,
+      uploaded: uploadedIso,
+    });
+  } catch {
+    // Non-fatal in case bucket binding is read-only
+  }
+}
+
 export function buildUpsertStatement(DB, meta, size, uploadedIso, syncIso, extra = {}) {
   const width = Math.max(0, Math.round(Number(extra?.width) || 0));
   const height = Math.max(0, Math.round(Number(extra?.height) || 0));
   const uploader = extra?.uploader ? String(extra.uploader).trim().slice(0, 80) : null;
+  const creatorId = extra?.creatorId ? String(extra.creatorId).trim().slice(0, 80) : null;
 
   return DB.prepare(`
-    INSERT INTO images (id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced, width, height, uploader)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO images (id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced, width, height, uploader, creator_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       title        = excluded.title,
       category     = excluded.category,
@@ -50,7 +125,8 @@ export function buildUpsertStatement(DB, meta, size, uploadedIso, syncIso, extra
       last_synced  = excluded.last_synced,
       width        = CASE WHEN excluded.width > 0 THEN excluded.width ELSE images.width END,
       height       = CASE WHEN excluded.height > 0 THEN excluded.height ELSE images.height END,
-      uploader     = COALESCE(NULLIF(excluded.uploader, ''), images.uploader)
+      uploader     = COALESCE(NULLIF(excluded.uploader, ''), images.uploader),
+      creator_id   = COALESCE(NULLIF(excluded.creator_id, ''), images.creator_id)
   `).bind(
     meta.id,
     meta.r2_key,
@@ -63,14 +139,15 @@ export function buildUpsertStatement(DB, meta, size, uploadedIso, syncIso, extra
     syncIso,
     width,
     height,
-    uploader
+    uploader,
+    creatorId
   );
 }
 
 /**
  * Sinkronisasi inkremental R2 → D1 untuk satu bucket:
- * hanya menulis gambar baru/lama yang belum terscan atau berubah ukuran,
- * serta menghapus row yang sudah dihapus dari R2.
+ * hanya menulis gambar baru/lama yang belum terscan atau berubah ukuran/dimensi kosong,
+ * mengekstrak dimensi gambar asli, serta menghapus row yang sudah dihapus dari R2.
  */
 export async function syncBucket({ bucket, name, DB }) {
   if (!bucket || !DB) {
@@ -84,7 +161,7 @@ export async function syncBucket({ bucket, name, DB }) {
   let usedExistingMap = false;
   try {
     const existingRes = await DB.prepare(
-      'SELECT id, size, uploaded FROM images WHERE bucket = ?'
+      'SELECT id, size, uploaded, width, height FROM images WHERE bucket = ?'
     ).bind(name).all();
     if (Array.isArray(existingRes?.results)) {
       usedExistingMap = true;
@@ -92,6 +169,8 @@ export async function syncBucket({ bucket, name, DB }) {
         existingMap.set(row.id, {
           size:     Number(row.size || 0),
           uploaded: row.uploaded || null,
+          width:    Number(row.width || 0),
+          height:   Number(row.height || 0),
         });
       }
     }
@@ -136,7 +215,19 @@ export async function syncBucket({ bucket, name, DB }) {
         continue;
       }
 
-      pending.push(buildUpsertStatement(DB, meta, objSize, uploadedIso, syncStartedAt));
+      let dims = (prev && prev.size === objSize && prev.width > 0 && prev.height > 0)
+        ? { width: prev.width, height: prev.height }
+        : { width: 0, height: 0 };
+
+      if (dims.width === 0 || dims.height === 0) {
+        dims = await detectR2Dimensions(bucket, obj.key);
+      }
+
+      if (name === 'dtreasure') {
+        await ensureDtreasureWatermarkedPreview(bucket, meta, dims, uploadedIso || syncStartedAt);
+      }
+
+      pending.push(buildUpsertStatement(DB, meta, objSize, uploadedIso, syncStartedAt, dims));
       upserted++;
 
       if (pending.length >= BATCH_CHUNK_SIZE) await flush();
@@ -257,9 +348,14 @@ export async function syncSingleObject(env, rawBucketName, key, objMeta = null) 
 
   const nowIso      = new Date().toISOString();
   const uploadedIso = uploaded ? new Date(uploaded).toISOString() : nowIso;
+  const dims        = await detectR2Dimensions(target.bucket, key);
 
-  await buildUpsertStatement(env.DB, meta, size || 0, uploadedIso, nowIso).run();
-  return { status: 'upserted', id: meta.id };
+  if (target.name === 'dtreasure') {
+    await ensureDtreasureWatermarkedPreview(target.bucket, meta, dims, uploadedIso);
+  }
+
+  await buildUpsertStatement(env.DB, meta, size || 0, uploadedIso, nowIso, dims).run();
+  return { status: 'upserted', id: meta.id, width: dims.width, height: dims.height };
 }
 
 export async function deleteSingleObject(env, rawBucketName, key) {

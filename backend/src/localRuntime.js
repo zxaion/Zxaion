@@ -227,6 +227,7 @@ export function createMockD1() {
   const creditLedger = new Map();
   const emailVerifications = new Map();
   const backupSnapshots = new Map();
+  const creatorProfiles = new Map();
 
   function inferArtworkDimensions(r2Key = '') {
     let hash = 0;
@@ -305,12 +306,13 @@ export function createMockD1() {
 
     // --- IMAGES ---
     if (q.startsWith('INSERT INTO images')) {
-      const [id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced, rawWidth = 0, rawHeight = 0, rawUploader = null] = params;
+      const [id, r2_key, bucket, title, category, sub_category, size, uploaded, last_synced, rawWidth = 0, rawHeight = 0, rawUploader = null, rawCreatorId = null] = params;
       const existing = images.get(id);
       const inferred = inferArtworkDimensions(r2_key || '');
       const width = Number(rawWidth) > 0 ? Number(rawWidth) : (existing?.width > 0 ? existing.width : inferred.width);
       const height = Number(rawHeight) > 0 ? Number(rawHeight) : (existing?.height > 0 ? existing.height : inferred.height);
       const uploader = (rawUploader && String(rawUploader).trim()) ? String(rawUploader).trim() : (existing?.uploader || null);
+      const creator_id = (rawCreatorId && String(rawCreatorId).trim()) ? String(rawCreatorId).trim() : (existing?.creator_id || null);
       images.set(id, {
         id,
         r2_key,
@@ -324,18 +326,37 @@ export function createMockD1() {
         width,
         height,
         uploader,
+        creator_id,
         view_count: existing?.view_count ?? ((inferred.hash % 1150) + 50),
         download_count: existing?.download_count ?? ((inferred.hash % 390) + 10),
         love_count: existing?.love_count ?? ((inferred.hash % 160) + 5),
+        fire_count: existing?.fire_count ?? ((inferred.hash % 95) + 3),
       });
       return { meta: { changes: 1 } };
     }
 
-    if (q === 'SELECT id, size, uploaded FROM images WHERE bucket = ?') {
+    if (q === 'UPDATE images SET creator_id = ?, uploader = ? WHERE id = ?') {
+      const [creator_id, uploader, id] = params;
+      const row = images.get(id);
+      if (row) {
+        row.creator_id = creator_id;
+        row.uploader = uploader;
+      }
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (q === 'SELECT id, size, uploaded FROM images WHERE bucket = ?' || q === 'SELECT id, size, uploaded, width, height FROM images WHERE bucket = ?') {
       const targetBucket = params[0];
       const results = Array.from(images.values())
         .filter((r) => r.bucket === targetBucket)
-        .map((r) => ({ id: r.id, size: r.size, uploaded: r.uploaded }));
+        .map((r) => ({ id: r.id, size: r.size, uploaded: r.uploaded, width: r.width || 0, height: r.height || 0 }));
+      return { results };
+    }
+
+    if (q === "SELECT creator_id, uploader FROM images WHERE bucket = 'comitbase'") {
+      const results = Array.from(images.values())
+        .filter((r) => r.bucket === 'comitbase')
+        .map((r) => ({ creator_id: r.creator_id || null, uploader: r.uploader || null }));
       return { results };
     }
 
@@ -414,15 +435,16 @@ export function createMockD1() {
       const [limit] = params;
       const sortLoved = q.includes('ORDER BY COALESCE(love_count, 0) DESC');
       const sortDownloaded = q.includes('ORDER BY COALESCE(download_count, 0) DESC');
+      const allowComitbase = q.includes("bucket IN ('main', 'comitbase')");
       const results = Array.from(images.values())
-        .filter((r) => r.bucket === 'main' && r.category !== 'Header')
+        .filter((r) => (allowComitbase ? (r.bucket === 'main' || r.bucket === 'comitbase') : r.bucket === 'main') && r.category !== 'Header')
         .map((r) => ({
           ...r,
-          score: (r.view_count || 0) + (r.download_count || 0) + ((r.love_count || 0) * 2),
+          score: (r.view_count || 0) + (r.download_count || 0) + ((r.love_count || 0) * 2) + ((r.fire_count || 0) * 2),
         }))
         .sort((a, b) => {
           if (sortLoved) {
-            return (b.love_count || 0) - (a.love_count || 0) || b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id);
+            return (b.love_count || 0) - (a.love_count || 0) || (b.fire_count || 0) - (a.fire_count || 0) || b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id);
           }
           if (sortDownloaded) {
             return (b.download_count || 0) - (a.download_count || 0) || b.score - a.score || (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id);
@@ -438,11 +460,29 @@ export function createMockD1() {
       return { first: row && row.bucket === 'dtreasure' ? { id: row.id } : null };
     }
 
-    if (q === 'SELECT view_count, download_count FROM images WHERE id = ?' || q === 'SELECT view_count, download_count, love_count FROM images WHERE id = ?') {
+    if (q === 'SELECT id, r2_key, bucket, creator_id, uploader FROM images WHERE id = ? LIMIT 1') {
+      const row = images.get(params[0]);
+      return {
+        first: row
+          ? { id: row.id, r2_key: row.r2_key, bucket: row.bucket, creator_id: row.creator_id || null, uploader: row.uploader || null }
+          : null,
+      };
+    }
+
+    if (
+      q === 'SELECT view_count, download_count FROM images WHERE id = ?' ||
+      q === 'SELECT view_count, download_count, love_count FROM images WHERE id = ?' ||
+      q === 'SELECT view_count, download_count, love_count, fire_count FROM images WHERE id = ?'
+    ) {
       const row = images.get(params[0]) || null;
       return {
         first: row
-          ? { view_count: row.view_count || 0, download_count: row.download_count || 0, love_count: row.love_count || 0 }
+          ? {
+              view_count: row.view_count || 0,
+              download_count: row.download_count || 0,
+              love_count: row.love_count || 0,
+              fire_count: row.fire_count || 0,
+            }
           : null,
       };
     }
@@ -502,23 +542,176 @@ export function createMockD1() {
       return { meta: { changes: row ? 1 : 0 } };
     }
 
+    if (q === 'UPDATE images SET fire_count = COALESCE(fire_count, 0) + 1 WHERE id = ?') {
+      const row = images.get(params[0]);
+      if (row) row.fire_count = (row.fire_count || 0) + 1;
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (q === 'UPDATE images SET fire_count = MAX(0, COALESCE(fire_count, 0) - 1) WHERE id = ?') {
+      const row = images.get(params[0]);
+      if (row) row.fire_count = Math.max(0, (row.fire_count || 0) - 1);
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+
     // --- REACTIONS ---
+    if (q === 'SELECT reaction_type FROM reactions WHERE photo_id = ? AND user_id = ?') {
+      const [photoId, userId] = params;
+      const prefix = `${photoId}::${userId}::`;
+      const results = [];
+      for (const [k, v] of reactions.entries()) {
+        if (k.startsWith(prefix)) {
+          results.push({ reaction_type: v?.reaction_type || k.slice(prefix.length) || 'love' });
+        }
+      }
+      return { results };
+    }
+
+    if (q === 'SELECT 1 FROM reactions WHERE photo_id = ? AND user_id = ? AND reaction_type = ?') {
+      const has = reactions.has(`${params[0]}::${params[1]}::${params[2]}`);
+      return { first: has ? { 1: 1 } : null };
+    }
+
     if (q === 'SELECT 1 FROM reactions WHERE photo_id = ? AND user_id = ?') {
-      const has = reactions.has(`${params[0]}::${params[1]}`);
+      const has = reactions.has(`${params[0]}::${params[1]}::love`);
       return { first: has ? { 1: 1 } : null };
     }
 
     if (q.startsWith('INSERT OR IGNORE INTO reactions')) {
-      const key = `${params[0]}::${params[1]}`;
+      const hasType = q.includes('reaction_type');
+      const photoId = params[0];
+      const userId = params[1];
+      const reactionType = hasType ? (params[2] || 'love') : 'love';
+      const createdAt = hasType ? (params[3] || new Date().toISOString()) : (params[2] || new Date().toISOString());
+      const key = `${photoId}::${userId}::${reactionType}`;
       const had = reactions.has(key);
-      if (!had) reactions.set(key, params[2] || new Date().toISOString());
+      if (!had) reactions.set(key, { reaction_type: reactionType, created_at: createdAt });
       return { meta: { changes: had ? 0 : 1 } };
     }
 
-    if (q === 'DELETE FROM reactions WHERE photo_id = ? AND user_id = ?') {
-      const key = `${params[0]}::${params[1]}`;
+    if (q === 'DELETE FROM reactions WHERE photo_id = ? AND user_id = ? AND reaction_type = ?') {
+      const key = `${params[0]}::${params[1]}::${params[2]}`;
       const existed = reactions.delete(key);
       return { meta: { changes: existed ? 1 : 0 } };
+    }
+
+    if (q === 'DELETE FROM reactions WHERE photo_id = ? AND user_id = ?') {
+      const key = `${params[0]}::${params[1]}::love`;
+      const existed = reactions.delete(key);
+      return { meta: { changes: existed ? 1 : 0 } };
+    }
+
+    // --- CREATOR PROFILES (COMITBASE) ---
+    if (q.startsWith('INSERT INTO creator_profiles')) {
+      const [
+        creator_id,
+        user_id,
+        account_id,
+        slug,
+        profile_name,
+        description,
+        social_links_json,
+        ...rest
+      ] = params;
+      const isApprovedInsert = q.includes("'approved'");
+      const status = isApprovedInsert ? 'approved' : 'pending';
+      const created_at = rest[0] || new Date().toISOString();
+      const approved_at = isApprovedInsert ? (rest[1] || created_at) : null;
+      const updated_at = rest[isApprovedInsert ? 2 : 1] || created_at;
+      creatorProfiles.set(creator_id, {
+        creator_id,
+        user_id,
+        account_id,
+        slug,
+        profile_name,
+        description,
+        social_links_json,
+        avatar_url: null,
+        status,
+        reviewed_note: null,
+        created_at,
+        approved_at,
+        updated_at,
+      });
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.startsWith('UPDATE creator_profiles SET profile_name = ?, description = ?, social_links_json = ?')) {
+      const [profile_name, description, social_links_json, updated_at, creator_id] = params;
+      const cp = creatorProfiles.get(creator_id);
+      if (!cp) return { meta: { changes: 0 } };
+      cp.profile_name = profile_name;
+      cp.description = description;
+      cp.social_links_json = social_links_json;
+      cp.status = 'pending';
+      cp.reviewed_note = null;
+      cp.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q === 'UPDATE creator_profiles SET status = ?, approved_at = ?, reviewed_note = ?, updated_at = ? WHERE creator_id = ?') {
+      const [status, approved_at, reviewed_note, updated_at, creator_id] = params;
+      const cp = creatorProfiles.get(creator_id);
+      if (!cp) return { meta: { changes: 0 } };
+      cp.status = status;
+      cp.approved_at = approved_at;
+      cp.reviewed_note = reviewed_note;
+      cp.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q.includes("FROM creator_profiles WHERE status = 'approved'")) {
+      const results = Array.from(creatorProfiles.values())
+        .filter((cp) => cp.status === 'approved')
+        .sort((a, b) => (b.approved_at || b.created_at || '').localeCompare(a.approved_at || a.created_at || ''))
+        .map((cp) => ({ ...cp }));
+      return { results };
+    }
+
+    if (q.includes("FROM creator_profiles WHERE user_id = ? AND status = 'approved' LIMIT 1")) {
+      const uid = params[0];
+      for (const cp of creatorProfiles.values()) {
+        if (cp.user_id === uid && cp.status === 'approved') return { first: { ...cp } };
+      }
+      return { first: null };
+    }
+
+    if (q.includes('FROM creator_profiles WHERE user_id = ? LIMIT 1')) {
+      const uid = params[0];
+      for (const cp of creatorProfiles.values()) {
+        if (cp.user_id === uid) return { first: { ...cp } };
+      }
+      return { first: null };
+    }
+
+    if (q.includes('FROM creator_profiles WHERE slug = ? LIMIT 1')) {
+      const slug = params[0];
+      for (const cp of creatorProfiles.values()) {
+        if (cp.slug === slug) return { first: { ...cp } };
+      }
+      return { first: null };
+    }
+
+    if (q.includes('FROM creator_profiles WHERE LOWER(slug) = LOWER(?) LIMIT 1')) {
+      const slug = String(params[0] || '').toLowerCase();
+      for (const cp of creatorProfiles.values()) {
+        if (String(cp.slug || '').toLowerCase() === slug) return { first: { ...cp } };
+      }
+      return { first: null };
+    }
+
+    if (q.includes('FROM creator_profiles WHERE creator_id = ? LIMIT 1')) {
+      const cp = creatorProfiles.get(params[0]);
+      return { first: cp ? { ...cp } : null };
+    }
+
+    if (q.includes('FROM creator_profiles ORDER BY created_at DESC LIMIT ?')) {
+      const limit = params[0] || 200;
+      const results = Array.from(creatorProfiles.values())
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, limit)
+        .map((cp) => ({ ...cp }));
+      return { results };
     }
 
     if (q.startsWith('INSERT OR IGNORE INTO views')) {
@@ -665,6 +858,25 @@ export function createMockD1() {
         return { meta: { changes: 1 } };
       }
       return { meta: { changes: 0 } };
+    }
+
+    if (q.includes('ON CONFLICT(user_id) DO UPDATE SET credits = excluded.credits, lifetime = excluded.lifetime')) {
+      const [userId, publicId, credits, lifetime] = params;
+      const existing = userCredits.get(userId);
+      if (existing) {
+        existing.credits = Number(credits) || 0;
+        existing.lifetime = Number(lifetime) ? 1 : 0;
+        existing.public_id = existing.public_id || publicId || null;
+      } else {
+        userCredits.set(userId, {
+          user_id: userId,
+          public_id: publicId || null,
+          credits: Number(credits) || 0,
+          lifetime: Number(lifetime) ? 1 : 0,
+          recovery_hash: null,
+        });
+      }
+      return { meta: { changes: 1 } };
     }
 
     if (q.includes('ON CONFLICT(user_id) DO UPDATE SET lifetime = 1')) {
@@ -988,6 +1200,16 @@ export function createMockD1() {
       return { meta: { changes: 1 } };
     }
 
+    if (q === 'UPDATE accounts SET email_verified = 1, verify_bonus_claimed = 1, updated_at = ? WHERE account_id = ? AND verify_bonus_claimed = 0') {
+      const [updated_at, account_id] = params;
+      const acc = accounts.get(account_id);
+      if (!acc || acc.verify_bonus_claimed) return { meta: { changes: 0 } };
+      acc.email_verified = 1;
+      acc.verify_bonus_claimed = 1;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
     if (
       q.startsWith('UPDATE accounts SET email_verified = 1, updated_at = ? WHERE account_id = ?') ||
       q.startsWith('UPDATE accounts SET email_verified = 1, verify_bonus_claimed = 1, updated_at = ? WHERE account_id = ?')
@@ -997,6 +1219,16 @@ export function createMockD1() {
       if (!acc) return { meta: { changes: 0 } };
       acc.email_verified = 1;
       if (q.includes('verify_bonus_claimed = 1')) acc.verify_bonus_claimed = 1;
+      acc.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+
+    if (q === 'UPDATE accounts SET checkin_streak = ?, last_checkin_date = ?, updated_at = ? WHERE account_id = ? AND (last_checkin_date IS NULL OR last_checkin_date != ?)') {
+      const [checkin_streak, last_checkin_date, updated_at, account_id, guardDate] = params;
+      const acc = accounts.get(account_id);
+      if (!acc || acc.last_checkin_date === guardDate) return { meta: { changes: 0 } };
+      acc.checkin_streak = Number(checkin_streak) || 0;
+      acc.last_checkin_date = last_checkin_date;
       acc.updated_at = updated_at;
       return { meta: { changes: 1 } };
     }
@@ -1514,5 +1746,92 @@ export async function createLocalEnv() {
   };
 
   await handleScheduled(env);
+
+  // Seed verified creators and pending demo application for COMITBASE Platform
+  const nowIso = new Date().toISOString();
+  const approvedAt1 = new Date(Date.now() - 86400_000 * 5).toISOString();
+  const approvedAt2 = new Date(Date.now() - 86400_000 * 3).toISOString();
+  const approvedAt3 = new Date(Date.now() - 86400_000 * 1).toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(`
+      INSERT INTO creator_profiles (creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, created_at, approved_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?)
+    `).bind(
+      'cr_kurogane',
+      'seed_creator_kurogane',
+      'ZXA-SEED-0001',
+      'kurogane-atelier',
+      'Kurogane Atelier',
+      'High-contrast cyberpunk & mecha matte painter crafting 4K neon key visuals.',
+      JSON.stringify([
+        { label: 'X / Twitter', url: 'https://x.com/kuroganeatelier' },
+        { label: 'Pixiv', url: 'https://www.pixiv.net/en/' },
+      ]),
+      approvedAt1,
+      approvedAt1,
+      approvedAt1
+    ),
+    env.DB.prepare(`
+      INSERT INTO creator_profiles (creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, created_at, approved_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?)
+    `).bind(
+      'cr_sora',
+      'seed_creator_sora',
+      'ZXA-SEED-0002',
+      'sora-visuals',
+      'Sora Visuals',
+      'Atmospheric anime skies, rain-lit shrines, and dreamy nocturnalscapes.',
+      JSON.stringify([
+        { label: 'Instagram', url: 'https://www.instagram.com/soravisuals/' },
+        { label: 'ArtStation', url: 'https://www.artstation.com/' },
+      ]),
+      approvedAt2,
+      approvedAt2,
+      approvedAt2
+    ),
+    env.DB.prepare(`
+      INSERT INTO creator_profiles (creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, created_at, approved_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?)
+    `).bind(
+      'cr_velvet',
+      'seed_creator_velvet',
+      'ZXA-SEED-0003',
+      'velvet-frame',
+      'Velvet Frame',
+      'Synthwave expressways, iridescent glassmorphism overlays, and widescreen art.',
+      JSON.stringify([
+        { label: 'YouTube', url: 'https://www.youtube.com/@zxaionart' },
+      ]),
+      approvedAt3,
+      approvedAt3,
+      approvedAt3
+    ),
+    env.DB.prepare(`
+      INSERT INTO creator_profiles (creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    `).bind(
+      'cr_pending_demo',
+      'seed_creator_pending',
+      'ZXA-SEED-0004',
+      'pending-artist-demo',
+      'Nova Ink Studio',
+      'Original dark fantasy character illustrator applying to showcase curated wallpaper series.',
+      JSON.stringify([
+        { label: 'X / Twitter', url: 'https://x.com/novainkstudio' },
+      ]),
+      nowIso,
+      nowIso
+    ),
+    env.DB.prepare('UPDATE images SET creator_id = ?, uploader = ? WHERE id = ?')
+      .bind('cr_kurogane', 'Kurogane Atelier', 'comitbase:community/mecha_hangar_concept.jpg'),
+    env.DB.prepare('UPDATE images SET creator_id = ?, uploader = ? WHERE id = ?')
+      .bind('cr_sora', 'Sora Visuals', 'comitbase:community/midnight_shrine_rain.jpg'),
+    env.DB.prepare('UPDATE images SET creator_id = ?, uploader = ? WHERE id = ?')
+      .bind('cr_sora', 'Sora Visuals', 'comitbase:community/aurora_skyline_edit.jpg'),
+    env.DB.prepare('UPDATE images SET creator_id = ?, uploader = ? WHERE id = ?')
+      .bind('cr_velvet', 'Velvet Frame', 'comitbase:community/vaporwave_expressway.jpg'),
+  ]);
+
   return env;
 }

@@ -179,7 +179,7 @@ function _renderPayPalButtons(packKey, price) {
                         const errMsg  = result?.error || 'Credits could not be applied automatically';
                         const orderId = result?.orderId || capturedOrderId;
                         ui.showToast(
-                            `Payment received (${errMsg}). Order ID: ${orderId}. Email zxaionxl@gmail.com for assistance.`,
+                            `Payment received (${errMsg}). Order ID: ${orderId}. Email zvizualscl@gmail.com for assistance.`,
                             'warning',
                             8000
                         );

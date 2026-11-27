@@ -68,6 +68,7 @@ function initAdminEvents() {
         if (!state.adminData) return;
         ui.renderAdminOrdersTable(state.adminData.orders || []);
         ui.renderAdminUsersTable(state.adminData.users || []);
+        ui.renderAdminCreatorsTable?.(state.adminData.creators || []);
     };
 
     searchInput?.addEventListener('input', (e) => {
@@ -126,11 +127,18 @@ function initAdminEvents() {
         }
     });
 
-    // 11. Admin Credit & VIP Adjustment Modal
+    // 11. Admin Credit & VIP Adjustment Modal + Creator Approval Delegation
     document.getElementById('admin-users-table-body')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-admin-edit-user]');
         if (btn && btn.dataset.adminEditUser) {
             ui.openAdminCreditModal?.(btn.dataset.adminEditUser);
+        }
+    });
+
+    document.getElementById('admin-creators-table-body')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-admin-creator-decision]');
+        if (btn && btn.dataset.creatorId && btn.dataset.adminCreatorDecision) {
+            ui.decideAdminCreator?.(btn.dataset.creatorId, btn.dataset.adminCreatorDecision);
         }
     });
 
