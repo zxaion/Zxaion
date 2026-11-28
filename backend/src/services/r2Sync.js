@@ -9,10 +9,12 @@ const HEADER_INSPECT_BYTES = 65536;
 let activeSyncPromise = null;
 let lastAutoSyncAt = 0;
 let lastAutoBackupAt = 0;
+const nonEmptyBucketCache = new Set();
 
 export function resetSyncStateForTests() {
   activeSyncPromise = null;
   lastAutoSyncAt = 0;
+  nonEmptyBucketCache.clear();
 }
 
 function getConfiguredBuckets(env) {
@@ -268,16 +270,18 @@ export async function syncBucket({ bucket, name, DB }) {
 
 // ============================================================
 // Scheduled / Full Auto-Scan Handler: R2 → D1 + cleanup rate_limits
-// wrangler.toml: [triggers] crons = ["* * * * *"]
+// wrangler.toml: [triggers] crons = ["*/15 * * * *"]
 // ============================================================
 export async function handleScheduled(env) {
-  const DB    = env.DB;
-  const stats = [];
+  const startedAt = Date.now();
+  const DB        = env.DB;
+  const stats     = [];
 
   for (const { bucket, name } of getConfiguredBuckets(env)) {
     if (!bucket) continue;
     try {
       const res = await syncBucket({ bucket, name, DB });
+      if ((res?.scanned || 0) > 0) nonEmptyBucketCache.add(name);
       stats.push(res);
     } catch (e) {
       console.error(`[Scheduled] Error syncing bucket ${name}:`, e.message);
@@ -285,22 +289,22 @@ export async function handleScheduled(env) {
     }
   }
 
-  // Data retention cleanup: keep ephemeral D1 tables compact without altering image view/download totals
+  // Data retention cleanup: keep ephemeral D1 tables compact (bounded per cron run)
+  let retentionCleaned = 0;
   try {
     const nowMs = Date.now();
     const nowSec = Math.floor(nowMs / 1000);
     const cutoff7dIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
     const cutoff30dIso = new Date(nowMs - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    await DB.prepare('DELETE FROM rate_limits WHERE reset_time < ?').bind(nowSec).run();
-    await DB.prepare(
-      'DELETE FROM email_verifications WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)'
-    ).bind(cutoff7dIso, cutoff7dIso).run();
-    await DB.prepare(
-      'DELETE FROM user_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)'
-    ).bind(cutoff7dIso, cutoff7dIso).run();
-    await DB.prepare('DELETE FROM views WHERE created_at < ?').bind(cutoff30dIso).run();
-    await DB.prepare('DELETE FROM downloads WHERE created_at < ?').bind(cutoff30dIso).run();
+    const cleanupRes = await Promise.all([
+      DB.prepare('DELETE FROM rate_limits WHERE rowid IN (SELECT rowid FROM rate_limits WHERE reset_time < ? LIMIT 1000)').bind(nowSec).run(),
+      DB.prepare('DELETE FROM email_verifications WHERE rowid IN (SELECT rowid FROM email_verifications WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?) LIMIT 1000)').bind(cutoff7dIso, cutoff7dIso).run(),
+      DB.prepare('DELETE FROM user_sessions WHERE rowid IN (SELECT rowid FROM user_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?) LIMIT 1000)').bind(cutoff7dIso, cutoff7dIso).run(),
+      DB.prepare('DELETE FROM views WHERE rowid IN (SELECT rowid FROM views WHERE created_at < ? LIMIT 1000)').bind(cutoff30dIso).run(),
+      DB.prepare('DELETE FROM downloads WHERE rowid IN (SELECT rowid FROM downloads WHERE created_at < ? LIMIT 1000)').bind(cutoff30dIso).run(),
+    ]);
+    for (const r of cleanupRes) retentionCleaned += Number(r?.meta?.changes || 0);
   } catch (e) {
     console.error('[Scheduled] Retention cleanup error:', e.message);
   }
@@ -319,6 +323,19 @@ export async function handleScheduled(env) {
   } catch (e) {
     console.warn('[Scheduled] Auto-backup skipped:', e.message);
   }
+
+  const durationMs = Date.now() - startedAt;
+  const totals = stats.reduce(
+    (acc, item) => ({
+      scanned: acc.scanned + Number(item?.scanned || 0),
+      upserted: acc.upserted + Number(item?.upserted || 0),
+      removed: acc.removed + Number(item?.removed || 0),
+    }),
+    { scanned: 0, upserted: 0, removed: 0 }
+  );
+  console.log(
+    `[Scheduled] Finished in ${durationMs}ms: scanned=${totals.scanned}, upserted=${totals.upserted}, removed=${totals.removed}, retentionCleaned=${retentionCleaned}`
+  );
 
   lastAutoSyncAt = Date.now();
   return stats;
@@ -404,42 +421,44 @@ export async function handleR2QueueBatch(batch, env) {
 }
 
 // ============================================================
-// Auto-scan saat request masuk:
-// - Jika bucket D1 masih kosong, scan langsung (blocking) agar data lama langsung muncul.
-// - Jika sudah lewat cooldown (15 detik), scan inkremental non-blocking via ctx.waitUntil().
+// Bootstrap sync saat request masuk:
+// - Hanya jika bucket target di D1 masih kosong, jalankan sync single-bucket (sekali saja).
+// - Sync periodik berjalan di handler scheduled() (*/15 * * * *), tidak di traffic user biasa.
 // ============================================================
-export async function ensureAutoSync({ env, ctx, DB, bucketName = 'main', cooldownMs = DEFAULT_AUTOSYNC_COOLDOWN_MS } = {}) {
+export async function ensureAutoSync({ env, DB, bucketName = 'main' } = {}) {
   if (!env || !DB) return;
+  if (nonEmptyBucketCache.has(bucketName)) return;
 
-  const runSharedSync = () => {
-    if (!activeSyncPromise) {
+  let hasAnyRow = false;
+  try {
+    const row = await DB.prepare(
+      'SELECT 1 AS present FROM images WHERE bucket = ? LIMIT 1'
+    ).bind(bucketName).first();
+    hasAnyRow = Boolean(row);
+  } catch {
+    hasAnyRow = false;
+  }
+
+  if (hasAnyRow) {
+    nonEmptyBucketCache.add(bucketName);
+    return;
+  }
+
+  if (!activeSyncPromise) {
+    const target = getConfiguredBuckets(env).find((b) => b.name === bucketName);
+    if (target?.bucket) {
+      activeSyncPromise = syncBucket({ bucket: target.bucket, name: target.name, DB })
+        .then((res) => {
+          if ((res?.scanned || 0) > 0) nonEmptyBucketCache.add(bucketName);
+        })
+        .finally(() => {
+          activeSyncPromise = null;
+        });
+    } else {
       activeSyncPromise = handleScheduled(env).finally(() => {
         activeSyncPromise = null;
       });
     }
-    return activeSyncPromise;
-  };
-
-  let isEmptyBucket = false;
-  try {
-    const row = await DB.prepare(
-      'SELECT COUNT(*) AS total FROM images WHERE bucket = ?'
-    ).bind(bucketName).first();
-    isEmptyBucket = Number(row?.total || 0) === 0;
-  } catch {
-    isEmptyBucket = false;
   }
-
-  if (isEmptyBucket) {
-    await runSharedSync();
-    return;
-  }
-
-  const elapsed = Date.now() - lastAutoSyncAt;
-  if (elapsed >= cooldownMs && !activeSyncPromise) {
-    const job = runSharedSync();
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      ctx.waitUntil(job);
-    }
-  }
+  await activeSyncPromise;
 }

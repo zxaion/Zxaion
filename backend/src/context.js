@@ -2,7 +2,7 @@
 import { getPayPalBase, ALLOWED_ORIGINS } from './config/constants.js';
 import { buildCorsHeaders } from './utils/cors.js';
 import { getUserToken } from './utils/userToken.js';
-import { checkRateLimit } from './services/rateLimit.js';
+import { checkRateLimit, checkRateLimitStatus } from './services/rateLimit.js';
 import { getPayPalAccessToken, createPayPalOrder, verifyPayPalOrder } from './services/paypal.js';
 import { dispatchTransactionalEmail } from './services/email.js';
 
@@ -15,7 +15,6 @@ export function createContext(request, env, ctx) {
   const comitbaseBucket = env.ZX_BUCKET;
   const treasureBucket  = env.TREASURE;
   const DB              = env.DB;
-  const IMAGES          = env.IMAGES || null;
 
   const PAYPAL_CLIENT_ID        = env.PAYPAL_CLIENT_ID;
   const PAYPAL_CLIENT_SECRET_ID = env.PAYPAL_CLIENT_SECRET_ID;
@@ -27,14 +26,15 @@ export function createContext(request, env, ctx) {
 
   return {
     request, env, ctx, url, path, method,
-    mainBucket, comitbaseBucket, treasureBucket, DB, IMAGES,
+    mainBucket, comitbaseBucket, treasureBucket, DB,
     PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET_ID, PAYPAL_WEBHOOK_ID, PAYPAL_BASE,
     ALLOWED_ORIGINS, origin, corsHeaders,
     getUserToken,
-    checkRateLimit:       (endpoint, identifier, limit, windowSec) => checkRateLimit(DB, endpoint, identifier, limit, windowSec),
-    sendEmail:            (emailOpts) => dispatchTransactionalEmail(env, emailOpts),
-    getPayPalAccessToken: () => getPayPalAccessToken(env),
-    createPayPalOrder:    (orderInput, accessToken) => createPayPalOrder(orderInput, accessToken, PAYPAL_BASE),
-    verifyPayPalOrder:    (orderId, accessToken) => verifyPayPalOrder(orderId, accessToken, PAYPAL_BASE),
+    checkRateLimit:         (endpoint, identifier, limit, windowSec) => checkRateLimit(DB, endpoint, identifier, limit, windowSec),
+    checkRateLimitStatus:   (endpoint, identifier, limit, windowSec) => checkRateLimitStatus(DB, endpoint, identifier, limit, windowSec),
+    sendEmail:              (emailOpts) => dispatchTransactionalEmail(env, emailOpts),
+    getPayPalAccessToken:   () => getPayPalAccessToken(env),
+    createPayPalOrder:      (orderInput, accessToken) => createPayPalOrder(orderInput, accessToken, PAYPAL_BASE),
+    verifyPayPalOrder:      (orderId, accessToken) => verifyPayPalOrder(orderId, accessToken, PAYPAL_BASE),
   };
 }

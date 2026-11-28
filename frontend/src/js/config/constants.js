@@ -3,16 +3,9 @@
  * Depends on: (tidak ada)
  */
 // --- Configuration ---
-const API_BASE = (() => {
-    if (typeof window !== 'undefined' && typeof window.__ZX_API_BASE__ === 'string') {
-        return window.__ZX_API_BASE__;
-    }
-    const host = typeof window !== 'undefined' ? window.location.hostname : '';
-    if (!host || host === 'localhost' || host === '127.0.0.1' || host.endsWith('.run.app') || host.endsWith('.workers.dev')) {
-        return '';
-    }
-    return 'https://ai.zxaionverse.workers.dev';
-})();
+const API_BASE = (typeof window !== 'undefined' && typeof window.__ZX_API_BASE__ === 'string')
+    ? window.__ZX_API_BASE__
+    : '';
 const ITEMS_PER_PAGE = 30;
 const CATEGORIES = ['All', 'Anime', 'Fantasy', 'Abstract', 'Photography', 'COMITBASE', 'DTREASURE', 'ZMEME', 'OVERLAY'];
 const ANIME_SUB_ALBUMS = [

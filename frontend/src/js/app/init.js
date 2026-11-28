@@ -14,7 +14,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const _navEl          = document.querySelector('nav');
     if (_navEl)    _resizeObserver.observe(_navEl);
 
-    const isAdminRoute = window.location.pathname === '/admin' || window.location.hash === '#admin';
+    const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    const isAdminRoute = normalizedPath === '/admin' || window.location.hash === '#admin';
     const initialView  = !isAdminRoute && typeof loadInitialViewState === 'function'
         ? loadInitialViewState()
         : { category: 'All', animeAlbum: null, dtreasureTab: 'all', page: 1, comitbasePage: 1, dtreasurePage: 1, aspectFilter: 'all' };

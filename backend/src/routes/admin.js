@@ -14,6 +14,8 @@ import {
 import { appendCreditLedgerStatement, ensureAutoAccount } from '../services/accountAuth.js';
 import { derivePublicPayerRef } from '../utils/userToken.js';
 import { jsonResponse } from '../utils/cors.js';
+import { readJsonBody } from '../utils/requestBody.js';
+import { checkRateLimitStatus as defaultCheckRateLimitStatus, resolveHashedRateKey } from '../services/rateLimit.js';
 
 function unauthorizedAdmin(corsHeaders) {
   return jsonResponse({ error: 'Unauthorized: Invalid admin token' }, 401, corsHeaders);
@@ -203,23 +205,23 @@ export async function handleAdminDashboard({ request, env, corsHeaders }) {
     let approvedCreators = 0;
     let rejectedCreators = 0;
     try {
-      const [crRes, cbImgsRes] = await Promise.all([
+      const [crRes, cbCountsRes] = await Promise.all([
         env.DB.prepare(
           'SELECT creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, reviewed_note, created_at, approved_at, updated_at FROM creator_profiles ORDER BY created_at DESC LIMIT ?'
         ).bind(200).all(),
         env.DB.prepare(
-          "SELECT creator_id, uploader FROM images WHERE bucket = 'comitbase'"
+          "SELECT creator_id, LOWER(TRIM(COALESCE(uploader, ''))) AS uploader_norm, COUNT(*) AS cnt FROM images WHERE bucket = 'comitbase' GROUP BY creator_id, LOWER(TRIM(COALESCE(uploader, '')))"
         ).all(),
       ]);
 
       const countById = new Map();
       const countByName = new Map();
-      for (const img of cbImgsRes?.results || []) {
-        if (img.creator_id) {
-          countById.set(img.creator_id, (countById.get(img.creator_id) || 0) + 1);
-        } else if (img.uploader) {
-          const k = String(img.uploader).trim().toLowerCase();
-          countByName.set(k, (countByName.get(k) || 0) + 1);
+      for (const row of cbCountsRes?.results || []) {
+        const cnt = Number(row.cnt || 0);
+        if (row.creator_id) {
+          countById.set(row.creator_id, (countById.get(row.creator_id) || 0) + cnt);
+        } else if (row.uploader_norm) {
+          countByName.set(row.uploader_norm, (countByName.get(row.uploader_norm) || 0) + cnt);
         }
       }
 
@@ -360,12 +362,11 @@ export async function handleAdminBackupDownload({ request, url, env, corsHeaders
 export async function handleAdminBackupRestore({ request, env, corsHeaders }) {
   if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
+  const parsedBody = await readJsonBody(request, { maxBytes: 10 * 1024 * 1024 });
+  if (!parsedBody.ok) {
+    return jsonResponse({ success: false, error: parsedBody.error }, parsedBody.status, corsHeaders);
   }
+  const body = parsedBody.data;
 
   try {
     let snapshotPayload = body?.snapshot || (body?.tables ? body : null);
@@ -395,12 +396,11 @@ export async function handleAdminBackupRestore({ request, env, corsHeaders }) {
 export async function handleAdminAdjustCredits({ request, env, corsHeaders }) {
   if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
+  const parsedBody = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsedBody.ok) {
+    return jsonResponse({ success: false, error: parsedBody.error }, parsedBody.status, corsHeaders);
   }
+  const body = parsedBody.data;
 
   const userId = String(body?.userId || '').trim();
   const mode = String(body?.mode || 'add').trim().toLowerCase();
@@ -516,15 +516,33 @@ function sanitizePathSegment(raw, fallback = '') {
     .slice(0, 48) || fallback;
 }
 
-export async function handleAdminUpload({ request, env, corsHeaders }) {
+export async function handleAdminUpload({ request, env, corsHeaders, checkRateLimitStatus, checkRateLimit }) {
   if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
+  const rlKey = await resolveHashedRateKey(request, 'admin-upload');
+  let rl = { allowed: true, retryAfter: 0 };
+  if (typeof checkRateLimitStatus === 'function') {
+    rl = await checkRateLimitStatus('admin_upload', rlKey, 10, 60);
+  } else if (typeof checkRateLimit === 'function') {
+    const allowed = await checkRateLimit('admin_upload', rlKey, 10, 60);
+    rl = { allowed, retryAfter: allowed ? 0 : 60 };
+  } else if (env?.DB) {
+    rl = await defaultCheckRateLimitStatus(env.DB, 'admin_upload', rlKey, 10, 60);
   }
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Upload rate limit exceeded. Please try again shortly.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
+  }
+
+  const parsedBody = await readJsonBody(request, { maxBytes: 12 * 1024 * 1024 });
+  if (!parsedBody.ok) {
+    return jsonResponse({ success: false, error: parsedBody.error }, parsedBody.status, corsHeaders);
+  }
+  const body = parsedBody.data;
 
   const bucketInput = String(body?.bucket || 'main').trim().toLowerCase();
   const target = resolveBucketTarget(bucketInput, env);
@@ -641,23 +659,23 @@ export async function handleAdminUpload({ request, env, corsHeaders }) {
 export async function handleAdminListCreators({ request, env, corsHeaders }) {
   if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
   try {
-    const [res, cbImgsRes] = await Promise.all([
+    const [res, cbCountsRes] = await Promise.all([
       env.DB.prepare(
         'SELECT creator_id, user_id, account_id, slug, profile_name, description, social_links_json, status, reviewed_note, created_at, approved_at, updated_at FROM creator_profiles ORDER BY created_at DESC LIMIT ?'
       ).bind(200).all(),
       env.DB.prepare(
-        "SELECT creator_id, uploader FROM images WHERE bucket = 'comitbase'"
+        "SELECT creator_id, LOWER(TRIM(COALESCE(uploader, ''))) AS uploader_norm, COUNT(*) AS cnt FROM images WHERE bucket = 'comitbase' GROUP BY creator_id, LOWER(TRIM(COALESCE(uploader, '')))"
       ).all(),
     ]);
 
     const countById = new Map();
     const countByName = new Map();
-    for (const img of cbImgsRes?.results || []) {
-      if (img.creator_id) {
-        countById.set(img.creator_id, (countById.get(img.creator_id) || 0) + 1);
-      } else if (img.uploader) {
-        const k = String(img.uploader).trim().toLowerCase();
-        countByName.set(k, (countByName.get(k) || 0) + 1);
+    for (const row of cbCountsRes?.results || []) {
+      const cnt = Number(row.cnt || 0);
+      if (row.creator_id) {
+        countById.set(row.creator_id, (countById.get(row.creator_id) || 0) + cnt);
+      } else if (row.uploader_norm) {
+        countByName.set(row.uploader_norm, (countByName.get(row.uploader_norm) || 0) + cnt);
       }
     }
 
@@ -687,12 +705,11 @@ export async function handleAdminListCreators({ request, env, corsHeaders }) {
 export async function handleAdminCreatorDecision({ request, env, corsHeaders }) {
   if (!validateAdminAuth(request, env)) return unauthorizedAdmin(corsHeaders);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid JSON body' }, 400, corsHeaders);
+  const parsedBody = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsedBody.ok) {
+    return jsonResponse({ success: false, error: parsedBody.error }, parsedBody.status, corsHeaders);
   }
+  const body = parsedBody.data;
 
   const creatorId = String(body?.creatorId || '').trim();
   const rawAction = String(body?.decision || body?.action || '').trim().toLowerCase();

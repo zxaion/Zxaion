@@ -109,7 +109,7 @@ const ui = {
                 if (!photo || !photo.url) continue;
                 await new Promise((resolve) => {
                     const probe = new Image();
-                    const probeCandidates = utils.getImageFallbackCandidates(photo.url, { w: 64, q: 30, fit: 'scale-down', fmt: 'auto' });
+                    const probeCandidates = utils.getImageFallbackCandidates(photo.url, { w: 400, q: 80, fit: 'scale-down', fmt: 'auto' });
                     const done = () => {
                         probe.onload = null;
                         probe.onerror = null;
@@ -436,9 +436,7 @@ const ui = {
 
         const isFree = !isDtreasureCard || state.lifetime || state.purchasedImages.has(photo.id);
         const useAuthLoad = isDtreasureCard && isFree && typeof authImageLoader === 'function';
-        const transformOpts = isDtreasureCard
-            ? (isFree ? { w: 480, q: 80, fit: 'scale-down', fmt: 'auto' } : { w: 480, q: 75, fit: 'scale-down', fmt: 'auto' })
-            : { w: 480, q: 78, fit: 'scale-down', fmt: 'auto' };
+        const transformOpts = { w: 400, q: 80, fit: 'scale-down', fmt: 'auto' };
         const candidates    = utils.getImageFallbackCandidates(photo.url, transformOpts);
         const fullUrl       = candidates[0] || '';
         const isAboveFold   = index < 6;

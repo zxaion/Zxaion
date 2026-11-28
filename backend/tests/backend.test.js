@@ -5,19 +5,22 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { createApp, translateCdnCgiImagePath } from '../../server.js';
+import { createApp } from '../../server.js';
+import workerEntry from '../src/index.js';
 import {
   parseImageMeta,
   extractImageDimensions,
   decodeBase64DataUrl,
   buildWatermarkedPreviewSvg,
 } from '../src/services/imageMeta.js';
-import { getPayPalBase } from '../src/config/constants.js';
+import { getPayPalBase, ALLOWED_ORIGINS } from '../src/config/constants.js';
+import { CONTENT_SECURITY_POLICY } from '../src/config/security.js';
 import { CREDIT_PACK_DEFINITIONS } from '../src/config/packs.js';
 import { MIME_TYPES } from '../src/config/mimeTypes.js';
-import { getUserToken, generateRecoveryCode, escapeHtml, derivePublicPayerRef, isAccountIdFormat, generateAccountId, hashPassword, verifyPassword } from '../src/utils/userToken.js';
+import { getUserToken, generateRecoveryCode, escapeHtml, derivePublicPayerRef, isAccountIdFormat, generateAccountId, hashPassword, verifyPassword, sha256Hex } from '../src/utils/userToken.js';
 import { jsonResponse } from '../src/utils/cors.js';
-import { createLocalEnv, createMockD1, createMockImagesBinding, createMockR2Bucket } from '../src/localRuntime.js';
+import { readJsonBody } from '../src/utils/requestBody.js';
+import { createLocalEnv, createMockD1, createMockR2Bucket } from '../src/localRuntime.js';
 import { handleRequest } from '../src/router.js';
 import { handleStatic } from '../src/routes/static.js';
 import { resolveHtmlIncludes } from '../../frontend/scripts/build.mjs';
@@ -28,7 +31,8 @@ import {
   resetSyncStateForTests,
 } from '../src/services/r2Sync.js';
 import { parseTransformOptions } from '../src/services/imageTransform.js';
-import { checkRateLimit as rawCheckRateLimit } from '../src/services/rateLimit.js';
+import { checkRateLimit as rawCheckRateLimit, checkRateLimitStatus, resolveHashedRateKey } from '../src/services/rateLimit.js';
+import { resolveSessionAuth } from '../src/services/accountAuth.js';
 import {
   handleListMain,
   handleAnimeAlbums,
@@ -96,7 +100,6 @@ import {
   handleRobotsTxt,
   handleSitemapXml,
 } from '../src/services/seo.js';
-import { sha256Hex } from '../src/utils/userToken.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
 
@@ -559,12 +562,13 @@ test('paypal webhook rejects missing headers and untrusted certUrl SSRF domains'
   assert.equal(ssrfAttempt.status, 401);
 });
 
-test('parseTransformOptions clamps parameters and negotiates Accept format', () => {
+test('parseTransformOptions enforces strict 400/800/1600 width presets and negotiates Accept format', () => {
   assert.equal(parseTransformOptions(new URLSearchParams(), 'image/webp'), null);
+  assert.equal(parseTransformOptions(new URLSearchParams('raw=1&w=800'), 'image/webp'), null);
 
-  const avifOpts = parseTransformOptions(new URLSearchParams('w=5000&q=10&fit=cover&fmt=auto'), 'image/avif,image/webp,*/*');
+  const avifOpts = parseTransformOptions(new URLSearchParams('w=800&q=10&fit=cover&fmt=auto'), 'image/avif,image/webp,*/*');
   assert.deepEqual(avifOpts, {
-    width: 2400,
+    width: 800,
     height: null,
     quality: 30,
     fit: 'cover',
@@ -572,12 +576,22 @@ test('parseTransformOptions clamps parameters and negotiates Accept format', () 
     outputMime: 'image/avif',
   });
 
-  const webpOpts = parseTransformOptions(new URLSearchParams('w=20&fmt=auto'), 'image/webp,image/png');
-  assert.equal(webpOpts.width, 64);
+  const webpOpts = parseTransformOptions(new URLSearchParams('w=400&fmt=auto'), 'image/webp,image/png');
+  assert.equal(webpOpts.width, 400);
   assert.equal(webpOpts.outputMime, 'image/webp');
+
+  const highResOpts = parseTransformOptions(new URLSearchParams('w=1600&fmt=webp'), 'image/webp');
+  assert.equal(highResOpts.width, 1600);
+
+  const badWidth = parseTransformOptions(new URLSearchParams('w=333&fmt=auto'), 'image/webp');
+  assert.equal(badWidth.status, 400);
+  assert.ok(badWidth.error);
+
+  const oversizeWidth = parseTransformOptions(new URLSearchParams('w=5000'), 'image/webp');
+  assert.equal(oversizeWidth.status, 400);
 });
 
-test('handleServeImage uses Cloudflare IMAGES binding on raster images, bypasses download, clamps DTREASURE, and falls back on error', async () => {
+test('handleServeImage uses cf.image fetch on edge host, enforces preset 400, honors raw=1/Via guard, bypasses download, and falls back on error', async () => {
   const env = await createLocalEnv();
   const rasterMain = createMockR2Bucket('main', [
     { key: 'FANTASY/dragon.jpg', contentType: 'image/jpeg', bodyText: 'RAW_JPEG_BYTES' },
@@ -586,103 +600,117 @@ test('handleServeImage uses Cloudflare IMAGES binding on raster images, bypasses
     { key: 'vault/secret.jpg', contentType: 'image/jpeg', bodyText: 'RAW_TREASURE_BYTES' },
     { key: '_preview/vault/secret.jpg', contentType: 'image/jpeg', bodyText: 'PREVIEW_TREASURE_BYTES' },
   ]);
-  const mockImages = createMockImagesBinding();
 
-  // 1. Resized image request -> invokes IMAGES binding with WebP negotiation
+  // 1. Edge host resized request -> calls fetchFn with cf.image & ?raw=1, sets immutable Cache-Control
+  let capturedFetchUrl = null;
+  let capturedFetchOpts = null;
+  const mockFetch = async (targetUrl, init) => {
+    capturedFetchUrl = targetUrl;
+    capturedFetchOpts = init;
+    return new Response('EDGE_WEBP_BYTES', { status: 200, headers: { 'Content-Type': 'image/webp' } });
+  };
+
   const resized = await handleServeImage({
-    request: makeReq('http://localhost/api/img/FANTASY%2Fdragon.jpg?w=600&fit=scale-down&fmt=auto', {
+    request: makeReq('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=800&fit=scale-down&fmt=auto', {
       headers: { Accept: 'image/webp,image/png' },
     }),
-    url: new URL('http://localhost/api/img/FANTASY%2Fdragon.jpg?w=600&fit=scale-down&fmt=auto'),
+    url: new URL('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=800&fit=scale-down&fmt=auto'),
     path: '/api/img/FANTASY%2Fdragon.jpg',
     mainBucket: rasterMain,
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket: rasterTreasure,
     DB: env.DB,
-    IMAGES: mockImages,
-    origin: 'http://localhost:3000',
+    origin: 'https://zxaionverse.site',
     corsHeaders,
     getUserToken,
+    fetchFn: mockFetch,
   });
   assert.equal(resized.status, 200);
   assert.equal(resized.headers.get('Content-Type'), 'image/webp');
-  assert.equal(resized.headers.get('X-Image-Transformed'), 'cf-images');
+  assert.equal(resized.headers.get('X-Image-Transformed'), 'cf-edge');
+  assert.equal(resized.headers.get('Cache-Control'), 'public, max-age=31536000, immutable');
   assert.equal(resized.headers.get('Vary'), 'Accept, Origin');
+  assert.equal(await resized.text(), 'EDGE_WEBP_BYTES');
+  assert.ok(capturedFetchUrl.includes('raw=1'));
+  assert.equal(capturedFetchOpts.cf.image.width, 800);
+  assert.equal(capturedFetchOpts.cf.image.format, 'auto');
 
-  // 2. Download request -> bypasses IMAGES binding and serves original JPEG + attachment
-  const downloaded = await handleServeImage({
-    request: makeReq('http://localhost/api/img/FANTASY%2Fdragon.jpg?w=300&download=true'),
-    url: new URL('http://localhost/api/img/FANTASY%2Fdragon.jpg?w=300&download=true'),
+  // 2. Non-preset width returns 400
+  const invalidPreset = await handleServeImage({
+    request: makeReq('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=333'),
+    url: new URL('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=333'),
     path: '/api/img/FANTASY%2Fdragon.jpg',
     mainBucket: rasterMain,
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket: rasterTreasure,
     DB: env.DB,
-    IMAGES: mockImages,
-    origin: 'http://localhost:3000',
+    origin: 'https://zxaionverse.site',
     corsHeaders,
     getUserToken,
+    fetchFn: mockFetch,
+  });
+  assert.equal(invalidPreset.status, 400);
+
+  // 3. Recursion guard: Via: image-resizing skips fetchFn and streams R2 directly
+  let viaFetchCalled = false;
+  const viaBypass = await handleServeImage({
+    request: makeReq('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=800', {
+      headers: { Via: '1.1 image-resizing' },
+    }),
+    url: new URL('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=800'),
+    path: '/api/img/FANTASY%2Fdragon.jpg',
+    mainBucket: rasterMain,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: rasterTreasure,
+    DB: env.DB,
+    origin: 'https://zxaionverse.site',
+    corsHeaders,
+    getUserToken,
+    fetchFn: async () => { viaFetchCalled = true; return new Response(''); },
+  });
+  assert.equal(viaBypass.status, 200);
+  assert.equal(viaFetchCalled, false);
+  assert.equal(await viaBypass.text(), 'RAW_JPEG_BYTES');
+
+  // 4. Download request -> bypasses edge transform and serves original JPEG + attachment
+  const downloaded = await handleServeImage({
+    request: makeReq('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=400&download=true'),
+    url: new URL('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=400&download=true'),
+    path: '/api/img/FANTASY%2Fdragon.jpg',
+    mainBucket: rasterMain,
+    comitbaseBucket: env.ZX_BUCKET,
+    treasureBucket: rasterTreasure,
+    DB: env.DB,
+    origin: 'https://zxaionverse.site',
+    corsHeaders,
+    getUserToken,
+    fetchFn: mockFetch,
   });
   assert.equal(downloaded.status, 200);
   assert.equal(downloaded.headers.get('Content-Type'), 'image/jpeg');
   assert.equal(downloaded.headers.get('X-Image-Transformed'), null);
   assert.equal(await downloaded.text(), 'RAW_JPEG_BYTES');
 
-  // 3. Unpurchased DTREASURE clamps width <= 600 even if caller requests w=2000
-  let capturedTransforms = [];
-  const spyImages = {
-    input(body) {
-      const chain = {
-        transform(step) { capturedTransforms.push(step); return chain; },
-        async output(opts) { return { response: () => new Response(body, { headers: { 'Content-Type': opts.format } }) }; },
-      };
-      return chain;
-    },
-  };
-  const dtreasureResized = await handleServeImage({
-    request: makeReq('http://localhost/api/dtreasure/img/vault%2Fsecret.jpg?w=2000&fmt=webp'),
-    url: new URL('http://localhost/api/dtreasure/img/vault%2Fsecret.jpg?w=2000&fmt=webp'),
-    path: '/api/dtreasure/img/vault%2Fsecret.jpg',
-    mainBucket: rasterMain,
-    comitbaseBucket: env.ZX_BUCKET,
-    treasureBucket: rasterTreasure,
-    DB: env.DB,
-    IMAGES: spyImages,
-    origin: 'http://localhost:3000',
-    corsHeaders,
-    getUserToken,
-  });
-  assert.equal(dtreasureResized.status, 200);
-  assert.equal(capturedTransforms[0].width, 600);
-
-  // 4. Fallback to original R2 object if IMAGES binding throws
-  const brokenImages = {
-    input() {
-      return {
-        transform() { return this; },
-        async output() { throw new Error('CF Images quota/error'); },
-      };
-    },
-  };
+  // 5. Fallback to original R2 object if cf.image fetchFn throws
   const fallbackRes = await handleServeImage({
-    request: makeReq('http://localhost/api/img/FANTASY%2Fdragon.jpg?w=600&fmt=webp'),
-    url: new URL('http://localhost/api/img/FANTASY%2Fdragon.jpg?w=600&fmt=webp'),
+    request: makeReq('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=400&fmt=webp'),
+    url: new URL('https://zxaionverse.site/api/img/FANTASY%2Fdragon.jpg?w=400&fmt=webp'),
     path: '/api/img/FANTASY%2Fdragon.jpg',
     mainBucket: rasterMain,
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket: rasterTreasure,
     DB: env.DB,
-    IMAGES: brokenImages,
-    origin: 'http://localhost:3000',
+    origin: 'https://zxaionverse.site',
     corsHeaders,
     getUserToken,
+    fetchFn: async () => { throw new Error('Edge transform timeout'); },
   });
   assert.equal(fallbackRes.status, 200);
   assert.equal(fallbackRes.headers.get('Content-Type'), 'image/jpeg');
   assert.equal(await fallbackRes.text(), 'RAW_JPEG_BYTES');
 });
 
-test('getCloudflareImageUrl builds valid /cdn-cgi/image URLs and preserves non-transformable URLs', () => {
+test('getCloudflareImageUrl snaps to 400/800/1600 presets on same-origin URLs without emitting /cdn-cgi/image', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const utilsSrc = readFileSync(join(here, '../../frontend/src/js/core/utils.js'), 'utf8');
 
@@ -692,11 +720,19 @@ test('getCloudflareImageUrl builds valid /cdn-cgi/image URLs and preserves non-t
 
   assert.equal(
     getCloudflareImageUrl('image.jpg', { width: 800, format: 'auto' }),
-    '/cdn-cgi/image/width=800,format=auto/image.jpg'
+    'image.jpg?w=800&fmt=auto'
   );
   assert.equal(
     getCloudflareImageUrl('/api/img/ANIME%2Fpic.jpg', { width: 600, quality: 80, fit: 'scale-down', format: 'auto' }),
-    '/cdn-cgi/image/width=600,quality=80,fit=scale-down,format=auto/api/img/ANIME%2Fpic.jpg'
+    '/api/img/ANIME%2Fpic.jpg?w=800&q=80&fit=scale-down&fmt=auto'
+  );
+  assert.equal(
+    getCloudflareImageUrl('/api/img/ANIME%2Fpic.jpg', { width: 360, fit: 'cover', format: 'auto' }),
+    '/api/img/ANIME%2Fpic.jpg?w=400&fit=cover&fmt=auto'
+  );
+  assert.equal(
+    getCloudflareImageUrl('/api/img/ANIME%2Fpic.jpg', { width: 1400, format: 'auto' }),
+    '/api/img/ANIME%2Fpic.jpg?w=1600&fmt=auto'
   );
   assert.equal(
     getCloudflareImageUrl('data:image/svg+xml;utf8,<svg></svg>', { width: 600 }),
@@ -706,25 +742,13 @@ test('getCloudflareImageUrl builds valid /cdn-cgi/image URLs and preserves non-t
     getCloudflareImageUrl('/api/img/a.jpg?download=true', { width: 600 }),
     '/api/img/a.jpg?download=true'
   );
-  assert.equal(
-    getCloudflareImageUrl('/cdn-cgi/image/width=400,format=auto/api/img/a.jpg', { width: 800 }),
-    '/cdn-cgi/image/width=400,format=auto/api/img/a.jpg'
-  );
-
-  // With external API_BASE
-  const prodSandbox = { API_BASE: 'https://ai.zxaionverse.workers.dev', URL, URLSearchParams };
-  vm.runInNewContext(utilsSrc, prodSandbox);
-  assert.equal(
-    prodSandbox.getCloudflareImageUrl('/api/img/pic.jpg', { width: 800, format: 'auto' }),
-    '/cdn-cgi/image/width=800,format=auto/https://ai.zxaionverse.workers.dev/api/img/pic.jpg'
-  );
 });
 
-test('image URL encoding and multi-stage fallback helpers construct safe Worker and direct fallback queues', () => {
+test('image URL encoding and multi-stage fallback helpers construct safe Worker preset and raw fallback queues', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const utilsSrc = readFileSync(join(here, '../../frontend/src/js/core/utils.js'), 'utf8');
 
-  const sandbox = { API_BASE: 'https://ai.zxaionverse.workers.dev', URL, URLSearchParams };
+  const sandbox = { API_BASE: '', URL, URLSearchParams };
   vm.runInNewContext(utilsSrc, sandbox);
   const {
     encodeImageUrlPath,
@@ -733,37 +757,36 @@ test('image URL encoding and multi-stage fallback helpers construct safe Worker 
     attachImageFallback,
   } = sandbox;
 
-  // Spaces get safely percent-encoded and API_BASE is prepended to /api/* paths
+  // Spaces get safely percent-encoded while keeping /api/* same-origin when API_BASE is ''
   assert.equal(
     encodeImageUrlPath('/api/img/HEADER/One piece.jpg'),
-    'https://ai.zxaionverse.workers.dev/api/img/HEADER/One%20piece.jpg'
+    '/api/img/HEADER/One%20piece.jpg'
   );
   // Already-encoded %2F / %20 segments are not double-encoded
   assert.equal(
     encodeImageUrlPath('/api/img/ANIME%2FOshi%20no%20ko/pic%201.jpg'),
-    'https://ai.zxaionverse.workers.dev/api/img/ANIME%2FOshi%20no%20ko/pic%201.jpg'
+    '/api/img/ANIME%2FOshi%20no%20ko/pic%201.jpg'
   );
 
-  // Worker built-in IMAGES transform URL
+  // Worker transform URL snaps width 480 -> 400
   assert.equal(
-    buildWorkerTransformUrl('/api/img/HEADER/Anime.jpg', { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' }),
-    'https://ai.zxaionverse.workers.dev/api/img/HEADER/Anime.jpg?w=480&h=480&q=80&fit=cover&fmt=auto'
+    buildWorkerTransformUrl('/api/img/HEADER/Anime.jpg', { w: 480, q: 80, fit: 'cover', fmt: 'auto' }),
+    '/api/img/HEADER/Anime.jpg?w=400&q=80&fit=cover&fmt=auto'
   );
 
-  // Multi-stage candidate queue: /cdn-cgi/image -> Worker transform -> raw Worker URL -> extras (deduplicated)
+  // Multi-stage candidate queue: Worker preset -> raw URL -> extras (deduplicated, no /cdn-cgi/image/)
   const candidates = getImageFallbackCandidates(
     '/api/img/HEADER/Demon slayer.jpg',
-    { w: 480, h: 480, q: 80, fit: 'cover', fmt: 'auto' },
+    { w: 480, q: 80, fit: 'cover', fmt: 'auto' },
     ['/api/img/ANIME/Demon%20slayer/tanjiro.jpg', '/api/img/HEADER/Demon slayer.jpg']
   );
   assert.deepEqual(JSON.parse(JSON.stringify(candidates)), [
-    '/cdn-cgi/image/width=480,height=480,quality=80,fit=cover,format=auto/https://ai.zxaionverse.workers.dev/api/img/HEADER/Demon%20slayer.jpg',
-    'https://ai.zxaionverse.workers.dev/api/img/HEADER/Demon%20slayer.jpg?w=480&h=480&q=80&fit=cover&fmt=auto',
-    'https://ai.zxaionverse.workers.dev/api/img/HEADER/Demon%20slayer.jpg',
-    '/cdn-cgi/image/width=480,height=480,quality=80,fit=cover,format=auto/https://ai.zxaionverse.workers.dev/api/img/ANIME/Demon%20slayer/tanjiro.jpg',
-    'https://ai.zxaionverse.workers.dev/api/img/ANIME/Demon%20slayer/tanjiro.jpg?w=480&h=480&q=80&fit=cover&fmt=auto',
-    'https://ai.zxaionverse.workers.dev/api/img/ANIME/Demon%20slayer/tanjiro.jpg',
+    '/api/img/HEADER/Demon%20slayer.jpg?w=400&q=80&fit=cover&fmt=auto',
+    '/api/img/HEADER/Demon%20slayer.jpg',
+    '/api/img/ANIME/Demon%20slayer/tanjiro.jpg?w=400&q=80&fit=cover&fmt=auto',
+    '/api/img/ANIME/Demon%20slayer/tanjiro.jpg',
   ]);
+  assert.equal(candidates.some(u => u.includes('/cdn-cgi/image/')), false);
 
   // attachImageFallback advances through candidates on error and triggers fallbackSvg at the end
   let finalErrorCalled = false;
@@ -785,16 +808,16 @@ test('image URL encoding and multi-stage fallback helpers construct safe Worker 
   assert.equal(fakeImg.onerror, null);
 });
 
-test('translateCdnCgiImagePath translates /cdn-cgi/image directives into backend query params', () => {
-  assert.equal(
-    translateCdnCgiImagePath('/cdn-cgi/image/width=600,quality=80,fit=scale-down,format=auto/api/img/ANIME%2Fpic.jpg'),
-    '/api/img/ANIME%2Fpic.jpg?w=600&q=80&fit=scale-down&fmt=auto'
-  );
-  assert.equal(
-    translateCdnCgiImagePath('/cdn-cgi/image/width=800,format=webp/https://ai.zxaionverse.workers.dev/api/img/test.jpg'),
-    '/api/img/test.jpg?w=800&fmt=webp'
-  );
-  assert.equal(translateCdnCgiImagePath('/api/img/test.jpg'), null);
+test('frontend bundle and server contain zero /cdn-cgi/image references or workers.dev origins', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const distScript = readFileSync(join(here, '../../frontend/dist/script.js'), 'utf8');
+  const distHtml = readFileSync(join(here, '../../frontend/dist/index.html'), 'utf8');
+  const serverSrc = readFileSync(join(here, '../../server.js'), 'utf8');
+
+  assert.equal(distScript.includes('/cdn-cgi/image'), false);
+  assert.equal(distHtml.includes('/cdn-cgi/image'), false);
+  assert.equal(serverSrc.includes('/cdn-cgi/image'), false);
+  assert.equal(distScript.includes('workers.dev'), false);
 });
 
 test('galleryFilters sorts, classifies/filters aspect ratios, filters DTREASURE library, and computes pagination/infinite slices', () => {
@@ -962,7 +985,7 @@ test('handleR2QueueBatch processes PutObject and DeleteObject events immediately
   assert.equal(jjkAfterDel.some((item) => item.id === `main:${newKey}`), false);
 });
 
-test('ensureAutoSync scans empty D1 on-demand and triggers background incremental sync on subsequent requests', async () => {
+test('ensureAutoSync scans empty D1 on-demand once and leaves subsequent R2 discovery to scheduled cron', async () => {
   resetSyncStateForTests();
   const coldEnv = {
     DB: createMockD1(),
@@ -987,11 +1010,20 @@ test('ensureAutoSync scans empty D1 on-demand and triggers background incrementa
   assert.equal(firstItems.length, 1);
   assert.equal(firstItems[0].id, 'main:ANIME/One Piece/luffy_gear5_old.jpg');
 
-  // New object uploaded to R2 without waiting for cron: background ensureAutoSync (cooldownMs=0) discovers it
+  // New object uploaded to R2: normal user traffic ensureAutoSync skips rescanning to save Worker CPU
   await coldEnv.Zxaion_B.put('ANIME/One Piece/zoro_enma_new.jpg', 'new-bytes', { size: 333333 });
   await ensureAutoSync({ env: coldEnv, ctx, DB: coldEnv.DB, bucketName: 'main', cooldownMs: 0 });
   await Promise.all(pending);
 
+  const midRes = await handleListMain({
+    url: new URL('http://localhost/api/list'),
+    DB: coldEnv.DB,
+    corsHeaders,
+  });
+  assert.equal((await midRes.json()).length, 1);
+
+  // Scheduled cron discovers the newly uploaded object cleanly
+  await handleScheduled(coldEnv);
   const secondRes = await handleListMain({
     url: new URL('http://localhost/api/list'),
     DB: coldEnv.DB,
@@ -1023,7 +1055,7 @@ test('DTREASURE media route fails closed when _preview/ is missing, ignores quer
     },
   };
 
-  // 1. Unpurchased request without _preview/ and without IMAGES binding -> MUST fail closed (403), never leak raw bytes
+  // 1. Unpurchased request without _preview/ -> MUST fail closed (403), never leak raw bytes
   const unauthNoImages = await handleServeImage({
     request: makeReq('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
     url: new URL('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
@@ -1032,7 +1064,6 @@ test('DTREASURE media route fails closed when _preview/ is missing, ignores quer
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket: rawTreasure,
     DB: env.DB,
-    IMAGES: null,
     origin: 'http://localhost:3000',
     corsHeaders,
     getUserToken,
@@ -1041,31 +1072,21 @@ test('DTREASURE media route fails closed when _preview/ is missing, ignores quer
   const body1 = await unauthNoImages.text();
   assert.equal(body1.includes('TOP_SECRET_4K_RAW_BYTES'), false);
 
-  // 2. Unpurchased request without _preview/ when IMAGES is present -> forces blurred <=480px preview even without query params
-  let seenTransform = null;
-  const spyImages = {
-    input(bytes) {
-      return {
-        transform(step) { seenTransform = step; return this; },
-        async output(opts) { return { response: () => new Response('BLURRED_PREVIEW', { headers: { 'Content-Type': opts.format } }) }; },
-      };
-    },
-  };
-  const unauthTransformed = await handleServeImage({
-    request: makeReq('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
-    url: new URL('http://localhost/api/dtreasure/img/vault%2Fno_preview_yet.jpg'),
+  // 2. Unpurchased request without _preview/ even with transform query (?w=400) -> STILL fails closed (403)
+  const unauthWithPreset = await handleServeImage({
+    request: makeReq('https://zxaionverse.site/api/dtreasure/img/vault%2Fno_preview_yet.jpg?w=400'),
+    url: new URL('https://zxaionverse.site/api/dtreasure/img/vault%2Fno_preview_yet.jpg?w=400'),
     path: '/api/dtreasure/img/vault%2Fno_preview_yet.jpg',
     mainBucket: env.Zxaion_B,
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket: rawTreasure,
     DB: env.DB,
-    IMAGES: spyImages,
-    origin: 'http://localhost:3000',
+    origin: 'https://zxaionverse.site',
     corsHeaders,
     getUserToken,
   });
-  assert.equal(unauthTransformed.status, 200);
-  assert.ok(seenTransform && seenTransform.width <= 480 && seenTransform.blur >= 12);
+  assert.equal(unauthWithPreset.status, 403);
+  assert.equal((await unauthWithPreset.text()).includes('TOP_SECRET_4K_RAW_BYTES'), false);
 
   // 3. Query-string ?userToken= is ignored for downloads (must send X-User-Token header)
   const queryTokenAttempt = await handleServeImage({
@@ -2727,61 +2748,54 @@ test('Purchased DTREASURE serves unblurred high-res preview via X-User-Token wit
 
   await env.DB.prepare('INSERT OR IGNORE INTO purchased_images (user_id, photo_id) VALUES (?, ?)').bind(buyerId, photoId).run();
 
-  let capturedStep = null;
-  const spyImages = {
-    input(body) {
-      return {
-        transform(step) { capturedStep = step; return this; },
-        async output(opts) {
-          return { response: () => new Response(body, { headers: { 'Content-Type': opts.format } }) };
-        },
-      };
-    },
+  let fetchCalled = false;
+  const spyFetch = async () => {
+    fetchCalled = true;
+    return new Response('SHOULD_NOT_CALL_EDGE_FETCH_FOR_DTREASURE');
   };
 
-  // Purchased user authenticated purely via X-User-Token (no Cookie) gets unblurred w=1400 from original key
+  // Purchased user authenticated purely via X-User-Token (no Cookie) gets unblurred high-res from original key directly from R2
   const purchasedRes = await handleServeImage({
-    request: makeReq('http://localhost/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1400&q=85&fit=scale-down&fmt=webp', {
+    request: makeReq('https://zxaionverse.site/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1600&q=80&fit=scale-down&fmt=webp', {
       headers: { 'X-User-Token': buyerId },
     }),
-    url: new URL('http://localhost/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1400&q=85&fit=scale-down&fmt=webp'),
+    url: new URL('https://zxaionverse.site/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1600&q=80&fit=scale-down&fmt=webp'),
     path: '/api/dtreasure/img/vault%2Fcrisp_artwork.jpg',
     mainBucket: env.Zxaion_B,
     comitbaseBucket: env.ZX_BUCKET,
     treasureBucket,
     DB: env.DB,
-    IMAGES: spyImages,
-    origin: 'http://localhost:3000',
+    origin: 'https://zxaionverse.site',
     corsHeaders,
     getUserToken,
+    fetchFn: spyFetch,
   });
 
   assert.equal(purchasedRes.status, 200);
   assert.match(purchasedRes.headers.get('Vary') || '', /X-User-Token/);
   assert.match(purchasedRes.headers.get('Vary') || '', /Authorization/);
   assert.equal(purchasedRes.headers.get('Cache-Control'), 'private, no-store');
-  assert.equal(capturedStep.width, 1400);
-  assert.equal(capturedStep.blur, undefined);
+  assert.equal(fetchCalled, false);
   assert.equal(await purchasedRes.text(), 'CRISP_FULL_ARTWORK_BYTES');
 
-  // Frontend authenticated candidate builder bypasses /cdn-cgi/image/
+  // Frontend authenticated candidate builder bypasses /cdn-cgi/image/ and snaps to 1600
   const fs = await import('node:fs');
   const path = await import('node:path');
   const utilsSrc = fs.readFileSync(path.resolve('frontend/src/js/core/utils.js'), 'utf8');
   const sandbox = { API_BASE: '', URL, URLSearchParams };
   vm.runInNewContext(utilsSrc, sandbox);
   const authCandidates = JSON.parse(JSON.stringify(
-    sandbox.getAuthenticatedImageCandidates('/api/dtreasure/img/vault%2Fcrisp_artwork.jpg', { w: 1400, q: 85, fit: 'scale-down', fmt: 'auto' })
+    sandbox.getAuthenticatedImageCandidates('/api/dtreasure/img/vault%2Fcrisp_artwork.jpg', { w: 1600, q: 80, fit: 'scale-down', fmt: 'auto' })
   ));
   assert.equal(authCandidates.some(u => u.startsWith('/cdn-cgi/image/')), false);
-  assert.equal(authCandidates[0], '/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1400&q=85&fit=scale-down&fmt=auto');
+  assert.equal(authCandidates[0], '/api/dtreasure/img/vault%2Fcrisp_artwork.jpg?w=1600&q=80&fit=scale-down&fmt=auto');
   assert.equal(authCandidates[1], '/api/dtreasure/img/vault%2Fcrisp_artwork.jpg');
 
   // Modal & DTREASURE gallery wire unlocked authenticated preview reload
   const modalJs = fs.readFileSync(path.resolve('frontend/src/js/ui/modal.js'), 'utf8');
   assert.ok(modalJs.includes('loadAuthenticatedImage'));
   assert.ok(modalJs.includes('refreshModalLockState'));
-  assert.ok(modalJs.includes('w: 1400'));
+  assert.ok(modalJs.includes('w: 1600'));
 
   const dtreasureJs = fs.readFileSync(path.resolve('frontend/src/js/ui/dtreasure.js'), 'utf8');
   assert.ok(dtreasureJs.includes('loadAuthenticatedImage'));
@@ -2888,7 +2902,7 @@ test('View state persistence across refresh, Home latest default ordering, and w
     browserSandbox.getImageFallbackCandidates('/api/img/ANIME/pic.jpg', { w: 520, q: 78, fit: 'scale-down', fmt: 'auto' })
   ));
   assert.equal(localCandidates.some(u => u.includes('/cdn-cgi/image/')), false);
-  assert.equal(localCandidates[0], '/api/img/ANIME/pic.jpg?w=520&q=78&fit=scale-down&fmt=auto');
+  assert.equal(localCandidates[0], '/api/img/ANIME/pic.jpg?w=400&q=80&fit=scale-down&fmt=auto');
 
   // Above-the-fold eager loading + lazy PayPal SDK + preconnects + immutable anime sample_url
   const baseSrc = fs.readFileSync(path.resolve('frontend/src/js/ui/base.js'), 'utf8');
@@ -3628,7 +3642,7 @@ test('Built frontend enforces updated emails, logo asset, CSP purity, WebP thumb
   assert.ok(html.includes('Preview on Device'));
   assert.ok(html.includes('+20 Bonus Credits'));
   assert.ok(html.includes('Top Creators'));
-  assert.ok(script.includes('w:480') || script.includes('w: 480'));
+  assert.ok(script.includes('w:400') || script.includes('w: 400'));
   assert.equal(/\son(click|change|submit|input)=/i.test(html), false, 'Strict CSP forbids inline HTML event handlers');
   assert.ok(html.includes('modal-desktop-controls'));
   assert.ok(html.includes('modal-desktop-zoom-range'));
@@ -3675,4 +3689,238 @@ test('Desktop mockup cover-fit pan/zoom clamping math prevents black gaps and su
 
   const clampedScale = compute({ stageW: 800, stageH: 450, natW: 1920, natH: 1080, scale: 9, x: 0, y: 0 });
   assert.equal(clampedScale.scale, 3);
+});
+
+// ================================================================
+// Production Hardening Tests (TUGAS 1, 2, 3, 4, 5, 6, 8, 9, 11)
+// ================================================================
+
+test('TUGAS 1, 5, 9: explicit _redirects, 404.html, robots.txt, favicon.ico, sitemap.xml, _headers exist and block soft-404s', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  // Dist artifacts exist after build
+  const redirects = fs.readFileSync(path.resolve('frontend/dist/_redirects'), 'utf8');
+  assert.match(redirects, /^\/\s+\/index\.html\s+200$/m);
+  assert.match(redirects, /^\/admin\s+\/index\.html\s+200$/m);
+  assert.match(redirects, /^\/\*\s+\/404\.html\s+404$/m);
+
+  const notFoundHtml = fs.readFileSync(path.resolve('frontend/dist/404.html'), 'utf8');
+  assert.match(notFoundHtml, /404/);
+
+  const robotsTxt = fs.readFileSync(path.resolve('frontend/dist/robots.txt'), 'utf8');
+  assert.match(robotsTxt, /Disallow: \/admin/);
+  assert.match(robotsTxt, /Disallow: \/api\//);
+
+  const sitemapXml = fs.readFileSync(path.resolve('frontend/dist/sitemap.xml'), 'utf8');
+  assert.match(sitemapXml, /<urlset/);
+  assert.match(sitemapXml, /zxaionverse\.site/);
+
+  const faviconBuf = fs.readFileSync(path.resolve('frontend/dist/favicon.ico'));
+  assert.ok(faviconBuf.byteLength > 100);
+  assert.equal(faviconBuf.readUInt16LE(0), 0);
+  assert.equal(faviconBuf.readUInt16LE(2), 1);
+
+  const headersFile = fs.readFileSync(path.resolve('frontend/dist/_headers'), 'utf8');
+  assert.match(headersFile, /X-Frame-Options: DENY/);
+  assert.match(headersFile, /X-Content-Type-Options: nosniff/);
+  assert.match(headersFile, /Content-Security-Policy-Report-Only:/);
+  assert.match(headersFile, /\/assets\/\*/);
+
+  // Worker handleStatic returns 404 for unknown WordPress probes & 200 for / and /admin/
+  const staticBucket = createMockR2Bucket('frontend', [
+    { key: 'index.html', contentType: 'text/html', bodyText: '<!DOCTYPE html><html><head><title>ZX</title></head><body>OK</body></html>' },
+    { key: '404.html', contentType: 'text/html', bodyText: '<!DOCTYPE html><html><body>404 Page Not Found</body></html>' },
+  ]);
+  const wpRes = await handleStatic({
+    path: '/wp-admin/install.php',
+    url: new URL('https://zxaionverse.site/wp-admin/install.php'),
+    mainBucket: staticBucket,
+    origin: 'https://zxaionverse.site',
+  });
+  assert.equal(wpRes.status, 404);
+  assert.match(await wpRes.text(), /404 Page Not Found/);
+
+  const adminRes = await handleStatic({
+    path: '/admin/',
+    url: new URL('https://zxaionverse.site/admin/'),
+    mainBucket: staticBucket,
+    origin: 'https://zxaionverse.site',
+  });
+  assert.equal(adminRes.status, 200);
+
+  // Frontend router normalizes trailing slashes so /admin/ opens Admin Portal
+  const initSrc = fs.readFileSync(path.resolve('frontend/src/js/app/init.js'), 'utf8');
+  const stateSrc = fs.readFileSync(path.resolve('frontend/src/js/core/state.js'), 'utf8');
+  assert.match(initSrc, /window\.location\.pathname\.replace\(\/\\\/\+\$\/,\s*''\)/);
+  assert.match(stateSrc, /window\.location\.pathname\.replace\(\/\\\/\+\$\/,\s*''\)/);
+
+  // Node Express createApp returns 404 for unknown routes too
+  const app = await createApp({ env: await createLocalEnv() });
+  const srv = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  try {
+    const port = srv.address().port;
+    const probe = await fetch(`http://127.0.0.1:${port}/wp-admin/install.php`);
+    assert.equal(probe.status, 404);
+    const home = await fetch(`http://127.0.0.1:${port}/`);
+    assert.equal(home.status, 200);
+    const adminSlash = await fetch(`http://127.0.0.1:${port}/admin/`);
+    assert.equal(adminSlash.status, 200);
+  } finally {
+    srv.close();
+  }
+});
+
+test('TUGAS 3, 6, 8: SameSite=Lax HTTPS cookies, stripped workers.dev origins, no IMAGES/queue/limits, 15m cron & bounded Sitemap', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  // TUGAS 6 & 8: Worker entry & wrangler.toml config checks
+  assert.equal(typeof workerEntry.fetch, 'function');
+  assert.equal(typeof workerEntry.scheduled, 'function');
+  assert.equal(workerEntry.queue, undefined);
+
+  const wranglerToml = fs.readFileSync(path.resolve('backend/wrangler.toml'), 'utf8');
+  assert.equal(wranglerToml.includes('[images]'), false);
+  assert.equal(wranglerToml.includes('[limits]'), false);
+  assert.match(wranglerToml, /crons\s*=\s*\["\*\/15 \* \* \* \*"\]/);
+
+  // TUGAS 3: security origins & CSP exclude workers.dev
+  assert.equal(ALLOWED_ORIGINS.some(o => o.includes('workers.dev')), false);
+  assert.equal(CONTENT_SECURITY_POLICY.includes('workers.dev'), false);
+
+  // TUGAS 3: HTTPS account registration issues HttpOnly; Secure; SameSite=Lax cookie
+  const env = await createLocalEnv();
+  const regRes = await handleRegisterAccount({
+    request: makeReq('https://zxaionverse.site/api/account/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': 'u_cookie_samesite_test' },
+      body: { email: 'cookie@zxaion.test', password: 'StrongPassword!99' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    sendEmail: async () => ({ sent: false, provider: 'unconfigured' }),
+  });
+  assert.equal(regRes.status, 201);
+  const setCookie = regRes.headers.get('Set-Cookie') || '';
+  assert.match(setCookie, /HttpOnly/i);
+  assert.match(setCookie, /SameSite=Lax/i);
+  assert.match(setCookie, /Secure/i);
+
+  // TUGAS 5: handleSitemapXml reads D1 only (zero R2 list calls)
+  let r2ListCalled = false;
+  const spyEnv = {
+    ...env,
+    Zxaion_B: { async list() { r2ListCalled = true; return { objects: [] }; } },
+  };
+  const smRes = await handleSitemapXml({
+    DB: env.DB,
+    env: spyEnv,
+    origin: 'https://zxaionverse.site',
+    corsHeaders,
+  });
+  assert.equal(smRes.status, 200);
+  assert.equal(r2ListCalled, false);
+});
+
+test('TUGAS 4 & 11: ensureAutoSync skips R2 rescan when populated, readJsonBody bounds size, session last_seen throttles, rate limits hash IPs & return Retry-After', async () => {
+  const env = await createLocalEnv();
+  resetSyncStateForTests();
+
+  // 1. ensureAutoSync skips R2 list() when images table already has rows for that bucket
+  let listCalls = 0;
+  const spyEnv = {
+    ...env,
+    Zxaion_B: {
+      async list() { listCalls += 1; return { objects: [], truncated: false }; },
+    },
+  };
+  const pendingSync = [];
+  const syncCtx = { waitUntil: (p) => pendingSync.push(p) };
+  await ensureAutoSync({ env: spyEnv, ctx: syncCtx, DB: env.DB, bucketName: 'main', cooldownMs: 0 });
+  await Promise.all(pendingSync);
+  assert.equal(listCalls, 0);
+
+  // 2. readJsonBody enforces maxBytes -> 413
+  const oversized = await readJsonBody(makeReq('http://localhost/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: 'x'.repeat(2048) }),
+  }), { maxBytes: 512 });
+  assert.equal(oversized.ok, false);
+  assert.equal(oversized.status, 413);
+
+  // 3. resolveSessionAuth throttles user_sessions.last_seen_at writes (< 15 min) via ctx.waitUntil
+  const reg = await handleRegisterAccount({
+    request: makeReq('https://zxaionverse.site/api/account/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': 'u_throttle_test_1' },
+      body: { email: 'throttle@zxaion.test', password: 'StrongPassword!99' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    getUserToken,
+    sendEmail: async () => ({ sent: false, provider: 'unconfigured' }),
+  });
+  const { sessionToken } = await reg.json();
+  const pendingAuth = [];
+  const authCtx = { waitUntil: (p) => pendingAuth.push(p) };
+  const authRes = await resolveSessionAuth({
+    request: makeReq('https://zxaionverse.site/api/account/me', {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }),
+    DB: env.DB,
+    getUserToken,
+    ctx: authCtx,
+  });
+  assert.equal(authRes.authenticated, true);
+  // Fresh session was created seconds ago (<15m threshold), so no redundant UPDATE queued
+  assert.equal(pendingAuth.length, 0);
+
+  // 4. Rate limit stores only hashed IP key (never raw IP) & endpoints return 429 + Retry-After after 10 requests in 60s
+  const attackerIp = '198.51.100.77';
+  const hashedKey = await resolveHashedRateKey(
+    makeReq('https://zxaionverse.site/api/account/login', { headers: { 'CF-Connecting-IP': attackerIp } })
+  );
+  assert.equal(hashedKey.includes(attackerIp), false);
+  assert.match(hashedKey, /^[0-9a-f]{32}$/);
+
+  for (let i = 0; i < 10; i++) {
+    const res = await handleRecoverRequest({
+      request: makeReq('https://zxaionverse.site/api/account/recover/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': attackerIp },
+        body: { email: 'nobody@zxaion.test' },
+      }),
+      env,
+      DB: env.DB,
+      corsHeaders,
+      sendEmail: async () => ({ sent: false }),
+      checkRateLimitStatus: (ep, id, limit, win) => checkRateLimitStatus(env.DB, ep, id, limit, win),
+    });
+    assert.equal(res.status, 200);
+  }
+  const throttled = await handleRecoverRequest({
+    request: makeReq('https://zxaionverse.site/api/account/recover/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': attackerIp },
+      body: { email: 'nobody@zxaion.test' },
+    }),
+    env,
+    DB: env.DB,
+    corsHeaders,
+    sendEmail: async () => ({ sent: false }),
+    checkRateLimitStatus: (ep, id, limit, win) => checkRateLimitStatus(env.DB, ep, id, limit, win),
+  });
+  assert.equal(throttled.status, 429);
+  assert.ok(Number(throttled.headers.get('Retry-After')) >= 1);
+
+  // Confirm raw IP is never stored in rate_limits
+  const rawRl = await env.DB.prepare('SELECT id FROM rate_limits WHERE id LIKE ?').bind(`%${attackerIp}%`).first();
+  assert.equal(rawRl, null);
 });

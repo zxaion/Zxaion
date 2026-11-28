@@ -5,8 +5,25 @@ import { claimPayPalOrderProcessing, markPayPalOrderFailed, settleClaimedPayPalO
 import { issueDtreasureDownloadToken } from '../services/downloadToken.js';
 import { isUserAuthorizedForDtreasure } from './media.js';
 import { jsonResponse } from '../utils/cors.js';
+import { readJsonBody } from '../utils/requestBody.js';
+import { checkRateLimitStatus as defaultCheckRateLimitStatus, resolveHashedRateKey } from '../services/rateLimit.js';
 
 const STALE_PROCESSING_MS = 5 * 60 * 1000;
+
+async function enforceCreditRateLimit({ DB, checkRateLimitStatus, checkRateLimit, request, endpoint, fallbackId, limit, windowSec }) {
+  const key = await resolveHashedRateKey(request, fallbackId);
+  if (typeof checkRateLimitStatus === 'function') {
+    return await checkRateLimitStatus(endpoint, key, limit, windowSec);
+  }
+  if (typeof checkRateLimit === 'function') {
+    const allowed = await checkRateLimit(endpoint, key, limit, windowSec);
+    return { allowed, retryAfter: allowed ? 0 : windowSec };
+  }
+  if (DB) {
+    return await defaultCheckRateLimitStatus(DB, endpoint, key, limit, windowSec);
+  }
+  return { allowed: true, retryAfter: 0 };
+}
 
 function requireAuthError(auth, defaultMsg, corsHeaders) {
   return jsonResponse({
@@ -19,8 +36,8 @@ function requireAuthError(auth, defaultMsg, corsHeaders) {
 // ================================================================
 // ENDPOINT: Credit balance (read-only; respects session-protected accounts)
 // ================================================================
-export async function handleCreditBalance({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleCreditBalance({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   const userId = auth.authenticated ? auth.userId : 'anonymous';
 
   if (!userId || userId === 'anonymous') {
@@ -77,8 +94,8 @@ export async function handleCreditBalance({ request, DB, corsHeaders, getUserTok
 // ================================================================
 // ENDPOINT: Prepare public payer reference & automatic Account ID
 // ================================================================
-export async function handlePreparePayer({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handlePreparePayer({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return requireAuthError(auth, {
       login: 'Please sign in to your account to continue',
@@ -87,11 +104,23 @@ export async function handlePreparePayer({ request, DB, corsHeaders, getUserToke
   }
   const userId = auth.userId;
 
-  if (typeof checkRateLimit === 'function') {
-    const ip = request.headers.get('CF-Connecting-IP') || userId;
-    if (!await checkRateLimit('prepare_payer', ip, 60, 3600)) {
-      return jsonResponse({ success: false, error: 'Too many requests. Please slow down.' }, 429, corsHeaders);
-    }
+  const rl = await enforceCreditRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'prepare_payer',
+    fallbackId: userId,
+    limit: 60,
+    windowSec: 3600,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many requests. Please slow down.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
   try {
@@ -117,8 +146,8 @@ export async function handlePreparePayer({ request, DB, corsHeaders, getUserToke
 // ================================================================
 // ENDPOINT: Create PayPal Order server-side (auto-provisions Account ID first)
 // ================================================================
-export async function handleCreatePayPalOrder({ request, DB, corsHeaders, getUserToken, checkRateLimit, getPayPalAccessToken, createPayPalOrder }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleCreatePayPalOrder({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus, getPayPalAccessToken, createPayPalOrder }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return requireAuthError(auth, {
       login: 'Please sign in to your account before purchasing credits',
@@ -127,19 +156,30 @@ export async function handleCreatePayPalOrder({ request, DB, corsHeaders, getUse
   }
   const userId = auth.userId;
 
-  if (typeof checkRateLimit === 'function') {
-    const ip = request.headers.get('CF-Connecting-IP') || userId;
-    if (!await checkRateLimit('create_order', ip, 30, 3600)) {
-      return jsonResponse({ success: false, error: 'Too many checkout attempts. Please slow down.' }, 429, corsHeaders);
-    }
+  const rl = await enforceCreditRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'create_order',
+    fallbackId: userId,
+    limit: 30,
+    windowSec: 3600,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many checkout attempts. Please slow down.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const pack = typeof body?.pack === 'string' ? body.pack.trim() : '';
   const packData = PACKS[pack];
@@ -189,18 +229,30 @@ export async function handleCreatePayPalOrder({ request, DB, corsHeaders, getUse
 // ================================================================
 // ENDPOINT: Generate / rotate Recovery Code for current token
 // ================================================================
-export async function handleCreateRecoveryCode({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleCreateRecoveryCode({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return jsonResponse({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
   const userId = auth.userId;
 
-  if (typeof checkRateLimit === 'function') {
-    const ip = request.headers.get('CF-Connecting-IP') || userId;
-    if (!await checkRateLimit('recovery_create', ip, 10, 3600)) {
-      return jsonResponse({ success: false, error: 'Too many requests. Try again later.' }, 429, corsHeaders);
-    }
+  const rl = await enforceCreditRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'recovery_create',
+    fallbackId: userId,
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many requests. Try again later.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
   try {
@@ -233,22 +285,35 @@ export async function handleCreateRecoveryCode({ request, DB, corsHeaders, getUs
 // ================================================================
 // ENDPOINT: Restore account token via Recovery Code
 // ================================================================
-export async function handleRecoverAccount({ request, DB, corsHeaders, checkRateLimit }) {
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+export async function handleRecoverAccount({ request, DB, corsHeaders, checkRateLimit, checkRateLimitStatus }) {
+  const rl = await enforceCreditRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'recover',
+    fallbackId: 'recover-client',
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many recovery attempts. Try again later.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
+
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
+  }
+  const body = parsed.data;
 
   const rawCode = String(body?.recoveryCode || '').trim().toUpperCase();
   if (!/^ZX-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(rawCode)) {
     return jsonResponse({ success: false, error: 'Invalid recovery code format' }, 400, corsHeaders);
-  }
-
-  const ip = request.headers.get('CF-Connecting-IP') || 'recover-client';
-  if (!await checkRateLimit('recover', ip, 10, 3600)) {
-    return jsonResponse({ success: false, error: 'Too many recovery attempts. Try again later.' }, 429, corsHeaders);
   }
 
   try {
@@ -281,8 +346,8 @@ export async function handleRecoverAccount({ request, DB, corsHeaders, checkRate
 // ================================================================
 // ENDPOINT: Purchase credits
 // ================================================================
-export async function handleCreditPurchase({ request, DB, corsHeaders, getUserToken, checkRateLimit, getPayPalAccessToken, verifyPayPalOrder }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleCreditPurchase({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus, getPayPalAccessToken, verifyPayPalOrder }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   const userId = auth.authenticated ? auth.userId : 'anonymous';
 
   if (!userId || userId === 'anonymous') {
@@ -292,19 +357,30 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
     }, corsHeaders);
   }
 
-  if (typeof checkRateLimit === 'function') {
-    const ip = request.headers.get('CF-Connecting-IP') || userId;
-    if (!await checkRateLimit('purchase', ip, 20, 3600)) {
-      return jsonResponse({ success: false, error: 'Too many payment attempts. Please wait and try again.' }, 429, corsHeaders);
-    }
+  const rl = await enforceCreditRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'purchase',
+    fallbackId: userId,
+    limit: 20,
+    windowSec: 3600,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many payment attempts. Please wait and try again.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const { pack, orderId: rawOrderId } = body;
 
@@ -490,8 +566,8 @@ export async function handleCreditPurchase({ request, DB, corsHeaders, getUserTo
 // ================================================================
 // ENDPOINT: Spend credits
 // ================================================================
-export async function handleCreditSpend({ request, env = {}, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleCreditSpend({ request, ctx, env = {}, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   const userId = auth.authenticated ? auth.userId : 'anonymous';
 
   if (!userId || userId === 'anonymous') {
@@ -501,19 +577,30 @@ export async function handleCreditSpend({ request, env = {}, DB, corsHeaders, ge
     }, corsHeaders);
   }
 
-  if (typeof checkRateLimit === 'function') {
-    const ip = request.headers.get('CF-Connecting-IP') || userId;
-    if (!await checkRateLimit('spend', ip, 120, 3600)) {
-      return jsonResponse({ success: false, error: 'Too many requests. Please slow down.' }, 429, corsHeaders);
-    }
+  const rl = await enforceCreditRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'spend',
+    fallbackId: userId,
+    limit: 120,
+    windowSec: 3600,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many requests. Please slow down.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const { photoId } = body;
   if (!photoId || typeof photoId !== 'string') {
@@ -662,8 +749,8 @@ export async function handleCreditSpend({ request, env = {}, DB, corsHeaders, ge
 // ENDPOINT: Issue verified short-lived download token for owned DTREASURE asset
 // POST /api/dtreasure/download-token
 // ================================================================
-export async function handleDtreasureDownloadToken({ request, env = {}, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleDtreasureDownloadToken({ request, ctx, env = {}, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   const userId = auth.authenticated ? auth.userId : 'anonymous';
 
   if (!userId || userId === 'anonymous') {
@@ -673,19 +760,30 @@ export async function handleDtreasureDownloadToken({ request, env = {}, DB, cors
     }, corsHeaders);
   }
 
-  if (typeof checkRateLimit === 'function') {
-    const ip = request.headers.get('CF-Connecting-IP') || userId;
-    if (!await checkRateLimit('dtreasure_dl_token', ip, 120, 3600)) {
-      return jsonResponse({ success: false, error: 'Too many download token requests' }, 429, corsHeaders);
-    }
+  const rl = await enforceCreditRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'dtreasure_dl_token',
+    fallbackId: userId,
+    limit: 120,
+    windowSec: 3600,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many download token requests' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const rawPhotoId = String(body?.photoId || '').trim();
   const rawKey = String(body?.key || rawPhotoId.replace(/^dtreasure:/, '')).trim();

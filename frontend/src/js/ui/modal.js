@@ -265,7 +265,7 @@ Object.assign(ui, {
 
             const isRelDt = rel.category === 'DTREASURE' || rel.searchCategory === 'DTREASURE';
             const relUnlocked = !isRelDt || state.lifetime || state.purchasedImages.has(rel.id);
-            const opts = { w: 320, q: 76, fit: 'scale-down', fmt: 'auto' };
+            const opts = { w: 400, q: 80, fit: 'scale-down', fmt: 'auto' };
 
             if (isRelDt && relUnlocked && typeof utils.loadAuthenticatedImage === 'function') {
                 img.src = placeholderSvg;
@@ -319,7 +319,7 @@ Object.assign(ui, {
                     img._lazyLoadFn = null;
                     delete img.dataset.src;
                     img.classList.add('loading-shimmer');
-                    utils.loadAuthenticatedImage(img, photo.url, { w: 640, q: 80, fit: 'scale-down', fmt: 'auto' }, {
+                    utils.loadAuthenticatedImage(img, photo.url, { w: 800, q: 80, fit: 'scale-down', fmt: 'auto' }, {
                         fallbackSvg: errorSvg,
                         onLoadSuccess(el) {
                             el.classList.remove('loading-shimmer');
@@ -371,7 +371,7 @@ Object.assign(ui, {
             utils.loadAuthenticatedImage(
                 elements.modalImg,
                 photo.url,
-                { w: 1400, q: 85, fit: 'scale-down', fmt: 'auto' },
+                { w: 1600, q: 80, fit: 'scale-down', fmt: 'auto' },
                 {
                     fallbackSvg: modalErrorSvg,
                     onLoadSuccess(el) {
@@ -392,8 +392,8 @@ Object.assign(ui, {
         }
 
         const previewCandidates = utils.getImageFallbackCandidates(photo.url, {
-            w:   isDtreasure ? 480 : 1400,
-            q:   isDtreasure ? 72  : 85,
+            w:   isDtreasure ? 400 : 1600,
+            q:   80,
             fit: 'scale-down',
             fmt: 'auto',
         });

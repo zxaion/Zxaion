@@ -19,7 +19,6 @@ export const CONTENT_SECURITY_POLICY =
     "https://cdnjs.cloudflare.com " +
     "https://fonts.gstatic.com; " +
   "connect-src 'self' " +
-    "https://ai.zxaionverse.workers.dev " +
     "https://www.paypal.com " +
     "https://*.paypal.com " +
     "https://www.paypalobjects.com " +

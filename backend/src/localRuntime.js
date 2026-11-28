@@ -353,6 +353,67 @@ export function createMockD1() {
       return { results };
     }
 
+    if (q === "SELECT creator_id, LOWER(TRIM(COALESCE(uploader, ''))) AS uploader_norm, COUNT(*) AS cnt FROM images WHERE bucket = 'comitbase' GROUP BY creator_id, LOWER(TRIM(COALESCE(uploader, '')))") {
+      const grouped = new Map();
+      for (const r of images.values()) {
+        if (r.bucket !== 'comitbase') continue;
+        const creator_id = r.creator_id || null;
+        const uploader_norm = String(r.uploader || '').trim().toLowerCase();
+        const k = `${creator_id || ''}::${uploader_norm}`;
+        const prev = grouped.get(k) || { creator_id, uploader_norm, cnt: 0 };
+        prev.cnt += 1;
+        grouped.set(k, prev);
+      }
+      return { results: Array.from(grouped.values()) };
+    }
+
+    if (q.includes("AS artwork_count") && q.includes("FROM images WHERE bucket = 'comitbase'")) {
+      const grouped = new Map();
+      for (const r of images.values()) {
+        if (r.bucket !== 'comitbase') continue;
+        const creator_id = r.creator_id || null;
+        const uploader_norm = String(r.uploader || '').trim().toLowerCase();
+        const k = `${creator_id || ''}::${uploader_norm}`;
+        const prev = grouped.get(k) || {
+          creator_id,
+          uploader_norm,
+          artwork_count: 0,
+          total_loves: 0,
+          total_fires: 0,
+          total_downloads: 0,
+          total_views: 0,
+        };
+        prev.artwork_count += 1;
+        prev.total_loves += Number(r.love_count || 0);
+        prev.total_fires += Number(r.fire_count || 0);
+        prev.total_downloads += Number(r.download_count || 0);
+        prev.total_views += Number(r.view_count || 0);
+        grouped.set(k, prev);
+      }
+      return { results: Array.from(grouped.values()) };
+    }
+
+    if (q.includes("WHERE bucket = 'comitbase' AND (creator_id = ?")) {
+      const [cid, pname] = params;
+      const normName = String(pname || '').trim().toLowerCase();
+      const results = Array.from(images.values())
+        .filter((r) => r.bucket === 'comitbase' && (
+          r.creator_id === cid
+          || (!r.creator_id && String(r.uploader || '').trim().toLowerCase() === normName)
+        ))
+        .sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id))
+        .slice(0, 200);
+      return { results };
+    }
+
+    if (q.endsWith("FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC, id DESC LIMIT 150")) {
+      const results = Array.from(images.values())
+        .filter((r) => r.bucket === 'comitbase')
+        .sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || '') || b.id.localeCompare(a.id))
+        .slice(0, 150);
+      return { results };
+    }
+
     if (q === "SELECT creator_id, uploader FROM images WHERE bucket = 'comitbase'") {
       const results = Array.from(images.values())
         .filter((r) => r.bucket === 'comitbase')
@@ -401,6 +462,18 @@ export function createMockD1() {
           sample_uploaded: info.sample_uploaded,
         }));
       return { results };
+    }
+
+    if (q === 'SELECT 1 AS present FROM images WHERE bucket = ? LIMIT 1') {
+      const targetBucket = params[0];
+      let present = false;
+      for (const r of images.values()) {
+        if (r.bucket === targetBucket) {
+          present = true;
+          break;
+        }
+      }
+      return { first: present ? { present: 1 } : null, results: present ? [{ present: 1 }] : [] };
     }
 
     if (/^SELECT COUNT\(\*\) AS total FROM images WHERE bucket = (?:\?|'[^']+')$/i.test(q)) {
@@ -661,9 +734,18 @@ export function createMockD1() {
     }
 
     if (q.includes("FROM creator_profiles WHERE status = 'approved'")) {
+      const hasSearch = q.includes('LOWER(profile_name) LIKE ?');
+      const needle = hasSearch ? String(params[0] || '').replace(/^%|%$/g, '').toLowerCase() : '';
       const results = Array.from(creatorProfiles.values())
-        .filter((cp) => cp.status === 'approved')
+        .filter((cp) => {
+          if (cp.status !== 'approved') return false;
+          if (!needle) return true;
+          return (cp.profile_name || '').toLowerCase().includes(needle)
+            || (cp.description || '').toLowerCase().includes(needle)
+            || (cp.slug || '').toLowerCase().includes(needle);
+        })
         .sort((a, b) => (b.approved_at || b.created_at || '').localeCompare(a.approved_at || a.created_at || ''))
+        .slice(0, 100)
         .map((cp) => ({ ...cp }));
       return { results };
     }
@@ -721,13 +803,14 @@ export function createMockD1() {
       return { meta: { changes: had ? 0 : 1 } };
     }
 
-    if (q.startsWith('DELETE FROM views WHERE created_at < ?')) {
+    if (q.startsWith('DELETE FROM views WHERE created_at < ?') || q.startsWith('DELETE FROM views WHERE rowid IN (SELECT rowid FROM views WHERE created_at < ?')) {
       const cutoff = params[0];
       let changes = 0;
       for (const [k, createdAt] of views.entries()) {
         if (createdAt && createdAt < cutoff) {
           views.delete(k);
           changes++;
+          if (q.includes('LIMIT 1000') && changes >= 1000) break;
         }
       }
       return { meta: { changes } };
@@ -740,13 +823,14 @@ export function createMockD1() {
       return { meta: { changes: had ? 0 : 1 } };
     }
 
-    if (q.startsWith('DELETE FROM downloads WHERE created_at < ?')) {
+    if (q.startsWith('DELETE FROM downloads WHERE created_at < ?') || q.startsWith('DELETE FROM downloads WHERE rowid IN (SELECT rowid FROM downloads WHERE created_at < ?')) {
       const cutoff = params[0];
       let changes = 0;
       for (const [k, createdAt] of downloads.entries()) {
         if (createdAt && createdAt < cutoff) {
           downloads.delete(k);
           changes++;
+          if (q.includes('LIMIT 1000') && changes >= 1000) break;
         }
       }
       return { meta: { changes } };
@@ -767,18 +851,31 @@ export function createMockD1() {
       return { meta: { changes: 1 } };
     }
 
-    if (q === 'SELECT count FROM rate_limits WHERE id = ?') {
+    if (q === 'SELECT count FROM rate_limits WHERE id = ?' || q === 'SELECT count, reset_time FROM rate_limits WHERE id = ?') {
       const row = rateLimits.get(params[0]) || null;
-      return { first: row ? { count: row.count } : null };
+      return { first: row ? { count: row.count, reset_time: row.reset_time } : null };
     }
 
-    if (q.startsWith('DELETE FROM rate_limits WHERE reset_time < ?')) {
+    if (q === 'SELECT id FROM rate_limits WHERE id LIKE ?') {
+      const needle = String(params[0] || '').replace(/^%|%$/g, '');
+      let found = null;
+      for (const id of rateLimits.keys()) {
+        if (id.includes(needle)) {
+          found = { id };
+          break;
+        }
+      }
+      return { first: found };
+    }
+
+    if (q.startsWith('DELETE FROM rate_limits WHERE reset_time < ?') || q.startsWith('DELETE FROM rate_limits WHERE rowid IN (SELECT rowid FROM rate_limits WHERE reset_time < ?')) {
       const cutoff = params[0];
       let changes = 0;
       for (const [id, row] of rateLimits.entries()) {
         if (row.reset_time < cutoff) {
           rateLimits.delete(id);
           changes++;
+          if (q.includes('LIMIT 1000') && changes >= 1000) break;
         }
       }
       return { meta: { changes } };
@@ -798,6 +895,11 @@ export function createMockD1() {
     if (q === 'SELECT credits FROM user_credits WHERE user_id = ?') {
       const u = userCredits.get(params[0]);
       return { first: u ? { credits: u.credits } : null };
+    }
+
+    if (q === 'SELECT user_id FROM user_credits WHERE user_id = ?') {
+      const u = userCredits.get(params[0]);
+      return { first: u ? { user_id: u.user_id } : null };
     }
 
     if (q === 'SELECT user_id FROM user_credits WHERE public_id = ? LIMIT 1') {
@@ -1386,13 +1488,14 @@ export function createMockD1() {
       return { results };
     }
 
-    if (q.startsWith('DELETE FROM user_sessions WHERE expires_at < ?')) {
+    if (q.startsWith('DELETE FROM user_sessions WHERE expires_at < ?') || q.startsWith('DELETE FROM user_sessions WHERE rowid IN (SELECT rowid FROM user_sessions WHERE expires_at < ?')) {
       const [expCutoff, revCutoff] = params;
       let changes = 0;
       for (const [sid, s] of userSessions.entries()) {
         if ((s.expires_at && s.expires_at < expCutoff) || (s.revoked_at && s.revoked_at < revCutoff)) {
           userSessions.delete(sid);
           changes++;
+          if (q.includes('LIMIT 1000') && changes >= 1000) break;
         }
       }
       return { meta: { changes } };
@@ -1448,13 +1551,14 @@ export function createMockD1() {
       return { meta: { changes: v ? 1 : 0 } };
     }
 
-    if (q.startsWith('DELETE FROM email_verifications WHERE expires_at < ?')) {
+    if (q.startsWith('DELETE FROM email_verifications WHERE expires_at < ?') || q.startsWith('DELETE FROM email_verifications WHERE rowid IN (SELECT rowid FROM email_verifications WHERE expires_at < ?')) {
       const [expCutoff, usedCutoff] = params;
       let changes = 0;
       for (const [vid, v] of emailVerifications.entries()) {
         if ((v.expires_at && v.expires_at < expCutoff) || (v.used_at && v.used_at < usedCutoff)) {
           emailVerifications.delete(vid);
           changes++;
+          if (q.includes('LIMIT 1000') && changes >= 1000) break;
         }
       }
       return { meta: { changes } };
@@ -1736,7 +1840,6 @@ export async function createLocalEnv() {
     Zxaion_B: createMockR2Bucket('main', MAIN_SEED),
     ZX_BUCKET: createMockR2Bucket('comitbase', COMITBASE_SEED),
     TREASURE: createMockR2Bucket('dtreasure', DTREASURE_SEED),
-    IMAGES: createMockImagesBinding(),
     PAYPAL_ENV: process.env.PAYPAL_ENV || 'live',
     PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID || '',
     PAYPAL_CLIENT_SECRET_ID: process.env.PAYPAL_CLIENT_SECRET_ID || '',

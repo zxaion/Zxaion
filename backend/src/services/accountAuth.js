@@ -59,9 +59,9 @@ export function buildSessionCookie(sessionToken, request, maxAgeSec = SESSION_TT
   }
   const encoded = encodeURIComponent(sessionToken);
   if (isHttps) {
-    return `${SESSION_COOKIE_NAME}=${encoded}; HttpOnly; Path=/; Max-Age=${maxAgeSec}; SameSite=None; Secure; Partitioned`;
+    return `${SESSION_COOKIE_NAME}=${encoded}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}`;
   }
-  return `${SESSION_COOKIE_NAME}=${encoded}; HttpOnly; Path=/; Max-Age=${maxAgeSec}; SameSite=Lax`;
+  return `${SESSION_COOKIE_NAME}=${encoded}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}`;
 }
 
 export function clearSessionCookie(request) {
@@ -105,7 +105,7 @@ export function sanitizeAccountView(account) {
   };
 }
 
-export async function resolveSessionAuth({ request, DB, getUserToken }) {
+export async function resolveSessionAuth({ request, DB, getUserToken, ctx }) {
   const sessionToken = extractSessionToken(request);
 
   if (sessionToken) {
@@ -126,17 +126,25 @@ export async function resolveSessionAuth({ request, DB, getUserToken }) {
     ).bind(tokenHash).first();
 
     if (sessionRow) {
-      const nowIso = new Date().toISOString();
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
       const expired = sessionRow.expires_at && sessionRow.expires_at <= nowIso;
       if (!sessionRow.revoked_at && !expired) {
         const account = await getAccountById(DB, sessionRow.account_id);
 
         if (account && account.status === 'active') {
-          try {
-            await DB.prepare(
+          const lastSeenMs = sessionRow.last_seen_at ? Date.parse(sessionRow.last_seen_at) : 0;
+          const shouldTouch = !lastSeenMs || (nowMs - lastSeenMs >= 15 * 60 * 1000);
+          if (shouldTouch) {
+            const touchPromise = DB.prepare(
               'UPDATE user_sessions SET last_seen_at = ? WHERE session_id = ?'
-            ).bind(nowIso, sessionRow.session_id).run();
-          } catch {}
+            ).bind(nowIso, sessionRow.session_id).run().catch(() => {});
+            if (ctx && typeof ctx.waitUntil === 'function') {
+              ctx.waitUntil(touchPromise);
+            } else {
+              await touchPromise;
+            }
+          }
 
           return {
             authenticated: true,
@@ -224,7 +232,7 @@ export async function createUserSession(DB, accountId, request, ttlDays = SESSIO
   const expiresAt    = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
 
   const rawUa   = (request?.headers?.get?.('User-Agent') || 'Unknown Device').trim().slice(0, 180);
-  const rawIp   = (request?.headers?.get?.('CF-Connecting-IP') || request?.headers?.get?.('X-Forwarded-For') || '').split(',')[0].trim();
+  const rawIp   = (request?.headers?.get?.('CF-Connecting-IP') || '').trim();
   const ipHash  = rawIp ? (await sha256Hex(rawIp)).slice(0, 16) : null;
 
   await DB.prepare(`

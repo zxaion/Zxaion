@@ -150,7 +150,7 @@ Object.assign(ui, {
             const initials = (creator.profileName || 'ZX').slice(0, 2).toUpperCase();
             const rawCover = creator.coverUrl || creator.sampleUrl || creator.samplePhotos?.[0]?.url || '';
             const coverUrl = rawCover
-                ? (utils.getImageFallbackCandidates(rawCover, { w: 480, h: 270, q: 76, fit: 'cover', fmt: 'auto' })[0] || rawCover)
+                ? (utils.getImageFallbackCandidates(rawCover, { w: 400, q: 80, fit: 'scale-down', fmt: 'auto' })[0] || rawCover)
                 : '';
             const artworks = creator.artworkCount ?? creator.uploadCount ?? 0;
             const loves = creator.totalLoves ?? creator.loveCount ?? 0;

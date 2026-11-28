@@ -78,7 +78,7 @@ Object.assign(ui, {
             const rawOrig = window.animeAlbumThumbnails?.['ORIGINAL'] || fallbackAttr;
             const candidates = utils.getImageFallbackCandidates(
                 rawOrig,
-                { w: 1200, q: 80, fit: 'cover', fmt: 'auto' },
+                { w: 800, q: 80, fit: 'scale-down', fmt: 'auto' },
                 ['/api/img/HEADER/Original.jpg', '/api/img/HEADER/Anime.jpg']
             );
             const fallbackSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='400'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%231e1b4b'/%3E%3Cstop offset='100%25' stop-color='%23312e81'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='1200' height='400'/%3E%3C/svg%3E";

@@ -72,7 +72,7 @@ Object.assign(ui, {
                 const isMedal    = index < 3;
                 const rawCover   = creator.coverUrl || creator.sampleUrl || creator.samplePhotos?.[0]?.url || '';
                 const coverUrl   = rawCover
-                    ? (utils.getImageFallbackCandidates(rawCover, { w: 420, h: 240, q: 75, fit: 'cover', fmt: 'auto' })[0] || rawCover)
+                    ? (utils.getImageFallbackCandidates(rawCover, { w: 400, q: 80, fit: 'scale-down', fmt: 'auto' })[0] || rawCover)
                     : '';
                 const safeName   = utils.escapeHtml(creator.profileName || 'Creator');
                 const safeDesc   = utils.escapeHtml(creator.description || 'Verified COMITBASE Creator');
@@ -118,7 +118,7 @@ Object.assign(ui, {
         }
 
         items.forEach((photo, index) => {
-            const candidates = utils.getImageFallbackCandidates(photo.url, { w: 300, h: 534, q: 75, fit: 'cover', fmt: 'auto' });
+            const candidates = utils.getImageFallbackCandidates(photo.url, { w: 400, q: 80, fit: 'scale-down', fmt: 'auto' });
             const fullUrl    = candidates[0] || '';
             const rankColors = ['from-amber-400 to-yellow-500', 'from-gray-300 to-gray-400', 'from-amber-700 to-amber-800'];
             const rankColor  = index < 3 ? rankColors[index] : 'from-gray-700 to-gray-800';

@@ -12,62 +12,6 @@ const DIST_DIR = join(__dirname, 'frontend', 'dist');
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
-const DIRECTIVE_TO_QUERY = {
-  width:   'w',
-  w:       'w',
-  height:  'h',
-  h:       'h',
-  quality: 'q',
-  q:       'q',
-  fit:     'fit',
-  format:  'fmt',
-  fmt:     'fmt',
-  blur:    'blur',
-};
-
-export function translateCdnCgiImagePath(originalUrl) {
-  const prefix = '/cdn-cgi/image/';
-  if (!originalUrl.startsWith(prefix)) return null;
-
-  const rest = originalUrl.slice(prefix.length);
-  const slashIdx = rest.indexOf('/');
-  if (slashIdx <= 0) return null;
-
-  const directivesStr = rest.slice(0, slashIdx);
-  let targetRaw = rest.slice(slashIdx + 1);
-
-  if (targetRaw.startsWith('http://') || targetRaw.startsWith('https://')) {
-    try {
-      const parsedTarget = new URL(targetRaw);
-      targetRaw = `${parsedTarget.pathname}${parsedTarget.search}`;
-    } catch {
-      return null;
-    }
-  } else if (!targetRaw.startsWith('/')) {
-    targetRaw = `/${targetRaw}`;
-  }
-
-  const targetUrl = new URL(targetRaw, 'http://localhost');
-  for (const part of directivesStr.split(',')) {
-    const eqIdx = part.indexOf('=');
-    if (eqIdx <= 0) continue;
-    const key = part.slice(0, eqIdx).trim().toLowerCase();
-    const rawVal = part.slice(eqIdx + 1).trim();
-    let val = rawVal;
-    try {
-      val = decodeURIComponent(rawVal);
-    } catch {
-      val = rawVal;
-    }
-    const mapped = DIRECTIVE_TO_QUERY[key];
-    if (mapped && val && !targetUrl.searchParams.has(mapped)) {
-      targetUrl.searchParams.set(mapped, val);
-    }
-  }
-
-  return `${targetUrl.pathname}${targetUrl.search}`;
-}
-
 async function bridgeWorkerRequest(req, res, env, overridePathWithQuery = null) {
   try {
     const rawProto = Array.isArray(req.headers['x-forwarded-proto'])
@@ -171,18 +115,7 @@ export function createApp(env) {
     next();
   });
 
-  // Simulasi /cdn-cgi/image/<directives>/<source> untuk preview lokal & Node runtime
-  app.use('/cdn-cgi/image', (req, res, next) => {
-    const translated = translateCdnCgiImagePath(req.originalUrl);
-    if (!translated) return next();
-    if (translated.startsWith('/api/')) {
-      return bridgeWorkerRequest(req, res, env, translated);
-    }
-    req.url = translated;
-    return express.static(DIST_DIR)(req, res, next);
-  });
-
-  // Technical SEO routes (/robots.txt & /sitemap.xml) served dynamically via Worker router
+  // Technical SEO routes (/robots.txt & /sitemap.xml) served via Worker router or built static assets
   app.get(['/robots.txt', '/sitemap.xml'], (req, res) => {
     return bridgeWorkerRequest(req, res, env);
   });
@@ -193,7 +126,7 @@ export function createApp(env) {
   });
 
   // Dynamic OpenGraph & canonical origin injection for HTML pages and deep-linked photos (?photo=<id>)
-  app.get(['/', '/index.html', '/admin'], async (req, res, next) => {
+  app.get(['/', '/index.html', '/admin', '/admin/'], async (req, res, next) => {
     try {
       const rawHtml = readFileSync(join(DIST_DIR, 'index.html'), 'utf8');
       const rawProto = Array.isArray(req.headers['x-forwarded-proto'])
@@ -227,9 +160,9 @@ export function createApp(env) {
   // Serve built frontend static assets with short revalidate cache
   app.use(express.static(DIST_DIR, { maxAge: '1h' }));
 
-  // SPA fallback (including /admin and subroutes)
-  app.get('*', (_req, res) => {
-    res.sendFile(join(DIST_DIR, 'index.html'));
+  // Return explicit 404 (no soft-404 200 index.html fallback)
+  app.use((_req, res) => {
+    res.status(404).sendFile(join(DIST_DIR, '404.html'));
   });
 
   return app;

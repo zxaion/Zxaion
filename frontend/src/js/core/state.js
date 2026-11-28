@@ -222,7 +222,8 @@ const viewState = {
 
 function saveViewState() {
     if (typeof window === 'undefined') return;
-    if (window.location.pathname === '/admin' || window.location.hash === '#admin') return;
+    const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (normalizedPath === '/admin' || window.location.hash === '#admin') return;
     const snap = viewState.snapshotFromState(state);
     try {
         window.sessionStorage?.setItem(VIEW_STATE_STORAGE_KEY, JSON.stringify(snap));

@@ -4,6 +4,23 @@ import { ensureAutoAccount, resolveSessionAuth } from '../services/accountAuth.j
 import { generateOpaqueId } from '../utils/userToken.js';
 import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
 import { jsonResponse } from '../utils/cors.js';
+import { readJsonBody } from '../utils/requestBody.js';
+import { checkRateLimitStatus as defaultCheckRateLimitStatus, resolveHashedRateKey } from '../services/rateLimit.js';
+
+async function enforceGalleryRateLimit({ DB, checkRateLimitStatus, checkRateLimit, request, endpoint, fallbackId, limit, windowSec }) {
+  const key = await resolveHashedRateKey(request, fallbackId);
+  if (typeof checkRateLimitStatus === 'function') {
+    return await checkRateLimitStatus(endpoint, key, limit, windowSec);
+  }
+  if (typeof checkRateLimit === 'function') {
+    const allowed = await checkRateLimit(endpoint, key, limit, windowSec);
+    return { allowed, retryAfter: allowed ? 0 : windowSec };
+  }
+  if (DB) {
+    return await defaultCheckRateLimitStatus(DB, endpoint, key, limit, windowSec);
+  }
+  return { allowed: true, retryAfter: 0 };
+}
 
 function buildVersionedImagePath(prefix, r2Key, row) {
   const base = `${prefix}${encodeURIComponent(r2Key)}`;
@@ -174,7 +191,7 @@ export function parseStoredSocialLinks(jsonText) {
   }
 }
 
-function buildCreatorStatsMap(creatorRows, comitbaseRows) {
+function buildCreatorStatsMap(creatorRows, aggRows = [], sampleRows = []) {
   const byCreatorId = new Map();
   const byName = new Map();
 
@@ -196,7 +213,25 @@ function buildCreatorStatsMap(creatorRows, comitbaseRows) {
     });
   }
 
-  for (const img of comitbaseRows) {
+  for (const agg of aggRows) {
+    const matched = (agg.creator_id && byCreatorId.get(agg.creator_id))
+      || (agg.uploader_norm && byName.get(String(agg.uploader_norm).trim().toLowerCase()))
+      || (agg.uploader && byName.get(String(agg.uploader).trim().toLowerCase()))
+      || null;
+    if (!matched) continue;
+
+    const bucketStats = statsMap.get(matched.creator_id);
+    if (!bucketStats) continue;
+
+    const isAgg = agg.artwork_count !== undefined;
+    bucketStats.artworkCount += isAgg ? Number(agg.artwork_count || 0) : 1;
+    bucketStats.totalLoves += Number(isAgg ? (agg.total_loves || 0) : (agg.love_count || 0));
+    bucketStats.totalFires += Number(isAgg ? (agg.total_fires || 0) : (agg.fire_count || 0));
+    bucketStats.totalDownloads += Number(isAgg ? (agg.total_downloads || 0) : (agg.download_count || 0));
+    bucketStats.totalViews += Number(isAgg ? (agg.total_views || 0) : (agg.view_count || 0));
+  }
+
+  for (const img of sampleRows) {
     const matched = (img.creator_id && byCreatorId.get(img.creator_id))
       || (img.uploader && byName.get(String(img.uploader).trim().toLowerCase()))
       || null;
@@ -204,12 +239,6 @@ function buildCreatorStatsMap(creatorRows, comitbaseRows) {
 
     const bucketStats = statsMap.get(matched.creator_id);
     if (!bucketStats) continue;
-
-    bucketStats.artworkCount += 1;
-    bucketStats.totalLoves += Number(img.love_count || 0);
-    bucketStats.totalFires += Number(img.fire_count || 0);
-    bucketStats.totalDownloads += Number(img.download_count || 0);
-    bucketStats.totalViews += Number(img.view_count || 0);
 
     const imgUrl = buildVersionedImagePath('/api/comitbase/img/', img.r2_key, img);
     if (!bucketStats.coverUrl) bucketStats.coverUrl = imgUrl;
@@ -435,28 +464,28 @@ export async function handleListComitbaseCreators({ url, env, ctx, DB, corsHeade
     if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'comitbase' });
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
 
-    const [creatorsRes, imgsRes] = await Promise.all([
+    const creatorQuery = q
+      ? DB.prepare(
+          "SELECT creator_id, user_id, slug, profile_name, description, social_links_json, avatar_url, status, approved_at, created_at FROM creator_profiles WHERE status = 'approved' AND (LOWER(profile_name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(slug) LIKE ?) ORDER BY approved_at DESC, created_at DESC LIMIT 100"
+        ).bind(`%${q}%`, `%${q}%`, `%${q}%`)
+      : DB.prepare(
+          "SELECT creator_id, user_id, slug, profile_name, description, social_links_json, avatar_url, status, approved_at, created_at FROM creator_profiles WHERE status = 'approved' ORDER BY approved_at DESC, created_at DESC LIMIT 100"
+        );
+
+    const [creatorsRes, aggRes, sampleRes] = await Promise.all([
+      creatorQuery.all(),
       DB.prepare(
-        "SELECT creator_id, user_id, slug, profile_name, description, social_links_json, avatar_url, status, approved_at, created_at FROM creator_profiles WHERE status = 'approved' ORDER BY approved_at DESC, created_at DESC"
+        "SELECT creator_id, LOWER(TRIM(COALESCE(uploader, ''))) AS uploader_norm, COUNT(*) AS artwork_count, SUM(COALESCE(love_count, 0)) AS total_loves, SUM(COALESCE(fire_count, 0)) AS total_fires, SUM(COALESCE(download_count, 0)) AS total_downloads, SUM(COALESCE(view_count, 0)) AS total_views FROM images WHERE bucket = 'comitbase' GROUP BY creator_id, LOWER(TRIM(COALESCE(uploader, '')))"
       ).all(),
       DB.prepare(
-        "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id, view_count, download_count, love_count, fire_count FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC, id DESC"
+        "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC, id DESC LIMIT 150"
       ).all(),
     ]);
 
     const creatorRows = creatorsRes?.results || [];
-    const comitbaseRows = imgsRes?.results || [];
-    const statsMap = buildCreatorStatsMap(creatorRows, comitbaseRows);
+    const statsMap = buildCreatorStatsMap(creatorRows, aggRes?.results || [], sampleRes?.results || []);
 
-    let creators = creatorRows.map((cp) => serializeCreatorProfile(cp, statsMap.get(cp.creator_id)));
-    if (q) {
-      creators = creators.filter((c) =>
-        c.profileName.toLowerCase().includes(q)
-        || c.description.toLowerCase().includes(q)
-        || c.slug.toLowerCase().includes(q)
-      );
-    }
-
+    const creators = creatorRows.map((cp) => serializeCreatorProfile(cp, statsMap.get(cp.creator_id)));
     creators.sort((a, b) => b.artworkCount - a.artworkCount || b.weeklyScore - a.weeklyScore);
 
     return jsonResponse({
@@ -473,8 +502,8 @@ export async function handleListComitbaseCreators({ url, env, ctx, DB, corsHeade
 // ================================================================
 // ENDPOINT: Current User's Creator Profile (GET /api/comitbase/creators/me)
 // ================================================================
-export async function handleMyCreatorProfile({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleMyCreatorProfile({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return jsonResponse({
       success: true,
@@ -494,9 +523,10 @@ export async function handleMyCreatorProfile({ request, DB, corsHeaders, getUser
     }
 
     const imgsRes = await DB.prepare(
-      "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id, view_count, download_count, love_count, fire_count FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC, id DESC"
-    ).all();
-    const statsMap = buildCreatorStatsMap([creator], imgsRes?.results || []);
+      "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id, view_count, download_count, love_count, fire_count FROM images WHERE bucket = 'comitbase' AND (creator_id = ? OR (creator_id IS NULL AND LOWER(TRIM(COALESCE(uploader, ''))) = LOWER(?))) ORDER BY uploaded DESC, id DESC LIMIT 200"
+    ).bind(creator.creator_id, (creator.profile_name || '').trim()).all();
+    const matchedRows = imgsRes?.results || [];
+    const statsMap = buildCreatorStatsMap([creator], matchedRows, matchedRows);
 
     return jsonResponse({
       success: true,
@@ -512,8 +542,8 @@ export async function handleMyCreatorProfile({ request, DB, corsHeaders, getUser
 // ================================================================
 // ENDPOINT: Submit Creator Application (POST /api/comitbase/creators/apply)
 // ================================================================
-export async function handleApplyComitbaseCreator({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleApplyComitbaseCreator({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return jsonResponse({
       success: false,
@@ -522,17 +552,30 @@ export async function handleApplyComitbaseCreator({ request, DB, corsHeaders, ge
     }, 401, corsHeaders);
   }
 
-  const ip = (request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || '').split(',')[0].trim() || auth.userId;
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('creator_apply', ip, 10, 3600)) {
-    return jsonResponse({ success: false, error: 'Too many creator application requests. Please try again later.' }, 429, corsHeaders);
+  const rl = await enforceGalleryRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'creator_apply',
+    fallbackId: auth.userId,
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many creator application requests. Please try again later.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid JSON request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const profileName = String(body?.profileName || body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 50);
   const description = String(body?.description || body?.bio || '').trim().replace(/\s+/g, ' ').slice(0, 500);
@@ -669,7 +712,7 @@ export async function handleGetComitbaseCreator({ request, env, ctx, DB, corsHea
       return jsonResponse({ success: false, error: 'Creator profile not found' }, 404, corsHeaders);
     }
 
-    const auth = await resolveSessionAuth({ request, DB, getUserToken });
+    const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
     const isOwner = Boolean(auth.authenticated && auth.userId && auth.userId === creator.user_id);
 
     if (creator.status !== 'approved' && !isOwner) {
@@ -677,16 +720,11 @@ export async function handleGetComitbaseCreator({ request, env, ctx, DB, corsHea
     }
 
     const imgsRes = await DB.prepare(
-      "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id, view_count, download_count, love_count, fire_count FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC, id DESC"
-    ).all();
+      "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id, view_count, download_count, love_count, fire_count FROM images WHERE bucket = 'comitbase' AND (creator_id = ? OR (creator_id IS NULL AND LOWER(TRIM(COALESCE(uploader, ''))) = LOWER(?))) ORDER BY uploaded DESC, id DESC LIMIT 200"
+    ).bind(creator.creator_id, (creator.profile_name || '').trim()).all();
 
-    const allComitbase = imgsRes?.results || [];
-    const matchingImages = allComitbase.filter((img) =>
-      img.creator_id === creator.creator_id
-      || (!img.creator_id && img.uploader && img.uploader.trim().toLowerCase() === creator.profile_name.trim().toLowerCase())
-    );
-
-    const statsMap = buildCreatorStatsMap([creator], matchingImages);
+    const matchingImages = imgsRes?.results || [];
+    const statsMap = buildCreatorStatsMap([creator], matchingImages, matchingImages);
     const photos = matchingImages.map((row) => ({
       id: row.id,
       title: row.title,
@@ -716,12 +754,12 @@ export async function handleGetComitbaseCreator({ request, env, ctx, DB, corsHea
   }
 }
 
-export async function handleUploadComitbaseCreatorImage({ request, comitbaseBucket, DB, corsHeaders, getUserToken, checkRateLimit, creatorSlug }) {
+export async function handleUploadComitbaseCreatorImage({ request, ctx, comitbaseBucket, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus, creatorSlug }) {
   if (!comitbaseBucket || !DB) {
     return jsonResponse({ success: false, error: 'COMITBASE storage is unavailable' }, 503, corsHeaders);
   }
 
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return jsonResponse({
       success: false,
@@ -744,17 +782,30 @@ export async function handleUploadComitbaseCreatorImage({ request, comitbaseBuck
     return jsonResponse({ success: false, error: 'Forbidden: Your creator profile must be approved by an admin before uploading.' }, 403, corsHeaders);
   }
 
-  const ip = (request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || '').split(',')[0].trim() || auth.userId;
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('creator_upload', ip, 30, 3600)) {
-    return jsonResponse({ success: false, error: 'Upload rate limit exceeded. Please try again later.' }, 429, corsHeaders);
+  const rl = await enforceGalleryRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'creator_upload',
+    fallbackId: auth.userId,
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Upload rate limit exceeded. Please try again later.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid JSON request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 12 * 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const title = String(body?.title || '').trim().replace(/\s+/g, ' ').slice(0, 80);
   if (title.length < 2) {
@@ -822,8 +873,8 @@ export async function handleUploadComitbaseCreatorImage({ request, comitbaseBuck
   }
 }
 
-export async function handleDeleteComitbaseCreatorImage({ request, comitbaseBucket, DB, corsHeaders, getUserToken, creatorSlug, targetImageId }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleDeleteComitbaseCreatorImage({ request, ctx, comitbaseBucket, DB, corsHeaders, getUserToken, creatorSlug, targetImageId }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return jsonResponse({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
@@ -925,18 +976,20 @@ export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }
 
     if (sortBy === 'creators') {
       if (env) await ensureAutoSync({ env, ctx, DB, bucketName: 'comitbase' });
-      const [creatorsRes, imgsRes] = await Promise.all([
+      const [creatorsRes, aggRes, sampleRes] = await Promise.all([
         DB.prepare(
-          "SELECT creator_id, user_id, slug, profile_name, description, social_links_json, avatar_url, status, approved_at, created_at FROM creator_profiles WHERE status = 'approved' ORDER BY approved_at DESC, created_at DESC"
+          "SELECT creator_id, user_id, slug, profile_name, description, social_links_json, avatar_url, status, approved_at, created_at FROM creator_profiles WHERE status = 'approved' ORDER BY approved_at DESC, created_at DESC LIMIT 100"
         ).all(),
         DB.prepare(
-          "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id, view_count, download_count, love_count, fire_count FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC, id DESC"
+          "SELECT creator_id, LOWER(TRIM(COALESCE(uploader, ''))) AS uploader_norm, COUNT(*) AS artwork_count, SUM(COALESCE(love_count, 0)) AS total_loves, SUM(COALESCE(fire_count, 0)) AS total_fires, SUM(COALESCE(download_count, 0)) AS total_downloads, SUM(COALESCE(view_count, 0)) AS total_views FROM images WHERE bucket = 'comitbase' GROUP BY creator_id, LOWER(TRIM(COALESCE(uploader, '')))"
+        ).all(),
+        DB.prepare(
+          "SELECT id, title, r2_key, uploaded, size, width, height, uploader, creator_id FROM images WHERE bucket = 'comitbase' ORDER BY uploaded DESC, id DESC LIMIT 150"
         ).all(),
       ]);
 
       const creatorRows = creatorsRes?.results || [];
-      const comitbaseRows = imgsRes?.results || [];
-      const statsMap = buildCreatorStatsMap(creatorRows, comitbaseRows);
+      const statsMap = buildCreatorStatsMap(creatorRows, aggRes?.results || [], sampleRes?.results || []);
       const leaderboard = creatorRows
         .map((cp) => serializeCreatorProfile(cp, statsMap.get(cp.creator_id)))
         .sort((a, b) => b.weeklyScore - a.weeklyScore || b.totalLoves - a.totalLoves || b.artworkCount - a.artworkCount)
@@ -1009,23 +1062,35 @@ export async function handleTrending({ request, url, env, ctx, DB, corsHeaders }
 // ENDPOINT: Community COMITBASE artwork upload (POST /api/comitbase/submit)
 // Preserved for API backward compatibility; links creatorId if caller is approved creator
 // ================================================================
-export async function handleSubmitComitbase({ request, comitbaseBucket, DB, corsHeaders, checkRateLimit, getUserToken }) {
+export async function handleSubmitComitbase({ request, ctx, comitbaseBucket, DB, corsHeaders, checkRateLimit, checkRateLimitStatus, getUserToken }) {
   if (!comitbaseBucket || !DB) {
     return jsonResponse({ success: false, error: 'COMITBASE storage is unavailable' }, 503, corsHeaders);
   }
 
-  const ip = (request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || '').split(',')[0].trim()
-    || (typeof getUserToken === 'function' ? getUserToken(request) : 'anonymous');
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('comitbase_submit', ip, 10, 3600)) {
-    return jsonResponse({ success: false, error: 'Too many community submissions. Please try again later.' }, 429, corsHeaders);
+  const rl = await enforceGalleryRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'comitbase_submit',
+    fallbackId: typeof getUserToken === 'function' ? getUserToken(request) : 'anonymous',
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { success: false, error: 'Too many community submissions. Please try again later.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ success: false, error: 'Invalid JSON request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 8 * 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonResponse({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const title = String(body?.title || '').trim().replace(/\s+/g, ' ').slice(0, 80);
   const creator = String(body?.creator || body?.uploader || 'Community').trim().replace(/\s+/g, ' ').slice(0, 48) || 'Community';
@@ -1053,7 +1118,7 @@ export async function handleSubmitComitbase({ request, comitbaseBucket, DB, cors
   try {
     let linkedCreatorId = null;
     try {
-      const auth = await resolveSessionAuth({ request, DB, getUserToken });
+      const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
       if (auth.authenticated && auth.userId && auth.userId !== 'anonymous') {
         const cp = await DB.prepare(
           "SELECT creator_id FROM creator_profiles WHERE user_id = ? AND status = 'approved' LIMIT 1"

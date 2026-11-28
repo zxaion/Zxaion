@@ -6,25 +6,32 @@ import { findPhotoForSeo, injectOpenGraphMetadata } from '../services/seo.js';
 // ================================================================
 // Serve static files dari R2
 // ================================================================
+const VALID_SPA_PATHS = new Set(['/', '/index.html', '/admin', '/admin/']);
+
 export async function handleStatic({ path, url, mainBucket, DB, origin }) {
   try {
-    let key = path === '/' ? 'index.html' : path.slice(1);
+    let key = path === '/' || path === '/admin' || path === '/admin/' ? 'index.html' : path.slice(1);
     if (key.startsWith('api/')) return new Response('Not Found', { status: 404 });
 
     const ext = key.split('.').pop().toLowerCase();
+    const isSpaPath = VALID_SPA_PATHS.has(path);
 
-    let object       = await mainBucket.get(key);
-    const isFallback = !object;
-    const isAsset    = ext && ext !== 'html' && MIME_TYPES[ext];
-
-    if (!object) {
-      if (isAsset) {
-        return new Response('Not Found', { status: 404 });
-      }
+    let object = await mainBucket.get(key);
+    const isFallback = !object && isSpaPath;
+    if (!object && isSpaPath) {
       object = await mainBucket.get('index.html');
     }
 
-    if (!object) return new Response('Not found', { status: 404 });
+    if (!object) {
+      const notFoundObj = !ext || ext === 'html' || !MIME_TYPES[ext] ? await mainBucket.get('404.html') : null;
+      if (notFoundObj) {
+        return new Response(notFoundObj.body, {
+          status: 404,
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+        });
+      }
+      return new Response('Not Found', { status: 404 });
+    }
 
     const headers = new Headers();
     object.writeHttpMetadata(headers);
@@ -33,7 +40,7 @@ export async function handleStatic({ path, url, mainBucket, DB, origin }) {
       ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
     headers.set('Vary', 'Origin');
 
-    const servedExt = isFallback ? 'html' : ext;
+    const servedExt = isFallback || isSpaPath ? 'html' : ext;
     if (MIME_TYPES[servedExt]) headers.set('Content-Type', MIME_TYPES[servedExt]);
 
     if (servedExt === 'html') {

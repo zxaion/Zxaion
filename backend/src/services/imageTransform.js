@@ -1,4 +1,5 @@
-// Helper Cloudflare Workers Images Transformation Binding (env.IMAGES).
+// Image transformation preset validation & Cloudflare fetch({ cf: { image } }) option builder.
+export const ALLOWED_IMAGE_WIDTHS = new Set([400, 800, 1600]);
 const ALLOWED_FITS = new Set(['scale-down', 'contain', 'cover', 'crop', 'pad']);
 const FORMAT_TO_MIME = {
   webp: 'image/webp',
@@ -7,6 +8,18 @@ const FORMAT_TO_MIME = {
   jpg:  'image/jpeg',
   png:  'image/png',
 };
+
+function parseStrictPresetDim(raw, label) {
+  if (raw === null || raw === undefined || raw === '') return { value: null };
+  if (!/^\d+$/.test(String(raw).trim())) {
+    return { error: `Invalid ${label} parameter; allowed presets: 400, 800, 1600` };
+  }
+  const parsed = parseInt(String(raw).trim(), 10);
+  if (!ALLOWED_IMAGE_WIDTHS.has(parsed)) {
+    return { error: `Unsupported ${label}=${parsed}; allowed presets: 400, 800, 1600` };
+  }
+  return { value: parsed };
+}
 
 function clampInt(raw, min, max) {
   if (raw === null || raw === undefined || raw === '') return null;
@@ -28,19 +41,26 @@ export function negotiateOutputMime(fmt, acceptHeader = '') {
 }
 
 export function parseTransformOptions(searchParams, acceptHeader = '') {
-  const rawW   = searchParams.get('w') ?? searchParams.get('width');
-  const rawH   = searchParams.get('h') ?? searchParams.get('height');
-  const rawQ   = searchParams.get('q') ?? searchParams.get('quality');
-  const rawFit = searchParams.get('fit');
-  const rawFmt = searchParams.get('fmt') ?? searchParams.get('format');
+  if (!searchParams || searchParams.get('raw') === '1') return null;
+
+  const rawW    = searchParams.get('w') ?? searchParams.get('width');
+  const rawH    = searchParams.get('h') ?? searchParams.get('height');
+  const rawQ    = searchParams.get('q') ?? searchParams.get('quality');
+  const rawFit  = searchParams.get('fit');
+  const rawFmt  = searchParams.get('fmt') ?? searchParams.get('format');
   const rawBlur = searchParams.get('blur');
 
   const hasAny = [rawW, rawH, rawQ, rawFit, rawFmt, rawBlur].some(v => v !== null && v !== '');
   if (!hasAny) return null;
 
-  const width   = clampInt(rawW, 64, 2400);
-  const height  = clampInt(rawH, 64, 2400);
-  const quality = clampInt(rawQ, 30, 100) ?? 82;
+  const wCheck = parseStrictPresetDim(rawW, 'width');
+  if (wCheck.error) return { error: wCheck.error, status: 400 };
+  const hCheck = parseStrictPresetDim(rawH, 'height');
+  if (hCheck.error) return { error: hCheck.error, status: 400 };
+
+  const width   = wCheck.value ?? (hCheck.value ? null : 800);
+  const height  = hCheck.value;
+  const quality = clampInt(rawQ, 30, 100) ?? 80;
   const blur    = clampInt(rawBlur, 1, 250);
   const fitNorm = String(rawFit || '').trim().toLowerCase();
   const fit     = ALLOWED_FITS.has(fitNorm) ? fitNorm : 'scale-down';
@@ -56,28 +76,15 @@ export function parseTransformOptions(searchParams, acceptHeader = '') {
   };
 }
 
-export async function applyImageTransform({ IMAGES, object, contentType, transformOpts }) {
-  if (!IMAGES || !transformOpts || !object?.body) return null;
-
-  const mime = String(contentType || '').toLowerCase();
-  // Lewati SVG (vektor) karena Cloudflare Images binding memproses format raster.
-  if (mime.includes('svg')) return null;
-
-  let pipeline = IMAGES.input(object.body);
-  const step = {};
-  if (transformOpts.width)  step.width  = transformOpts.width;
-  if (transformOpts.height) step.height = transformOpts.height;
-  if (transformOpts.fit)    step.fit    = transformOpts.fit;
-  if (transformOpts.blur)   step.blur   = transformOpts.blur;
-
-  if (Object.keys(step).length > 0) {
-    pipeline = pipeline.transform(step);
-  }
-
-  const output = await pipeline.output({
-    format:  transformOpts.outputMime,
-    quality: transformOpts.quality,
-  });
-
-  return output.response();
+export function buildCfImageOptions(transformOpts) {
+  if (!transformOpts || transformOpts.error) return null;
+  const cfImage = {
+    fit:     transformOpts.fit || 'scale-down',
+    quality: transformOpts.quality || 80,
+    format:  'auto',
+  };
+  if (transformOpts.width)  cfImage.width  = transformOpts.width;
+  if (transformOpts.height) cfImage.height = transformOpts.height;
+  if (transformOpts.blur)   cfImage.blur   = transformOpts.blur;
+  return cfImage;
 }

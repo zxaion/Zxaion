@@ -18,8 +18,7 @@ function encodeImageUrlPath(rawUrl) {
 
     if (
         trimmed.startsWith('data:') ||
-        trimmed.startsWith('blob:') ||
-        trimmed.startsWith('/cdn-cgi/image/')
+        trimmed.startsWith('blob:')
     ) {
         return trimmed;
     }
@@ -60,6 +59,14 @@ function encodeImageUrlPath(rawUrl) {
     return `${encodedPath}${queryOnly}${hashPart !== undefined ? '#' + hashPart : ''}`;
 }
 
+function snapImagePresetWidth(rawWidth) {
+    const num = Number(rawWidth);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    if (num <= 520) return 400;
+    if (num <= 1050) return 800;
+    return 1600;
+}
+
 function buildWorkerTransformUrl(src, options = {}) {
     const encoded = encodeImageUrlPath(src);
     if (!encoded) return '';
@@ -69,18 +76,16 @@ function buildWorkerTransformUrl(src, options = {}) {
 
     const opts = options || {};
     const params = new URLSearchParams();
-    const width   = opts.width ?? opts.w;
-    const height  = opts.height ?? opts.h;
+    const width   = snapImagePresetWidth(opts.width ?? opts.w);
     const quality = opts.quality ?? opts.q;
     const fit     = opts.fit;
     const blur    = opts.blur;
     const format  = opts.format !== undefined ? opts.format : (opts.fmt !== undefined ? opts.fmt : 'auto');
 
-    if (Number.isFinite(Number(width)) && Number(width) > 0)     params.set('w', String(Math.round(Number(width))));
-    if (Number.isFinite(Number(height)) && Number(height) > 0)   params.set('h', String(Math.round(Number(height))));
-    if (Number.isFinite(Number(quality)) && Number(quality) > 0) params.set('q', String(Math.round(Number(quality))));
-    if (fit)    params.set('fit', String(fit).trim());
-    if (blur)   params.set('blur', String(Math.round(Number(blur))));
+    if (width) params.set('w', String(width));
+    if (Number.isFinite(Number(quality)) && Number(quality) > 0) params.set('q', '80');
+    if (fit) params.set('fit', String(fit).trim());
+    if (blur) params.set('blur', String(Math.round(Number(blur))));
     if (format) params.set('fmt', String(format).trim());
 
     const qs = params.toString();
@@ -88,72 +93,8 @@ function buildWorkerTransformUrl(src, options = {}) {
     return `${encoded}${encoded.includes('?') ? '&' : '?'}${qs}`;
 }
 
-/**
- * Membangun URL Cloudflare Image Transformation (/cdn-cgi/image/<opsi>/<src>).
- * Contoh: getCloudflareImageUrl('image.jpg', { width: 800, format: 'auto' })
- *      -> '/cdn-cgi/image/width=800,format=auto/image.jpg'
- */
 function getCloudflareImageUrl(src, options = {}) {
-    if (!src || typeof src !== 'string') return '';
-    const trimmed = src.trim();
-    if (!trimmed) return '';
-
-    // Jangan ubah data URI, blob URI, URL download langsung, atau URL yang sudah berawalan /cdn-cgi/image/
-    if (
-        trimmed.startsWith('data:') ||
-        trimmed.startsWith('blob:') ||
-        trimmed.startsWith('/cdn-cgi/image/') ||
-        /[?&]download=true(?:&|$)/i.test(trimmed)
-    ) {
-        return trimmed;
-    }
-
-    const opts = options || {};
-    const directives = [];
-
-    const width   = opts.width ?? opts.w;
-    const height  = opts.height ?? opts.h;
-    const quality = opts.quality ?? opts.q;
-    const fit     = opts.fit;
-    const gravity = opts.gravity;
-    const dpr     = opts.dpr;
-    const blur    = opts.blur;
-    const sharpen = opts.sharpen;
-    const format  = opts.format !== undefined ? opts.format : (opts.fmt !== undefined ? opts.fmt : 'auto');
-
-    if (Number.isFinite(Number(width)) && Number(width) > 0)     directives.push(`width=${Math.round(Number(width))}`);
-    if (Number.isFinite(Number(height)) && Number(height) > 0)   directives.push(`height=${Math.round(Number(height))}`);
-    if (Number.isFinite(Number(quality)) && Number(quality) > 0) directives.push(`quality=${Math.round(Number(quality))}`);
-    if (fit)     directives.push(`fit=${encodeURIComponent(String(fit).trim())}`);
-    if (gravity) directives.push(`gravity=${encodeURIComponent(String(gravity).trim())}`);
-    if (dpr)     directives.push(`dpr=${encodeURIComponent(String(dpr).trim())}`);
-    if (blur)    directives.push(`blur=${Math.round(Number(blur))}`);
-    if (sharpen) directives.push(`sharpen=${encodeURIComponent(String(sharpen).trim())}`);
-    if (format)  directives.push(`format=${encodeURIComponent(String(format).trim())}`);
-
-    const resolvedSrc = encodeImageUrlPath(trimmed);
-    if (directives.length === 0) return resolvedSrc;
-
-    const cleanTarget = resolvedSrc.startsWith('/') ? resolvedSrc.slice(1) : resolvedSrc;
-    return `/cdn-cgi/image/${directives.join(',')}/${cleanTarget}`;
-}
-
-let _cdnCgiDisabled = false;
-
-function shouldUseCdnCgiImage() {
-    if (typeof window === 'undefined') return true;
-    if (_cdnCgiDisabled) return false;
-    const host = window.location?.hostname || '';
-    if (
-        !host ||
-        host === 'localhost' ||
-        host === '127.0.0.1' ||
-        host.endsWith('.run.app') ||
-        host.endsWith('.workers.dev')
-    ) {
-        return false;
-    }
-    return true;
+    return buildWorkerTransformUrl(src, options);
 }
 
 function getImageFallbackCandidates(rawUrl, options = {}, extraRawUrls = []) {
@@ -166,12 +107,8 @@ function getImageFallbackCandidates(rawUrl, options = {}, extraRawUrls = []) {
         }
     };
 
-    const useCdnCgi = shouldUseCdnCgiImage();
     const sources = [rawUrl, ...(Array.isArray(extraRawUrls) ? extraRawUrls : [])].filter(Boolean);
     for (const src of sources) {
-        if (useCdnCgi) {
-            add(getCloudflareImageUrl(src, options));
-        }
         add(buildWorkerTransformUrl(src, options));
         add(encodeImageUrlPath(src));
     }
@@ -188,14 +125,7 @@ function attachImageFallback(imgEl, candidates, { onLoadSuccess, onFinalError, f
     };
 
     imgEl.onerror = function() {
-        const failedUrl = queue[attempt] || this.src || '';
-        if (typeof failedUrl === 'string' && failedUrl.includes('/cdn-cgi/image/')) {
-            _cdnCgiDisabled = true;
-        }
         attempt++;
-        while (attempt < queue.length && _cdnCgiDisabled && queue[attempt].includes('/cdn-cgi/image/')) {
-            attempt++;
-        }
         if (attempt < queue.length) {
             this.src = queue[attempt];
             return;
@@ -208,11 +138,7 @@ function attachImageFallback(imgEl, candidates, { onLoadSuccess, onFinalError, f
         }
     };
 
-    const startIdx = (_cdnCgiDisabled && queue[0]?.includes('/cdn-cgi/image/') && queue.length > 1)
-        ? queue.findIndex(u => !u.includes('/cdn-cgi/image/'))
-        : 0;
-    attempt = startIdx >= 0 ? startIdx : 0;
-    return queue[attempt] || fallbackSvg || '';
+    return queue[0] || fallbackSvg || '';
 }
 
 const _authImageSeq      = typeof WeakMap !== 'undefined' ? new WeakMap() : null;

@@ -23,6 +23,8 @@ import {
   verifyPassword,
 } from '../utils/userToken.js';
 import { jsonResponse } from '../utils/cors.js';
+import { readJsonBody } from '../utils/requestBody.js';
+import { checkRateLimitStatus as defaultCheckRateLimitStatus, resolveHashedRateKey } from '../services/rateLimit.js';
 
 const MAX_LOGIN_FAILURES = 5;
 const LOCKOUT_MINUTES = 15;
@@ -51,20 +53,27 @@ async function fetchWalletSnapshot(DB, userId) {
   };
 }
 
-function getClientIp(request, fallback = 'client') {
-  const cf = request.headers.get('CF-Connecting-IP');
-  if (cf) return cf.trim();
-  const xff = request.headers.get('X-Forwarded-For');
-  if (xff) return xff.split(',')[0].trim();
-  return fallback;
+async function enforceAccountRateLimit({ DB, checkRateLimitStatus, checkRateLimit, request, endpoint, fallbackId, limit, windowSec }) {
+  const key = await resolveHashedRateKey(request, fallbackId);
+  if (typeof checkRateLimitStatus === 'function') {
+    return await checkRateLimitStatus(endpoint, key, limit, windowSec);
+  }
+  if (typeof checkRateLimit === 'function') {
+    const allowed = await checkRateLimit(endpoint, key, limit, windowSec);
+    return { allowed, retryAfter: allowed ? 0 : windowSec };
+  }
+  if (DB) {
+    return await defaultCheckRateLimitStatus(DB, endpoint, key, limit, windowSec);
+  }
+  return { allowed: true, retryAfter: 0 };
 }
 
 // ================================================================
 // POST /api/account/auto
 // Automatic Account Generator: guarantees a permanent Account ID (ZXA-XXXX-XXXX)
 // ================================================================
-export async function handleAutoAccount({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleAutoAccount({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
 
   if (!auth.authenticated) {
     if (auth.requiresLogin) {
@@ -77,11 +86,23 @@ export async function handleAutoAccount({ request, DB, corsHeaders, getUserToken
     return jsonRes({ success: false, error: 'Valid user token required' }, 401, corsHeaders);
   }
 
-  if (typeof checkRateLimit === 'function') {
-    const ip = getClientIp(request, auth.userId);
-    if (!await checkRateLimit('account_auto', ip, 120, 3600)) {
-      return jsonRes({ success: false, error: 'Too many requests' }, 429, corsHeaders);
-    }
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_auto',
+    fallbackId: auth.userId,
+    limit: 120,
+    windowSec: 3600,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Too many requests' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
   try {
@@ -107,8 +128,8 @@ export async function handleAutoAccount({ request, DB, corsHeaders, getUserToken
 // GET /api/account/me
 // Returns authenticated account profile, wallet balance, recent ledger & orders
 // ================================================================
-export async function handleAccountMe({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleAccountMe({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated) {
     if (auth.requiresLogin) {
       return jsonRes({
@@ -186,18 +207,31 @@ async function createAndSendOtp({ DB, env, sendEmail, accountId, email, purpose 
 // Upgrades current auto-provisioned Virtual Account (preserving credits & purchases)
 // with email + PBKDF2 password, creates authenticated session, and dispatches verification OTP
 // ================================================================
-export async function handleRegisterAccount({ request, env, DB, corsHeaders, getUserToken, checkRateLimit, sendEmail }) {
-  const ip = getClientIp(request, 'register');
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_register', ip, 15, 3600)) {
-    return jsonRes({ success: false, error: 'Too many registration attempts. Please try again later.' }, 429, corsHeaders);
+export async function handleRegisterAccount({ request, ctx, env, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus, sendEmail }) {
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_register',
+    fallbackId: 'register',
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Too many registration attempts. Please try again later.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonRes({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonRes({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const email = normalizeEmail(body?.email);
   const password = typeof body?.password === 'string' ? body.password : '';
@@ -210,7 +244,7 @@ export async function handleRegisterAccount({ request, env, DB, corsHeaders, get
     return jsonRes({ success: false, error: 'Password must be between 8 and 128 characters' }, 400, corsHeaders);
   }
 
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.userId || auth.userId === 'anonymous') {
     return jsonRes({ success: false, error: 'Active session or user token required' }, 401, corsHeaders);
   }
@@ -276,8 +310,8 @@ export async function handleRegisterAccount({ request, env, DB, corsHeaders, get
 // ================================================================
 // POST /api/account/resend-verification
 // ================================================================
-export async function handleResendVerification({ request, env, DB, corsHeaders, getUserToken, checkRateLimit, sendEmail }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleResendVerification({ request, ctx, env, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus, sendEmail }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.account) {
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
@@ -289,9 +323,23 @@ export async function handleResendVerification({ request, env, DB, corsHeaders, 
     return jsonRes({ success: true, alreadyVerified: true, message: 'Email is already verified' }, 200, corsHeaders);
   }
 
-  const ip = getClientIp(request, auth.account.account_id);
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_resend_otp', ip, 6, 900)) {
-    return jsonRes({ success: false, error: 'Please wait before requesting another verification code.' }, 429, corsHeaders);
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_resend_otp',
+    fallbackId: auth.account.account_id,
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Please wait before requesting another verification code.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
   try {
@@ -328,23 +376,36 @@ export async function handleResendVerification({ request, env, DB, corsHeaders, 
 // ================================================================
 // POST /api/account/verify-email
 // ================================================================
-export async function handleVerifyEmail({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleVerifyEmail({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.account) {
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
 
-  const ip = getClientIp(request, auth.account.account_id);
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_verify_email', ip, 15, 900)) {
-    return jsonRes({ success: false, error: 'Too many verification attempts. Please wait.' }, 429, corsHeaders);
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_verify_email',
+    fallbackId: auth.account.account_id,
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Too many verification attempts. Please wait.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonRes({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonRes({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const code = String(body?.code || '').trim();
   if (!/^\d{6}$/.test(code)) {
@@ -469,8 +530,8 @@ export function computeNextCheckinState(account, nowDate = new Date()) {
   };
 }
 
-export async function handleAccountCheckin({ request, DB, corsHeaders, getUserToken, checkRateLimit }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleAccountCheckin({ request, ctx, DB, corsHeaders, getUserToken, checkRateLimit, checkRateLimitStatus }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated) {
     if (auth.requiresLogin) {
       return jsonRes({
@@ -482,9 +543,23 @@ export async function handleAccountCheckin({ request, DB, corsHeaders, getUserTo
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
 
-  const ip = getClientIp(request, auth.userId);
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_checkin', ip, 30, 3600)) {
-    return jsonRes({ success: false, error: 'Too many check-in requests. Please try again shortly.' }, 429, corsHeaders);
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_checkin',
+    fallbackId: auth.userId,
+    limit: 30,
+    windowSec: 3600,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Too many check-in requests. Please try again shortly.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
   try {
@@ -569,18 +644,31 @@ export async function handleAccountCheckin({ request, DB, corsHeaders, getUserTo
 // POST /api/account/login
 // Requires email + password. Explicitly forbids Account ID as login credential.
 // ================================================================
-export async function handleLoginAccount({ request, DB, corsHeaders, checkRateLimit }) {
-  const ip = getClientIp(request, 'login');
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_login', ip, 30, 900)) {
-    return jsonRes({ success: false, error: 'Too many login attempts. Please slow down.' }, 429, corsHeaders);
+export async function handleLoginAccount({ request, DB, corsHeaders, checkRateLimit, checkRateLimitStatus }) {
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_login',
+    fallbackId: 'login',
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Too many login attempts. Please slow down.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonRes({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonRes({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const rawIdentifier = String(body?.email || body?.identifier || body?.accountId || '').trim();
   const password = typeof body?.password === 'string' ? body.password : '';
@@ -662,8 +750,8 @@ export async function handleLoginAccount({ request, DB, corsHeaders, checkRateLi
 // ================================================================
 // POST /api/account/logout
 // ================================================================
-export async function handleLogoutAccount({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleLogoutAccount({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (auth.session?.session_id && auth.accountId) {
     try {
       await DB.prepare(
@@ -684,18 +772,31 @@ export async function handleLogoutAccount({ request, DB, corsHeaders, getUserTok
 // POST /api/account/recover/request
 // Sends recovery OTP only to verified registered emails
 // ================================================================
-export async function handleRecoverRequest({ request, env, DB, corsHeaders, checkRateLimit, sendEmail }) {
-  const ip = getClientIp(request, 'recover-req');
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_recover_req', ip, 6, 900)) {
-    return jsonRes({ success: false, error: 'Too many recovery requests. Please try again later.' }, 429, corsHeaders);
+export async function handleRecoverRequest({ request, env, DB, corsHeaders, checkRateLimit, checkRateLimitStatus, sendEmail }) {
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_recover_req',
+    fallbackId: 'recover-req',
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Too many recovery requests. Please try again later.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonRes({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonRes({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   if (isAccountIdFormat(body?.email || body?.accountId)) {
     return jsonRes({
@@ -755,18 +856,31 @@ export async function handleRecoverRequest({ request, env, DB, corsHeaders, chec
 // POST /api/account/recover/confirm
 // Verifies OTP for verified email, resets password, revokes all prior sessions, and opens new session
 // ================================================================
-export async function handleRecoverConfirm({ request, DB, corsHeaders, checkRateLimit }) {
-  const ip = getClientIp(request, 'recover-confirm');
-  if (typeof checkRateLimit === 'function' && !await checkRateLimit('account_recover_confirm', ip, 10, 900)) {
-    return jsonRes({ success: false, error: 'Too many confirmation attempts. Please wait.' }, 429, corsHeaders);
+export async function handleRecoverConfirm({ request, DB, corsHeaders, checkRateLimit, checkRateLimitStatus }) {
+  const rl = await enforceAccountRateLimit({
+    DB,
+    checkRateLimitStatus,
+    checkRateLimit,
+    request,
+    endpoint: 'account_recover_confirm',
+    fallbackId: 'recover-confirm',
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonRes(
+      { success: false, error: 'Too many confirmation attempts. Please wait.' },
+      429,
+      corsHeaders,
+      { 'Retry-After': String(rl.retryAfter || 60) }
+    );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonRes({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonRes({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const email = normalizeEmail(body?.email);
   const code  = String(body?.code || '').trim();
@@ -847,8 +961,8 @@ export async function handleRecoverConfirm({ request, DB, corsHeaders, checkRate
 // GET /api/account/ledger?limit=50&offset=0&type=...
 // Immutable Credit Ledger history for current authenticated account
 // ================================================================
-export async function handleAccountLedger({ request, url, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleAccountLedger({ request, ctx, url, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated) {
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
@@ -886,8 +1000,8 @@ export async function handleAccountLedger({ request, url, DB, corsHeaders, getUs
 // POST /api/account/sessions/revoke
 // POST /api/account/sessions/revoke-others
 // ================================================================
-export async function handleListSessions({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleListSessions({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated) {
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
@@ -912,18 +1026,17 @@ export async function handleListSessions({ request, DB, corsHeaders, getUserToke
   }
 }
 
-export async function handleRevokeSession({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleRevokeSession({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.account) {
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonRes({ success: false, error: 'Invalid request body' }, 400, corsHeaders);
+  const parsed = await readJsonBody(request, { maxBytes: 1024 * 1024 });
+  if (!parsed.ok) {
+    return jsonRes({ success: false, error: parsed.error }, parsed.status, corsHeaders);
   }
+  const body = parsed.data;
 
   const targetSessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
   if (!targetSessionId) {
@@ -948,8 +1061,8 @@ export async function handleRevokeSession({ request, DB, corsHeaders, getUserTok
   }
 }
 
-export async function handleRevokeOtherSessions({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleRevokeOtherSessions({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated || !auth.account) {
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }
@@ -981,8 +1094,8 @@ export async function handleRevokeOtherSessions({ request, DB, corsHeaders, getU
 // GET /api/account/export
 // Personal account + wallet + immutable ledger JSON export for user backup
 // ================================================================
-export async function handleAccountExport({ request, DB, corsHeaders, getUserToken }) {
-  const auth = await resolveSessionAuth({ request, DB, getUserToken });
+export async function handleAccountExport({ request, ctx, DB, corsHeaders, getUserToken }) {
+  const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
   if (!auth.authenticated) {
     return jsonRes({ success: false, error: 'Authentication required' }, 401, corsHeaders);
   }

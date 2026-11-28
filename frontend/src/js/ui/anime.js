@@ -86,7 +86,7 @@ Object.assign(ui, {
 
             const candidates = utils.getImageFallbackCandidates(
                 primaryRaw,
-                { w: 360, h: 360, q: 76, fit: 'cover', fmt: 'auto' },
+                { w: 400, q: 80, fit: 'scale-down', fmt: 'auto' },
                 extraRaw
             );
 

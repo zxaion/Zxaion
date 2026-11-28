@@ -9,10 +9,7 @@ export function getPayPalBase(env) {
 }
 
 export const ALLOWED_ORIGINS = [
-  'https://zxaion-verse.pages.dev',
   'https://zxaionverse.site',
   'https://www.zxaionverse.site',
-  'https://zxaionverse.com',
-  'https://www.zxaionverse.com',
-  'https://ai.zxaionverse.workers.dev',
+  'https://zxaion-verse.pages.dev',
 ];

@@ -7,12 +7,14 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, cpSync } fr
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import vm from 'node:vm';
 import { CREDIT_PACK_DEFINITIONS } from '../../backend/src/config/packs.js';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT       = join(SCRIPT_DIR, '..');
 const REPO_ROOT  = join(ROOT, '..');
 const WEB        = join(ROOT, 'src');
+const PUBLIC_DIR = join(ROOT, 'public');
 const DIST       = join(ROOT, 'dist');
 
 export const INCLUDE_RE = /^[ \t]*<!-- @include (\S+) -->[ \t]*$/;
@@ -210,6 +212,65 @@ function buildTailwindCss() {
   return compiled;
 }
 
+function escapeXmlAttr(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+export function generateBuildSitemapXml({ siteOrigin = 'https://zxaionverse.site', constantsSource = null } = {}) {
+  const base = String(siteOrigin || 'https://zxaionverse.site').replace(/\/+$/, '');
+  const src = constantsSource ?? read('js/config/constants.js');
+  const sandbox = { window: undefined };
+  vm.runInNewContext(`${src}\n;this.__CATS__ = CATEGORIES; this.__ALBUMS__ = ANIME_SUB_ALBUMS;`, sandbox);
+
+  const categories = Array.isArray(sandbox.__CATS__) ? sandbox.__CATS__ : [];
+  const albums = Array.isArray(sandbox.__ALBUMS__) ? sandbox.__ALBUMS__ : [];
+  const today = new Date().toISOString().split('T')[0];
+
+  const entries = [
+    { loc: `${base}/`, changefreq: 'daily', priority: '1.0' },
+  ];
+
+  for (const cat of categories) {
+    if (!cat || cat === 'All') continue;
+    entries.push({
+      loc: `${base}/?cat=${encodeURIComponent(cat)}`,
+      changefreq: 'daily',
+      priority: '0.8',
+    });
+  }
+
+  for (const album of albums) {
+    if (!album) continue;
+    entries.push({
+      loc: `${base}/?cat=Anime&album=${encodeURIComponent(album)}`,
+      changefreq: 'weekly',
+      priority: '0.7',
+    });
+  }
+
+  const urlBlocks = entries.map((e) => [
+    '  <url>',
+    `    <loc>${escapeXmlAttr(e.loc)}</loc>`,
+    `    <lastmod>${today}</lastmod>`,
+    `    <changefreq>${e.changefreq}</changefreq>`,
+    `    <priority>${e.priority}</priority>`,
+    '  </url>',
+  ].join('\n'));
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...urlBlocks,
+    '</urlset>',
+    '',
+  ].join('\n');
+}
+
 export function runFrontendBuild() {
   const manifest = JSON.parse(read('manifest.json'));
   const includes = read('index.html')
@@ -244,9 +305,19 @@ export function runFrontendBuild() {
     cpSync(assetsSrcDir, join(DIST, 'assets'), { recursive: true });
   }
 
+  if (existsSync(PUBLIC_DIR)) {
+    cpSync(PUBLIC_DIR, DIST, { recursive: true });
+  }
+
+  const siteOrigin = process.env.SITE_URL || 'https://zxaionverse.site';
+  writeFileSync(join(DIST, 'sitemap.xml'), generateBuildSitemapXml({ siteOrigin }));
+
   console.log('Build selesai → dist/');
-  for (const f of ['index.html', 'style.css', 'script.js', 'quicklink.json']) {
-    console.log(`  ${f.padEnd(15)} ${(readFileSync(join(DIST, f)).length / 1024).toFixed(1)} KB`);
+  for (const f of ['index.html', 'style.css', 'script.js', 'quicklink.json', '_redirects', '_headers', '404.html', 'robots.txt', 'sitemap.xml', 'favicon.ico']) {
+    const outFile = join(DIST, f);
+    if (existsSync(outFile)) {
+      console.log(`  ${f.padEnd(15)} ${(readFileSync(outFile).length / 1024).toFixed(1)} KB`);
+    }
   }
 }
 

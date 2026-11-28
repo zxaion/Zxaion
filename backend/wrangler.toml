@@ -5,10 +5,6 @@ compatibility_date = "2026-01-15"
 [vars]
 PAYPAL_ENV = "live" # Ubah ke "sandbox" untuk testing PayPal Sandbox
 
-# Cloudflare Images Transformation Binding
-[images]
-binding = "IMAGES"
-
 # Database D1
 [[d1_databases]]
 binding = "DB"
@@ -16,16 +12,7 @@ database_name = "zxwallpaper"
 database_id = "10cce737-02cd-43b8-95d2-00e4efc2d215"
 
 [triggers]
-crons = ["* * * * *"]   # Scan R2 → D1 otomatis setiap 1 menit (interval cron tercepat Cloudflare)
-
-# Opsional — Untuk scan 0 detik (real-time tanpa jeda saat upload/hapus di R2):
-# 1. Buat queue: npx wrangler queues create r2-sync-queue
-# 2. Aktifkan R2 Event Notifications ke queue tersebut untuk 3 bucket
-# 3. Uncomment blok di bawah lalu deploy ulang:
-# [[queues.consumers]]
-# queue = "r2-sync-queue"
-# max_batch_size = 25
-# max_batch_timeout = 1
+crons = ["*/15 * * * *"]   # Scan R2 → D1 otomatis setiap 15 menit (hemat CPU & D1 writes)
 
 # R2 Buckets (Penyimpanan File)
 [[r2_buckets]]

@@ -1,9 +1,8 @@
 import { resolveAllowedOrigin } from '../utils/cors.js';
-import { parseTransformOptions, applyImageTransform, negotiateOutputMime } from '../services/imageTransform.js';
+import { parseTransformOptions, buildCfImageOptions } from '../services/imageTransform.js';
 import { matchEdgeCache, storeEdgeCache } from '../utils/edgeCache.js';
 import { resolveSessionAuth } from '../services/accountAuth.js';
 import { verifyDtreasureDownloadToken } from '../services/downloadToken.js';
-import { buildWatermarkedPreviewSvg } from '../services/imageMeta.js';
 
 function safeDecode(value) {
   try {
@@ -18,15 +17,6 @@ function isSafeObjectKey(key) {
   if (key.startsWith('/') || key.includes('..') || key.includes('\0') || key.includes('\\')) return false;
   if (key.toLowerCase().startsWith('_backups/')) return false;
   return true;
-}
-
-function bytesToBase64(bytes) {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
 }
 
 export async function isUserAuthorizedForDtreasure(DB, userId, key) {
@@ -48,9 +38,23 @@ export async function isUserAuthorizedForDtreasure(DB, userId, key) {
 }
 
 // ================================================================
-// ENDPOINT: Serve images dari R2 (main, comitbase, dtreasure) + Cloudflare Images transform
+// ENDPOINT: Serve images dari R2 (main, comitbase, dtreasure) + cf.image transform (max 3 presets)
 // ================================================================
-export async function handleServeImage({ request, ctx, url, path, env = {}, mainBucket, comitbaseBucket, treasureBucket, DB, IMAGES, origin, corsHeaders, getUserToken }) {
+export async function handleServeImage({
+  request,
+  ctx,
+  url,
+  path,
+  env = {},
+  mainBucket,
+  comitbaseBucket,
+  treasureBucket,
+  DB,
+  origin,
+  corsHeaders,
+  getUserToken,
+  fetchFn = typeof fetch === 'function' ? fetch : null,
+}) {
   const isDtreasure = path.startsWith('/api/dtreasure/img/');
 
   let bucket, prefix;
@@ -78,12 +82,28 @@ export async function handleServeImage({ request, ctx, url, path, env = {}, main
     });
   }
 
+  const isDownload = url.searchParams.get('download') === 'true';
+  const acceptHeader = request.headers.get('Accept') || '';
+  const isResizerSubrequest =
+    url.searchParams.get('raw') === '1' ||
+    String(request.headers.get('Via') || '').toLowerCase().includes('image-resizing');
+
+  const parsedTransform = !isDownload && !isResizerSubrequest
+    ? parseTransformOptions(url.searchParams, acceptHeader)
+    : null;
+
+  if (parsedTransform?.error) {
+    return new Response(JSON.stringify({ error: parsedTransform.error }), {
+      status: parsedTransform.status || 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   let userId = 'anonymous';
   if (isDtreasure) {
-    const auth = await resolveSessionAuth({ request, DB, getUserToken });
+    const auth = await resolveSessionAuth({ request, DB, getUserToken, ctx });
     userId = auth.authenticated ? auth.userId : 'anonymous';
   }
-  const isDownload = url.searchParams.get('download') === 'true';
 
   if (!isDtreasure && !isDownload && request.method === 'GET') {
     const cached = await matchEdgeCache(request);
@@ -141,7 +161,6 @@ export async function handleServeImage({ request, ctx, url, path, env = {}, main
 
   try {
     // For unpurchased DTREASURE previews, prefer dedicated watermarked _preview/<key> in R2
-    let fetchedKey = key;
     let object = null;
     let usingPreviewAsset = false;
 
@@ -149,21 +168,25 @@ export async function handleServeImage({ request, ctx, url, path, env = {}, main
       const previewKey = key.startsWith('_preview/') ? key : `_preview/${key}`;
       object = await bucket.get(previewKey);
       if (object) {
-        fetchedKey = previewKey;
         usingPreviewAsset = true;
       }
     }
 
     if (!object) {
-      fetchedKey = key;
       object = await bucket.get(key);
     }
     if (!object) return new Response('Not found', { status: 404, headers: corsHeaders });
 
-    const hasVersionParam = Boolean(url.searchParams.get('v'));
+    // Fail-closed: never leak unwatermarked full-res original bytes for unpurchased DTREASURE
+    if (isDtreasure && !authorizedDtreasure && !usingPreviewAsset && request.method !== 'HEAD') {
+      return new Response(JSON.stringify({ error: 'Preview not available; purchase required' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const cacheHeader = isDtreasure
       ? 'private, no-store'
-      : (hasVersionParam ? 'public, max-age=31536000, immutable' : 'public, max-age=3600, stale-while-revalidate=86400');
+      : 'public, max-age=31536000, immutable';
 
     const headers = new Headers();
     object.writeHttpMetadata(headers);
@@ -180,87 +203,37 @@ export async function handleServeImage({ request, ctx, url, path, env = {}, main
       return new Response(null, { status: 304, headers });
     }
 
-    const acceptHeader = request.headers.get('Accept') || '';
-    let transformOpts = !isDownload
-      ? parseTransformOptions(url.searchParams, acceptHeader)
-      : null;
-
-    const mustProtectOriginal = isDtreasure && !authorizedDtreasure && !usingPreviewAsset;
-
-    // Force strict blurred low-res transform when unpurchased DTREASURE has no dedicated _preview/ asset
-    if (mustProtectOriginal) {
-      transformOpts = {
-        width:      Math.min(transformOpts?.width || 480, 480),
-        height:     transformOpts?.height ? Math.min(transformOpts.height, 720) : 720,
-        quality:    Math.min(transformOpts?.quality || 60, 60),
-        fit:        'scale-down',
-        blur:       Math.max(transformOpts?.blur || 12, 12),
-        outputMime: transformOpts?.outputMime || negotiateOutputMime('auto', acceptHeader),
-      };
-    } else if (isDtreasure && !authorizedDtreasure && transformOpts) {
-      // Batasi resolusi preview DTREASURE yang belum dibeli agar tidak bisa di-scrape resolusi penuh
-      transformOpts = {
-        ...transformOpts,
-        width:   transformOpts.width ? Math.min(transformOpts.width, 600) : 600,
-        height:  transformOpts.height ? Math.min(transformOpts.height, 900) : null,
-        quality: Math.min(transformOpts.quality, 75),
-      };
-    }
-
-    if (IMAGES && transformOpts && request.method !== 'HEAD') {
+    // Perform edge resizing via fetch(srcUrl, { cf: { image } }) for public raster images when requested
+    const sourceMime = String(headers.get('Content-Type') || object.httpMetadata?.contentType || '').toLowerCase();
+    const isEdgeOrigin = url.hostname && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1';
+    if (
+      !isDtreasure &&
+      !isDownload &&
+      parsedTransform &&
+      !sourceMime.includes('svg') &&
+      request.method !== 'HEAD' &&
+      fetchFn &&
+      isEdgeOrigin
+    ) {
       try {
-        const sourceContentType = headers.get('Content-Type') || object.httpMetadata?.contentType || '';
-        const transformed = await applyImageTransform({
-          IMAGES,
-          object,
-          contentType: sourceContentType,
-          transformOpts,
-        });
+        const cfImage = buildCfImageOptions(parsedTransform);
+        const srcUrl = new URL(url.toString());
+        ['w', 'width', 'h', 'height', 'q', 'quality', 'fit', 'fmt', 'format', 'blur'].forEach(p => srcUrl.searchParams.delete(p));
+        srcUrl.searchParams.set('raw', '1');
 
+        const transformed = await fetchFn(srcUrl.toString(), { cf: { image: cfImage } });
         if (transformed && transformed.ok) {
-          const transformedType = transformed.headers.get('Content-Type') || 'image/webp';
-          if (mustProtectOriginal) {
-            const previewBytes = new Uint8Array(await transformed.arrayBuffer());
-            const previewDataUri = previewBytes.byteLength > 0 && previewBytes.byteLength <= 512 * 1024
-              ? `data:${transformedType};base64,${bytesToBase64(previewBytes)}`
-              : '';
-            const watermarkedSvg = buildWatermarkedPreviewSvg({
-              title: key.split('/').pop()?.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') || 'Exclusive Edition',
-              category: 'DTREASURE',
-              previewDataUri,
-              width: transformOpts.width || 480,
-              height: transformOpts.height || 640,
-            });
-            headers.set('Content-Type', 'image/svg+xml; charset=utf-8');
-            headers.set('X-Image-Transformed', 'cf-images');
-            headers.set('X-Dtreasure-Preview', 'watermarked');
-            return new Response(watermarkedSvg, { headers });
-          }
-
-          if (transformedType) headers.set('Content-Type', transformedType);
-          headers.set('X-Image-Transformed', 'cf-images');
-          const transformedRes = new Response(transformed.body, { headers });
-          if (!isDtreasure && !isDownload) storeEdgeCache(request, transformedRes, ctx);
+          const transformedHeaders = new Headers(headers);
+          const transformedType = transformed.headers.get('Content-Type');
+          if (transformedType) transformedHeaders.set('Content-Type', transformedType);
+          transformedHeaders.set('X-Image-Transformed', 'cf-edge');
+          const transformedRes = new Response(transformed.body, { status: 200, headers: transformedHeaders });
+          storeEdgeCache(request, transformedRes, ctx);
           return transformedRes;
         }
       } catch (transformErr) {
-        console.warn('[IMAGES] Transform failed, falling back to original:', transformErr.message);
-        if (mustProtectOriginal) {
-          return new Response(JSON.stringify({ error: 'Preview not available; purchase required' }), {
-            status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-        // Re-fetch object karena stream body sebelumnya sudah terkonsumsi oleh IMAGES.input()
-        object = await bucket.get(fetchedKey);
-        if (!object) return new Response('Not found', { status: 404, headers: corsHeaders });
+        console.warn('[Image] cf.image transform skipped, streaming R2:', transformErr.message);
       }
-    }
-
-    // Fail-closed: never leak unwatermarked full-res original bytes for unpurchased DTREASURE when _preview/ & transform are unavailable
-    if (mustProtectOriginal && request.method !== 'HEAD') {
-      return new Response(JSON.stringify({ error: 'Preview not available; purchase required' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
     }
 
     if (isDownload) {

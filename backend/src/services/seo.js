@@ -2,7 +2,6 @@
  * services/seo.js — Dynamic OpenGraph, Twitter Cards, Schema.org metadata injection,
  * plus dynamic /robots.txt and /sitemap.xml endpoints.
  */
-import { ensureAutoSync } from './r2Sync.js';
 import { escapeHtml } from '../utils/userToken.js';
 
 export async function findPhotoForSeo(DB, photoId) {
@@ -14,11 +13,11 @@ export async function findPhotoForSeo(DB, photoId) {
 
 export function resolvePublicOrigin(origin, env = null) {
   const configured = env?.APP_URL ? String(env.APP_URL).trim() : '';
-  const raw = configured || origin || 'https://zxaionverse.workers.dev';
+  const raw = configured || origin || 'https://zxaionverse.site';
   return String(raw).replace(/\/+$/, '');
 }
 
-export function buildPhotoCanonicalUrl(photoId, origin = 'https://zxaionverse.workers.dev') {
+export function buildPhotoCanonicalUrl(photoId, origin = 'https://zxaionverse.site') {
   const base = String(origin || '').replace(/\/+$/, '');
   return `${base}/?photo=${encodeURIComponent(photoId)}`;
 }
@@ -181,11 +180,8 @@ export async function handleRobotsTxt({ origin, url, env, corsHeaders = {} } = {
   });
 }
 
-export async function handleSitemapXml({ DB, env, ctx, origin, url, corsHeaders = {} } = {}) {
+export async function handleSitemapXml({ DB, env, origin, url, corsHeaders = {} } = {}) {
   try {
-    if (env && DB) {
-      await ensureAutoSync({ env, ctx, DB, bucketName: 'main' });
-    }
     const base = resolvePublicOrigin(origin || url?.origin, env);
     let rows = [];
     if (DB) {
