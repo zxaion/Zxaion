@@ -56,6 +56,86 @@ function initModalEvents() {
         }
     });
 
+    // Desktop Mockup interactive pan & zoom controls
+    const mockupStage = document.getElementById('modal-mockup-stage');
+    const zoomRange = document.getElementById('modal-desktop-zoom-range');
+    const zoomOutBtn = document.getElementById('modal-desktop-zoom-out');
+    const zoomInBtn = document.getElementById('modal-desktop-zoom-in');
+    const desktopResetBtn = document.getElementById('modal-desktop-reset');
+
+    zoomOutBtn?.addEventListener('click', () => {
+        const cur = state.desktopMockupTransform?.scale || 1;
+        ui.setDesktopMockupZoom(cur - 0.25);
+    });
+    zoomInBtn?.addEventListener('click', () => {
+        const cur = state.desktopMockupTransform?.scale || 1;
+        ui.setDesktopMockupZoom(cur + 0.25);
+    });
+    zoomRange?.addEventListener('input', (e) => {
+        ui.setDesktopMockupZoom(parseFloat(e.target.value));
+    });
+    desktopResetBtn?.addEventListener('click', () => {
+        ui.resetDesktopMockupTransform();
+    });
+
+    if (mockupStage) {
+        let dragState = null;
+
+        mockupStage.addEventListener('pointerdown', (e) => {
+            if (state.currentMockupMode !== 'desktop') return;
+            if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+            e.preventDefault();
+            dragState = {
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                origX: state.desktopMockupTransform?.x || 0,
+                origY: state.desktopMockupTransform?.y || 0,
+            };
+            mockupStage.classList.add('is-dragging');
+            try {
+                mockupStage.setPointerCapture?.(e.pointerId);
+            } catch (_) {}
+        });
+
+        mockupStage.addEventListener('pointermove', (e) => {
+            if (!dragState || e.pointerId !== dragState.pointerId || state.currentMockupMode !== 'desktop') return;
+            const dx = e.clientX - dragState.startX;
+            const dy = e.clientY - dragState.startY;
+            ui.panDesktopMockupTo(dragState.origX + dx, dragState.origY + dy);
+        });
+
+        const endDrag = (e) => {
+            if (!dragState || (e.pointerId !== undefined && e.pointerId !== dragState.pointerId)) return;
+            try {
+                mockupStage.releasePointerCapture?.(dragState.pointerId);
+            } catch (_) {}
+            dragState = null;
+            mockupStage.classList.remove('is-dragging');
+        };
+
+        mockupStage.addEventListener('pointerup', endDrag);
+        mockupStage.addEventListener('pointercancel', endDrag);
+
+        mockupStage.addEventListener('wheel', (e) => {
+            if (state.currentMockupMode !== 'desktop') return;
+            e.preventDefault();
+            const cur = state.desktopMockupTransform?.scale || 1;
+            const delta = e.deltaY < 0 ? 0.14 : -0.14;
+            ui.setDesktopMockupZoom(cur + delta);
+        }, { passive: false });
+    }
+
+    window.addEventListener('resize', () => {
+        if (
+            state.currentMockupMode === 'desktop' &&
+            elements.imageModal &&
+            !elements.imageModal.classList.contains('hidden')
+        ) {
+            ui.fitDesktopMockupImage();
+        }
+    });
+
     document.getElementById('modal-related-grid')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-related-id]');
         if (!btn) return;

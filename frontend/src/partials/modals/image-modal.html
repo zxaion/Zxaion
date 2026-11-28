@@ -1,17 +1,17 @@
     <!-- ═══════════════════════════════════════════
          IMAGE MODAL
          ═══════════════════════════════════════════ -->
-    <div id="image-modal" class="fixed inset-0 z-[100] hidden bg-black/95 backdrop-blur-sm p-4">
-        <button id="close-image-modal" aria-label="Close preview modal" class="absolute top-5 right-5 w-10 h-10 bg-gray-900/90 hover:bg-black text-white border border-white/25 rounded-full flex items-center justify-center transition-all duration-200 z-50 shadow-xl backdrop-blur-md cursor-pointer">
+    <div id="image-modal" class="fixed inset-0 z-[100] hidden bg-black/95 backdrop-blur-sm p-2 sm:p-4">
+        <button id="close-image-modal" aria-label="Close preview modal" class="absolute top-4 right-4 sm:top-5 sm:right-5 w-10 h-10 bg-gray-900/90 hover:bg-black text-white border border-white/25 rounded-full flex items-center justify-center transition-all duration-200 z-50 shadow-xl backdrop-blur-md cursor-pointer">
             <i class="fas fa-times" aria-hidden="true"></i>
         </button>
 
-        <div class="h-full flex flex-col lg:flex-row gap-6 max-w-[1800px] mx-auto">
+        <div class="h-full flex flex-col lg:flex-row gap-4 sm:gap-5 max-w-[1800px] mx-auto">
 
             <!-- Image Wrapper + Mockup Stage -->
-            <div class="flex-1 flex flex-col items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden p-3 sm:p-5 gap-3" id="modal-img-wrapper">
+            <div class="flex-1 flex flex-col items-center justify-center relative bg-black/50 rounded-2xl overflow-hidden p-2.5 sm:p-4 gap-2.5" id="modal-img-wrapper">
                 <!-- Mockup Switcher Bar -->
-                <div id="modal-mockup-bar" class="relative z-20 inline-flex flex-wrap items-center justify-center gap-1 p-1 rounded-full bg-black/75 border border-white/15 backdrop-blur-md shadow-lg" role="tablist" aria-label="Preview on Device">
+                <div id="modal-mockup-bar" class="relative z-20 inline-flex flex-wrap items-center justify-center gap-1 p-1 rounded-full bg-black/75 border border-white/15 backdrop-blur-md shadow-lg shrink-0" role="tablist" aria-label="Preview on Device">
                     <span class="hidden sm:inline-flex items-center gap-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                         <i class="fas fa-mobile-screen-button text-amber-400" aria-hidden="true"></i>
                         <span>Preview on Device</span>
@@ -36,7 +36,7 @@
                         <img
                             id="modal-img"
                             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
-                            class="max-h-[62vh] lg:max-h-[72vh] max-w-full rounded-xl object-contain select-none"
+                            class="max-w-full rounded-xl object-contain select-none"
                             alt="Wallpaper preview"
                             draggable="false"
                             style="-webkit-user-drag:none; -webkit-touch-callout:none; user-select:none;">
@@ -47,61 +47,61 @@
                             style="-webkit-tap-highlight-color:transparent;">
                         </div>
                         <!-- Phone Lockscreen Overlay Chrome -->
-                        <div id="modal-phone-chrome" class="hidden pointer-events-none absolute inset-0 z-[5] flex flex-col justify-between px-3.5 py-3 text-white select-none" aria-hidden="true">
+                        <div id="modal-phone-chrome" class="hidden pointer-events-none absolute inset-0 z-[5] flex flex-col justify-between px-4 py-3.5 text-white select-none" aria-hidden="true">
                             <div class="flex flex-col items-center w-full">
-                                <div class="flex items-center justify-between w-full text-[9px] font-bold tracking-tight text-white/90 px-1 mb-1">
+                                <div class="flex items-center justify-between w-full text-[10px] font-bold tracking-tight text-white/90 px-1 mb-1.5">
                                     <span>9:41</span>
-                                    <span class="w-14 h-3 rounded-full bg-black/95 border border-white/10"></span>
+                                    <span class="w-16 h-3.5 rounded-full bg-black/95 border border-white/10"></span>
                                     <span class="flex items-center gap-1">
-                                        <i class="fas fa-signal text-[8px]"></i>
-                                        <i class="fas fa-wifi text-[8px]"></i>
-                                        <i class="fas fa-battery-full text-[9px]"></i>
+                                        <i class="fas fa-signal text-[9px]"></i>
+                                        <i class="fas fa-wifi text-[9px]"></i>
+                                        <i class="fas fa-battery-full text-[10px]"></i>
                                     </span>
                                 </div>
-                                <i class="fas fa-lock text-[10px] text-white/80 mb-1 drop-shadow"></i>
-                                <div class="text-[10px] font-semibold tracking-wide text-white/90 drop-shadow">Friday, Nov 27</div>
-                                <div class="text-4xl font-black tracking-tight leading-none mt-0.5 drop-shadow-md">09:41</div>
+                                <i class="fas fa-lock text-[11px] text-white/80 mb-1 drop-shadow"></i>
+                                <div class="text-[11px] font-semibold tracking-wide text-white/90 drop-shadow">Friday, Nov 27</div>
+                                <div class="text-4xl sm:text-5xl font-black tracking-tight leading-none mt-0.5 drop-shadow-md">09:41</div>
                             </div>
                             <div class="flex flex-col items-center gap-2 pb-1">
-                                <div class="flex items-center justify-between w-full px-2.5 text-white/90 text-xs">
-                                    <span class="w-7 h-7 rounded-full bg-black/45 backdrop-blur-md border border-white/15 flex items-center justify-center"><i class="fas fa-bolt text-[10px]"></i></span>
+                                <div class="flex items-center justify-between w-full px-3 text-white/90 text-xs">
+                                    <span class="w-8 h-8 rounded-full bg-black/45 backdrop-blur-md border border-white/15 flex items-center justify-center"><i class="fas fa-bolt text-[11px]"></i></span>
                                     <span class="text-[9px] font-semibold tracking-wider uppercase text-white/75 drop-shadow">Swipe up to unlock</span>
-                                    <span class="w-7 h-7 rounded-full bg-black/45 backdrop-blur-md border border-white/15 flex items-center justify-center"><i class="fas fa-camera text-[10px]"></i></span>
+                                    <span class="w-8 h-8 rounded-full bg-black/45 backdrop-blur-md border border-white/15 flex items-center justify-center"><i class="fas fa-camera text-[11px]"></i></span>
                                 </div>
-                                <div class="w-20 h-1 rounded-full bg-white/85"></div>
+                                <div class="w-24 h-1 rounded-full bg-white/85"></div>
                             </div>
                         </div>
                         <!-- Desktop Screen & Glass Dock Chrome -->
                         <div id="modal-desktop-chrome" class="hidden pointer-events-none absolute inset-0 z-[5] flex flex-col justify-between select-none" aria-hidden="true">
-                            <div class="w-full h-5 px-3 bg-black/50 backdrop-blur-md border-b border-white/10 flex items-center justify-between text-[9px] font-semibold text-white/90">
+                            <div class="w-full h-6 px-3.5 bg-black/50 backdrop-blur-md border-b border-white/10 flex items-center justify-between text-[10px] font-semibold text-white/90">
                                 <div class="flex items-center gap-2.5">
-                                    <i class="fas fa-gem text-amber-400 text-[9px]"></i>
+                                    <i class="fas fa-gem text-amber-400 text-[10px]"></i>
                                     <span class="font-bold">ZXAION OS</span>
                                     <span class="text-white/70 hidden sm:inline">Finder · View</span>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-wifi text-[8px]"></i>
-                                    <i class="fas fa-volume-high text-[8px]"></i>
+                                <div class="flex items-center gap-2.5">
+                                    <i class="fas fa-wifi text-[9px]"></i>
+                                    <i class="fas fa-volume-high text-[9px]"></i>
                                     <span>Fri 09:41</span>
                                 </div>
                             </div>
-                            <div class="flex flex-col items-end gap-2.5 px-3 pt-2 text-white/90">
+                            <div class="flex flex-col items-end gap-3 px-4 pt-3 text-white/90">
                                 <div class="flex flex-col items-center gap-0.5 drop-shadow">
-                                    <span class="w-6 h-6 rounded-lg bg-sky-500/80 border border-white/25 flex items-center justify-center"><i class="fas fa-folder text-[10px]"></i></span>
-                                    <span class="text-[8px] font-semibold">4K Pack</span>
+                                    <span class="w-7 h-7 rounded-lg bg-sky-500/80 border border-white/25 flex items-center justify-center"><i class="fas fa-folder text-[11px]"></i></span>
+                                    <span class="text-[9px] font-semibold">4K Pack</span>
                                 </div>
                                 <div class="flex flex-col items-center gap-0.5 drop-shadow">
-                                    <span class="w-6 h-6 rounded-lg bg-amber-500/80 border border-white/25 flex items-center justify-center"><i class="fas fa-image text-[10px]"></i></span>
-                                    <span class="text-[8px] font-semibold">Wallpaper</span>
+                                    <span class="w-7 h-7 rounded-lg bg-amber-500/80 border border-white/25 flex items-center justify-center"><i class="fas fa-image text-[11px]"></i></span>
+                                    <span class="text-[9px] font-semibold">Wallpaper</span>
                                 </div>
                             </div>
-                            <div class="pb-2 flex justify-center px-3">
-                                <div class="px-3 py-1.5 rounded-2xl bg-black/55 backdrop-blur-md border border-white/15 flex items-center gap-2.5 shadow-xl text-white">
-                                    <span class="w-5 h-5 rounded-md bg-sky-500/90 flex items-center justify-center text-[9px]"><i class="fas fa-compass"></i></span>
-                                    <span class="w-5 h-5 rounded-md bg-amber-500/90 flex items-center justify-center text-[9px]"><i class="fas fa-folder"></i></span>
-                                    <span class="w-5 h-5 rounded-md bg-emerald-500/90 flex items-center justify-center text-[9px]"><i class="fas fa-images"></i></span>
-                                    <span class="w-5 h-5 rounded-md bg-violet-500/90 flex items-center justify-center text-[9px]"><i class="fas fa-music"></i></span>
-                                    <span class="w-5 h-5 rounded-md bg-rose-500/90 flex items-center justify-center text-[9px]"><i class="fas fa-gear"></i></span>
+                            <div class="pb-2.5 flex justify-center px-3">
+                                <div class="px-3.5 py-2 rounded-2xl bg-black/55 backdrop-blur-md border border-white/15 flex items-center gap-3 shadow-xl text-white">
+                                    <span class="w-6 h-6 rounded-md bg-sky-500/90 flex items-center justify-center text-[10px]"><i class="fas fa-compass"></i></span>
+                                    <span class="w-6 h-6 rounded-md bg-amber-500/90 flex items-center justify-center text-[10px]"><i class="fas fa-folder"></i></span>
+                                    <span class="w-6 h-6 rounded-md bg-emerald-500/90 flex items-center justify-center text-[10px]"><i class="fas fa-images"></i></span>
+                                    <span class="w-6 h-6 rounded-md bg-violet-500/90 flex items-center justify-center text-[10px]"><i class="fas fa-music"></i></span>
+                                    <span class="w-6 h-6 rounded-md bg-rose-500/90 flex items-center justify-center text-[10px]"><i class="fas fa-gear"></i></span>
                                 </div>
                             </div>
                         </div>
@@ -110,6 +110,29 @@
                         <div class="mockup-stand-neck"></div>
                         <div class="mockup-stand-base"></div>
                     </div>
+                </div>
+
+                <!-- Interactive Pan & Zoom Bar (Desktop Mockup Only) -->
+                <div id="modal-desktop-controls" class="hidden relative z-20 flex flex-wrap items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-black/80 border border-white/15 backdrop-blur-md shadow-lg text-white shrink-0">
+                    <span class="hidden md:inline-flex items-center gap-1.5 text-[10px] font-semibold text-gray-300 pr-1 border-r border-white/15">
+                        <i class="fas fa-arrows-up-down-left-right text-amber-400" aria-hidden="true"></i>
+                        <span>Drag to pan</span>
+                    </span>
+                    <button type="button" id="modal-desktop-zoom-out" aria-label="Zoom out desktop wallpaper"
+                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xs transition-colors cursor-pointer">
+                        <i class="fas fa-magnifying-glass-minus" aria-hidden="true"></i>
+                    </button>
+                    <input type="range" id="modal-desktop-zoom-range" aria-label="Desktop mockup zoom level" min="1" max="3" step="0.05" value="1"
+                        class="w-24 sm:w-32 accent-amber-500 cursor-pointer h-1.5">
+                    <button type="button" id="modal-desktop-zoom-in" aria-label="Zoom in desktop wallpaper"
+                        class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xs transition-colors cursor-pointer">
+                        <i class="fas fa-magnifying-glass-plus" aria-hidden="true"></i>
+                    </button>
+                    <span id="modal-desktop-zoom-label" class="text-[11px] font-mono font-bold text-amber-400 min-w-[38px] text-center">100%</span>
+                    <button type="button" id="modal-desktop-reset" aria-label="Reset desktop mockup position and zoom"
+                        class="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-[10px] font-bold uppercase tracking-wider text-gray-200 transition-colors cursor-pointer">
+                        Reset
+                    </button>
                 </div>
             </div>
 
@@ -251,7 +274,7 @@
                             </h4>
                             <span class="text-[10px] text-gray-400">Tap to preview</span>
                         </div>
-                        <div id="modal-related-grid" class="grid grid-cols-3 gap-2"></div>
+                        <div id="modal-related-grid" class="columns-2 sm:columns-3 gap-2"></div>
                     </div>
                 </div>
 

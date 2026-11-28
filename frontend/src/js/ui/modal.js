@@ -2,7 +2,33 @@
  * ui/modal.js — Image modal: shield proteksi DTREASURE, unlock thumbnail, buka modal gambar.
  * Depends on: ui (base.js), state, elements, api, utils, preventTouchSave
  */
+function computeDesktopMockupLayout({ stageW, stageH, natW, natH, scale = 1, x = 0, y = 0 } = {}) {
+    const sw = Math.max(1, Number(stageW) || 0);
+    const sh = Math.max(1, Number(stageH) || 0);
+    const nw = Math.max(1, Number(natW) || sw);
+    const nh = Math.max(1, Number(natH) || sh);
+    const coverScale = Math.max(sw / nw, sh / nh);
+    const baseW = nw * coverScale;
+    const baseH = nh * coverScale;
+    const clampedScale = Math.min(3, Math.max(1, Number(scale) || 1));
+    const maxX = Math.max(0, (baseW * clampedScale - sw) / 2);
+    const maxY = Math.max(0, (baseH * clampedScale - sh) / 2);
+    const clampedX = Math.max(-maxX, Math.min(maxX, Number(x) || 0));
+    const clampedY = Math.max(-maxY, Math.min(maxY, Number(y) || 0));
+    return {
+        baseW,
+        baseH,
+        scale: clampedScale,
+        x: clampedX,
+        y: clampedY,
+        maxX,
+        maxY,
+    };
+}
+
 Object.assign(ui, {
+    computeDesktopMockupLayout,
+
     applyModalShield(protect) {
         const shield = document.getElementById('modal-img-shield');
         const img    = elements.modalImg;
@@ -21,7 +47,98 @@ Object.assign(ui, {
         }
     },
 
+    clearDesktopMockupStyles() {
+        state.desktopMockupTransform = { scale: 1, x: 0, y: 0 };
+        const img = elements.modalImg;
+        if (img) {
+            img.style.width = '';
+            img.style.height = '';
+            img.style.transform = '';
+            img.style.transformOrigin = '';
+        }
+        const stage = document.getElementById('modal-mockup-stage');
+        if (stage) stage.classList.remove('is-dragging');
+        const range = document.getElementById('modal-desktop-zoom-range');
+        const label = document.getElementById('modal-desktop-zoom-label');
+        if (range) range.value = '1';
+        if (label) label.textContent = '100%';
+    },
+
+    resetDesktopMockupTransform() {
+        state.desktopMockupTransform = { scale: 1, x: 0, y: 0 };
+        this.applyDesktopMockupTransform();
+    },
+
+    fitDesktopMockupImage() {
+        if (state.currentMockupMode !== 'desktop') return;
+        this.applyDesktopMockupTransform();
+    },
+
+    applyDesktopMockupTransform() {
+        if (state.currentMockupMode !== 'desktop') return;
+        const stage = document.getElementById('modal-mockup-stage');
+        const img = elements.modalImg;
+        if (!stage || !img) return;
+
+        const stageW = stage.clientWidth;
+        const stageH = stage.clientHeight;
+        if (!stageW || !stageH) return;
+
+        const photo = state.currentPhoto;
+        const natW = img.naturalWidth || Number(photo?.width) || stageW;
+        const natH = img.naturalHeight || Number(photo?.height) || stageH;
+        const cur = state.desktopMockupTransform || { scale: 1, x: 0, y: 0 };
+
+        const layout = computeDesktopMockupLayout({
+            stageW,
+            stageH,
+            natW,
+            natH,
+            scale: cur.scale,
+            x: cur.x,
+            y: cur.y,
+        });
+
+        state.desktopMockupTransform = {
+            scale: layout.scale,
+            x: layout.x,
+            y: layout.y,
+        };
+
+        img.style.width = `${layout.baseW.toFixed(2)}px`;
+        img.style.height = `${layout.baseH.toFixed(2)}px`;
+        img.style.transformOrigin = 'center center';
+        img.style.transform = `translate3d(${layout.x.toFixed(2)}px, ${layout.y.toFixed(2)}px, 0) scale(${layout.scale.toFixed(4)})`;
+
+        const range = document.getElementById('modal-desktop-zoom-range');
+        const label = document.getElementById('modal-desktop-zoom-label');
+        if (range) range.value = String(layout.scale.toFixed(2));
+        if (label) label.textContent = `${Math.round(layout.scale * 100)}%`;
+    },
+
+    setDesktopMockupZoom(nextScale) {
+        if (state.currentMockupMode !== 'desktop') return;
+        const cur = state.desktopMockupTransform || { scale: 1, x: 0, y: 0 };
+        state.desktopMockupTransform = {
+            ...cur,
+            scale: Math.min(3, Math.max(1, Number(nextScale) || 1)),
+        };
+        this.applyDesktopMockupTransform();
+    },
+
+    panDesktopMockupTo(nextX, nextY) {
+        if (state.currentMockupMode !== 'desktop') return;
+        const cur = state.desktopMockupTransform || { scale: 1, x: 0, y: 0 };
+        state.desktopMockupTransform = {
+            ...cur,
+            x: Number(nextX) || 0,
+            y: Number(nextY) || 0,
+        };
+        this.applyDesktopMockupTransform();
+    },
+
     setMockupMode(mode = 'original') {
+        const prevMode = state.currentMockupMode || 'original';
         const normalized = mode === 'phone' || mode === 'desktop' ? mode : 'original';
         state.currentMockupMode = normalized;
 
@@ -29,14 +146,16 @@ Object.assign(ui, {
         const phoneChrome = document.getElementById('modal-phone-chrome');
         const desktopChrome = document.getElementById('modal-desktop-chrome');
         const desktopStand = document.getElementById('modal-desktop-stand');
+        const desktopControls = document.getElementById('modal-desktop-controls');
 
         if (stage) {
-            stage.classList.remove('mockup-original', 'mockup-phone', 'mockup-desktop');
+            stage.classList.remove('mockup-original', 'mockup-phone', 'mockup-desktop', 'is-dragging');
             stage.classList.add(`mockup-${normalized}`);
         }
         if (phoneChrome) phoneChrome.classList.toggle('hidden', normalized !== 'phone');
         if (desktopChrome) desktopChrome.classList.toggle('hidden', normalized !== 'desktop');
         if (desktopStand) desktopStand.classList.toggle('hidden', normalized !== 'desktop');
+        if (desktopControls) desktopControls.classList.toggle('hidden', normalized !== 'desktop');
 
         document.querySelectorAll('#modal-mockup-bar .mockup-mode-btn').forEach((btn) => {
             const active = btn.dataset.mockupMode === normalized;
@@ -46,6 +165,18 @@ Object.assign(ui, {
             btn.classList.toggle('text-gray-300', !active);
             btn.setAttribute('aria-selected', active ? 'true' : 'false');
         });
+
+        if (normalized === 'desktop') {
+            if (prevMode !== 'desktop') {
+                state.desktopMockupTransform = { scale: 1, x: 0, y: 0 };
+            }
+            this.fitDesktopMockupImage();
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => this.fitDesktopMockupImage());
+            }
+        } else {
+            this.clearDesktopMockupStyles();
+        }
     },
 
     getRelatedPhotos(photo, limit = 6) {
@@ -119,19 +250,22 @@ Object.assign(ui, {
         related.forEach((rel) => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'group relative aspect-square rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-900 border border-gray-200/80 dark:border-gray-700 hover:border-amber-500 transition-all cursor-pointer text-left';
+            btn.className = 'group relative block w-full break-inside-avoid mb-2 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-900 border border-gray-200/80 dark:border-gray-700 hover:border-amber-500 transition-all cursor-pointer text-left';
             btn.dataset.relatedId = rel.id;
             btn.setAttribute('aria-label', `Preview ${rel.title || 'related wallpaper'}`);
+            if (Number(rel.width) > 0 && Number(rel.height) > 0) {
+                btn.style.aspectRatio = `${Math.round(Number(rel.width))} / ${Math.round(Number(rel.height))}`;
+            }
 
             const img = document.createElement('img');
             img.alt = rel.title || 'Related wallpaper';
-            img.className = 'w-full h-full object-cover group-hover:scale-105 transition-transform duration-300';
+            img.className = 'w-full h-auto block object-cover group-hover:scale-105 transition-transform duration-300';
             img.loading = 'lazy';
             img.decoding = 'async';
 
             const isRelDt = rel.category === 'DTREASURE' || rel.searchCategory === 'DTREASURE';
             const relUnlocked = !isRelDt || state.lifetime || state.purchasedImages.has(rel.id);
-            const opts = { w: 240, h: 320, q: 72, fit: 'cover', fmt: 'auto' };
+            const opts = { w: 320, q: 76, fit: 'scale-down', fmt: 'auto' };
 
             if (isRelDt && relUnlocked && typeof utils.loadAuthenticatedImage === 'function') {
                 img.src = placeholderSvg;
@@ -218,6 +352,21 @@ Object.assign(ui, {
         elements.modalImg.onerror         = null;
         elements.modalImg.onload          = null;
 
+        const syncLoadedModalImageLayout = (el) => {
+            el.classList.remove('loading-shimmer');
+            el.style.minHeight = '';
+            if (state.currentMockupMode === 'desktop') {
+                ui.fitDesktopMockupImage();
+            } else {
+                el.style.width = '';
+                el.style.height = '';
+                el.style.transform = '';
+                el.style.transformOrigin = '';
+            }
+            el.onload = null;
+            el.onerror = null;
+        };
+
         if (isDtreasure && isPurchased && typeof utils.loadAuthenticatedImage === 'function') {
             utils.loadAuthenticatedImage(
                 elements.modalImg,
@@ -227,10 +376,7 @@ Object.assign(ui, {
                     fallbackSvg: modalErrorSvg,
                     onLoadSuccess(el) {
                         if (state.currentImageId !== targetPhotoId) return;
-                        el.classList.remove('loading-shimmer');
-                        el.style.minHeight = '';
-                        el.onload = null;
-                        el.onerror = null;
+                        syncLoadedModalImageLayout(el);
                     },
                     onFinalError(el) {
                         if (state.currentImageId !== targetPhotoId) return;
@@ -255,10 +401,7 @@ Object.assign(ui, {
         const firstPreviewUrl = utils.attachImageFallback(elements.modalImg, previewCandidates, {
             onLoadSuccess(el) {
                 if (state.currentImageId !== targetPhotoId) return;
-                el.classList.remove('loading-shimmer');
-                el.style.minHeight = '';
-                el.onload = null;
-                el.onerror = null;
+                syncLoadedModalImageLayout(el);
             },
             onFinalError(el) {
                 if (state.currentImageId !== targetPhotoId) return;
@@ -298,6 +441,7 @@ Object.assign(ui, {
     },
 
     closeImageModal(syncHash = true) {
+        this.clearDesktopMockupStyles();
         this.setModalOpen(elements.imageModal, false);
         if (elements.modalImg) {
             utils.revokeTrackedBlobUrl?.(elements.modalImg);
@@ -471,36 +615,18 @@ Object.assign(ui, {
         const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
         const shareUrl = `${origin}/?photo=${encodeURIComponent(target.id)}`;
         const title = target.title || 'ZXAION Wallpaper';
-        const isDtreasure = target.category === 'DTREASURE' || target.searchCategory === 'DTREASURE';
-        const isPurchased = state.lifetime || state.purchasedImages.has(target.id);
+        const shareTitle = `${title} — ZXAION GALLERY`;
+        const shareText = `Check out "${title}" 4K wallpaper on ZXAION GALLERY:\n${shareUrl}`;
 
+        // Always share website link (+ text containing URL) WITHOUT standalone file attachment
+        // so share sheets (WhatsApp, Telegram, etc.) keep the clickable website link & OpenGraph image preview.
         if (typeof navigator !== 'undefined' && navigator.share) {
             try {
-                const sharePayload = {
-                    title: `${title} — ZXAION GALLERY`,
-                    text: `Check out "${title}" wallpaper on ZXAION GALLERY!`,
+                await navigator.share({
+                    title: shareTitle,
+                    text: shareText,
                     url: shareUrl,
-                };
-                if ((!isDtreasure || isPurchased) && typeof File !== 'undefined' && typeof navigator.canShare === 'function') {
-                    try {
-                        const previewCandidates = utils.getImageFallbackCandidates(target.url, { w: 1080, q: 82, fit: 'scale-down', fmt: 'jpeg' });
-                        const imgUrl = previewCandidates[0];
-                        if (imgUrl) {
-                            const headers = isDtreasure && typeof getAuthHeaders === 'function' ? getAuthHeaders() : {};
-                            const imgRes = await fetch(imgUrl, { headers });
-                            if (imgRes.ok) {
-                                const blob = await imgRes.blob();
-                                const file = new File([blob], `${(title || 'wallpaper').replace(/[^a-z0-9_\-]+/gi, '_')}.jpg`, {
-                                    type: blob.type || 'image/jpeg',
-                                });
-                                if (navigator.canShare({ files: [file] })) {
-                                    sharePayload.files = [file];
-                                }
-                            }
-                        }
-                    } catch (_) {}
-                }
-                await navigator.share(sharePayload);
+                });
                 return;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
@@ -509,7 +635,7 @@ Object.assign(ui, {
 
         try {
             await utils.copyText(shareUrl);
-            ui.showToast('Share link (with Rich Image Preview) copied to clipboard!', 'success', 3200);
+            ui.showToast('Wallpaper link (with image preview) copied to clipboard!', 'success', 3200);
         } catch {
             try {
                 const ta = document.createElement('textarea');
@@ -522,7 +648,7 @@ Object.assign(ui, {
                 const ok = document.execCommand?.('copy');
                 document.body.removeChild(ta);
                 if (ok) {
-                    ui.showToast('Share link (with Rich Image Preview) copied to clipboard!', 'success', 3200);
+                    ui.showToast('Wallpaper link (with image preview) copied to clipboard!', 'success', 3200);
                     return;
                 }
             } catch (_) {}

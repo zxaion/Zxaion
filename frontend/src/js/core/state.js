@@ -69,6 +69,7 @@ class AppState {
         this.currentComitbaseCreator     = null;
         this.myCreatorProfile            = null;
         this.currentMockupMode    = 'original';
+        this.desktopMockupTransform = { scale: 1, x: 0, y: 0 };
         this.adminEditTargetUser  = null;
     }
 

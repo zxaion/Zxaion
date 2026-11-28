@@ -3630,6 +3630,49 @@ test('Built frontend enforces updated emails, logo asset, CSP purity, WebP thumb
   assert.ok(html.includes('Top Creators'));
   assert.ok(script.includes('w:480') || script.includes('w: 480'));
   assert.equal(/\son(click|change|submit|input)=/i.test(html), false, 'Strict CSP forbids inline HTML event handlers');
+  assert.ok(html.includes('modal-desktop-controls'));
+  assert.ok(html.includes('modal-desktop-zoom-range'));
+  assert.ok(html.includes('modal-desktop-reset'));
+  assert.ok(html.includes('id="modal-related-grid" class="columns-2 sm:columns-3 gap-2"'));
+  assert.equal(script.includes('files:[file]'), false, 'Web Share should prioritize clickable website link rather than file-only attachment');
+  assert.ok(script.includes('computeDesktopMockupLayout'));
 });
 
+test('Desktop mockup cover-fit pan/zoom clamping math prevents black gaps and supports vertical artwork panning', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const vm = await import('node:vm');
 
+  const modalSrc = fs.readFileSync(path.resolve('frontend/src/js/ui/modal.js'), 'utf8');
+  const sandbox = {
+    ui: {},
+    state: {},
+    elements: {},
+    api: {},
+    utils: {},
+    preventTouchSave: () => {},
+  };
+  vm.runInNewContext(modalSrc, sandbox);
+  const compute = sandbox.ui.computeDesktopMockupLayout;
+  assert.equal(typeof compute, 'function');
+
+  // Vertical 800x1100 inside 800x450 16:9 monitor
+  const vertBase = compute({ stageW: 800, stageH: 450, natW: 800, natH: 1100, scale: 1, x: 500, y: -900 });
+  assert.equal(vertBase.baseW, 800);
+  assert.equal(vertBase.baseH, 1100);
+  assert.equal(vertBase.maxX, 0);
+  assert.equal(vertBase.maxY, 325);
+  assert.equal(vertBase.x, 0);
+  assert.equal(vertBase.y, -325);
+
+  // Landscape 1920x1080 zoomed to 2x (clamped max 3x, min 1x)
+  const landZoom = compute({ stageW: 800, stageH: 450, natW: 1920, natH: 1080, scale: 2, x: 999, y: 999 });
+  assert.equal(landZoom.scale, 2);
+  assert.equal(landZoom.maxX, 400);
+  assert.equal(landZoom.maxY, 225);
+  assert.equal(landZoom.x, 400);
+  assert.equal(landZoom.y, 225);
+
+  const clampedScale = compute({ stageW: 800, stageH: 450, natW: 1920, natH: 1080, scale: 9, x: 0, y: 0 });
+  assert.equal(clampedScale.scale, 3);
+});
